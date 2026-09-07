@@ -14,7 +14,9 @@ interface DayGroup {
   items: AssetListItem[];
 }
 
-const TILE = [96, 128, 176]; // px base por densidad (0=grande … 2=pequeña); CSS lo escala en desktop
+// px mínimos por celda: 0 = fotos grandes (menos columnas) … 2 = pequeñas (más columnas).
+// En un móvil de ~360px dan 2 / 3 / 4 columnas. CSS lo escala x1.4 en desktop.
+const TILE = [172, 108, 78];
 
 export default function Gallery({ groups, error }: { groups: DayGroup[]; error: string | null }) {
   const router = useRouter();

@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import type { AssetListItem } from "@upscale/shared";
 import { specRows } from "@/lib/format";
@@ -15,6 +16,9 @@ interface Props {
 }
 
 export default function Viewer({ assets, index, onClose, onIndex, onFavorite, onDelete }: Props) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   const open = index !== null;
   const a = open ? assets[index] : null;
 
@@ -42,7 +46,9 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
     };
   }, [open, go, onClose]);
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <AnimatePresence>
       {open && a && (
         <motion.div
@@ -130,6 +136,7 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }
