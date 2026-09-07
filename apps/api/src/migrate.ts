@@ -7,9 +7,11 @@ import pg from "pg";
  * Migrador mínimo: ejecuta migrations/*.sql en orden, una sola vez cada una.
  * Solo necesita DATABASE_URL (no valida el resto de la config de la app).
  */
-const url = process.env.DATABASE_URL;
+const url = process.argv[2] || process.env.DATABASE_URL;
 if (!url) {
-  console.error("Falta DATABASE_URL. Ejemplo:\n  $env:DATABASE_URL=\"postgresql://...\"; pnpm --filter @upscale/api migrate");
+  console.error(
+    'Falta la cadena de conexión. Uso:\n  pnpm --filter @upscale/api migrate "postgresql://usuario:pass@host:5432/postgres"',
+  );
   process.exit(1);
 }
 
