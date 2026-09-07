@@ -4,13 +4,13 @@ import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { env } from "./env.js";
 
-/** Cliente S3 apuntando a Cloudflare R2. */
+// Este módulo solo se importa cuando STORAGE_DRIVER=r2 (env.ts ya validó que existen).
 const s3 = new S3Client({
   region: "auto",
-  endpoint: env.R2_ENDPOINT,
+  endpoint: env.R2_ENDPOINT!,
   credentials: {
-    accessKeyId: env.R2_ACCESS_KEY_ID,
-    secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+    accessKeyId: env.R2_ACCESS_KEY_ID!,
+    secretAccessKey: env.R2_SECRET_ACCESS_KEY!,
   },
 });
 
@@ -19,7 +19,7 @@ export async function putFile(key: string, filePath: string, contentType: string
   const { size } = await stat(filePath);
   await s3.send(
     new PutObjectCommand({
-      Bucket: env.R2_BUCKET,
+      Bucket: env.R2_BUCKET!,
       Key: key,
       Body: createReadStream(filePath),
       ContentLength: size,
@@ -30,7 +30,7 @@ export async function putFile(key: string, filePath: string, contentType: string
 
 export async function putBuffer(key: string, body: Buffer, contentType: string): Promise<void> {
   await s3.send(
-    new PutObjectCommand({ Bucket: env.R2_BUCKET, Key: key, Body: body, ContentType: contentType }),
+    new PutObjectCommand({ Bucket: env.R2_BUCKET!, Key: key, Body: body, ContentType: contentType }),
   );
 }
 
@@ -42,7 +42,7 @@ interface SignOpts {
 /** URL temporal de lectura para un objeto de R2. */
 export async function signedGetUrl(key: string, opts: SignOpts = {}): Promise<string> {
   const cmd = new GetObjectCommand({
-    Bucket: env.R2_BUCKET,
+    Bucket: env.R2_BUCKET!,
     Key: key,
     ...(opts.downloadName
       ? { ResponseContentDisposition: `attachment; filename="${opts.downloadName.replace(/"/g, "")}"` }

@@ -1,125 +1,118 @@
-# Upscale — puesta en marcha
+# Upscale — puesta en marcha (coste 0 €)
 
-Todo el código está hecho y subido a GitHub (`oneagencywebsia-cloud/upscale`).
-Esto es lo que hay que configurar **con tus cuentas**. Sustituye `upscale.tudominio.es`
-por tu subdominio real.
+Todo el código está en GitHub (`oneagencywebsia-cloud/upscale`, público).
+Plan **sin gastos**: los archivos se guardan en **tu PC**, la API corre en **tu PC**,
+y se accede desde fuera con un **túnel** (Tailscale Funnel, gratis). Login y base de
+datos en **Supabase gratis**. Web en **Vercel gratis**.
+
+Lo único que cuesta 0 pero requiere que el **PC esté encendido** para ver/descargar
+fotos estando fuera de casa. Sin copia de seguridad automática (haz copias del disco).
 
 ---
 
-## 1. Supabase (base de datos + login Google/Apple)
+## 1. Supabase (base de datos + login Google/Apple) — gratis
 
-1. supabase.com → **New project** `upscale`, región Europa. Guarda la contraseña de la BD.
-2. **Settings → Database → Connection string → "Session pooler"** (puerto 5432) → esa es
-   `DATABASE_URL`.
-3. **Settings → API**: copia `Project URL` (→ `NEXT_PUBLIC_SUPABASE_URL`), `anon public`
-   (→ `NEXT_PUBLIC_SUPABASE_ANON_KEY`) y **JWT Secret** (→ `SUPABASE_JWT_SECRET`).
-4. **Authentication → URL Configuration**:
-   - Site URL: `https://upscale.tudominio.es`
-   - Redirect URLs: `https://upscale.tudominio.es/auth/callback` (y `http://localhost:3001/auth/callback` para local).
-5. **Authentication → Providers**:
-   - **Google**: créalo en Google Cloud Console (OAuth client, tipo Web), pon como
-     *Authorized redirect URI* la que te da Supabase (`https://<proj>.supabase.co/auth/v1/callback`).
-     Pega Client ID + Secret en Supabase.
-   - **Apple**: necesitas cuenta Apple Developer. En developer.apple.com creas un
-     *Services ID*, activas *Sign in with Apple*, generas la *key* (.p8). Pega Services ID,
-     Team ID, Key ID y la key en Supabase. (Si aún no tienes cuenta Apple Developer,
-     deja solo Google de momento; Apple se añade luego sin tocar código.)
-6. Aplica el esquema:
+1. supabase.com → **New project** `upscale`, región Europa. Guarda la contraseña.
+2. **Settings → Database → Connection string → "Session pooler"** (5432) → `DATABASE_URL`.
+3. **Settings → API**: `Project URL` → `NEXT_PUBLIC_SUPABASE_URL`; `anon public` →
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY`; **JWT Secret** → `SUPABASE_JWT_SECRET`.
+4. **Authentication → Providers**:
+   - **Google**: OAuth client en Google Cloud Console (tipo Web). *Authorized redirect URI* =
+     la que da Supabase (`https://<proj>.supabase.co/auth/v1/callback`). Pega Client ID + Secret.
+   - **Apple**: necesita cuenta Apple Developer. Si no la tienes aún, deja solo Google;
+     Apple se añade después sin tocar código.
+5. **Authentication → URL Configuration** (lo rellenas tras el paso 4 de Vercel):
+   Site URL y Redirect URL = `https://<tu-app>.vercel.app` y `.../auth/callback`.
+6. Esquema:
    ```bash
    cd proyectos/upscale
-   DATABASE_URL='...supabase...' pnpm --filter @upscale/api migrate
+   corepack enable && pnpm install
+   cp .env.example apps/api/.env        # rellena la sección API
+   pnpm --filter @upscale/api migrate
    ```
-   (o pega `apps/api/migrations/001_init.sql` en el SQL Editor de Supabase).
 
 ---
 
-## 2. Cloudflare R2
+## 2. La API + el almacén, en tu PC
 
-1. Cloudflare → **R2** → *Create bucket* `upscale`.
-2. *Manage R2 API Tokens* → *Create* → **Object Read & Write** sobre `upscale`.
-   Apunta Access Key ID y Secret.
-3. Endpoint: `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`.
+1. Instala **ffmpeg**: `winget install Gyan.FFmpeg` (reinicia la terminal).
+2. En `apps/api/.env`:
+   ```
+   DATABASE_URL=...supabase...
+   SUPABASE_JWT_SECRET=...supabase...
+   STORAGE_DRIVER=local
+   STORAGE_DIR=./data
+   BLOB_SECRET=            # openssl rand -hex 32
+   PUBLIC_API_URL=         # se rellena en el paso 3 (URL del túnel)
+   WEB_ORIGIN=             # se rellena en el paso 4 (URL de Vercel)
+   ```
+3. Arranca: doble clic en **`start-api.bat`** (raíz del repo). Debe decir
+   `Upscale API (local) en http://0.0.0.0:8080`. Prueba `http://localhost:8080/v1/healthz`.
+   Los archivos se guardarán en `apps/api/data/`.
 
----
-
-## 3. API en EasyPanel (tu VPS)
-
-1. EasyPanel → *Create* → **App** → source: GitHub `oneagencywebsia-cloud/upscale`.
-2. Build: **Dockerfile** `infra/api.Dockerfile`, **build context = `/`**.
-3. Variables de entorno (sección API del `.env.example`):
-   `PORT=8080`, `DATABASE_URL`, `SUPABASE_JWT_SECRET`,
-   `WEB_ORIGIN=https://upscale.tudominio.es`,
-   `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`.
-4. Dominio: `api.upscale.tudominio.es` → puerto `8080`, HTTPS.
-5. Comprueba: `https://api.upscale.tudominio.es/v1/healthz` → `{"ok":true,"db":true,...}`.
-
-> Vigila la RAM del VPS (ya al ~57%). Si `ffmpeg` la aprieta, sube el plan o mueve la
-> API a un VPS aparte — el código no cambia.
+Para que arranque sola al encender el PC: crea un acceso directo a `start-api.bat` en
+`shell:startup` (Win+R → `shell:startup`).
 
 ---
 
-## 4. Web en Vercel
+## 3. Túnel público — Tailscale Funnel (gratis)
+
+Ya tienes Tailscale entre el PC y el iPhone. Falta exponerlo a internet:
+
+1. admin console de Tailscale → **DNS**: activa **HTTPS Certificates**.
+2. **Access controls**: añade a `nodeAttrs` el permiso de Funnel para `carri-pc`
+   (Tailscale enseña el snippet; es `"attr": ["funnel"]`).
+3. En el PC:
+   ```
+   tailscale funnel --bg 8080
+   tailscale funnel status
+   ```
+   Te da una URL fija tipo `https://carri-pc.tailXXXX.ts.net`.
+4. Pon esa URL en `apps/api/.env` como `PUBLIC_API_URL` y **reinicia** `start-api.bat`.
+
+Alternativa (si prefieres Cloudflare): `cloudflared tunnel` con un dominio tuyo en
+Cloudflare, apuntando `api.upscale.tudominio.es` → `http://localhost:8080`. Pon esa
+URL en `PUBLIC_API_URL`.
+
+---
+
+## 4. Web en Vercel (gratis)
 
 1. vercel.com → *Add New → Project* → importa `oneagencywebsia-cloud/upscale`.
 2. **Root Directory:** `apps/web`.
 3. Variables:
    `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
-   `UPSCALE_API_URL=https://api.upscale.tudominio.es`.
-4. Deploy → añade el dominio `upscale.tudominio.es`.
-5. Vuelve a la API: `WEB_ORIGIN` = exactamente `https://upscale.tudominio.es`.
-6. Vuelve a Supabase → Auth → URL Configuration: Site URL y Redirect URL con ese dominio.
+   `UPSCALE_API_URL=https://carri-pc.tailXXXX.ts.net` (la URL del túnel).
+4. Deploy. Copia la URL final (`https://upscale-xxxx.vercel.app`).
+5. Vuelve a `apps/api/.env` → `WEB_ORIGIN=` esa URL, reinicia `start-api.bat`.
+6. Supabase → Auth → URL Configuration → Site URL y `.../auth/callback` con esa URL.
 
-Abre `https://upscale.tudominio.es` → **Registrar con Google / Apple** → entras a `/app`.
-
----
-
-## 5. PWA (instalar como app)
-
-Ya viene montada (`@serwist/next` + `manifest.webmanifest` + `app/sw.ts`). En producción,
-al abrir `upscale.tudominio.es` en Chrome/Edge sale un botón **Instalar**; en iPhone,
-*Compartir → Añadir a pantalla de inicio*. Los iconos son SVG en `apps/web/public/` —
-si quieres PNG nítidos para tiendas, exporta 192/512 desde `public/icon.svg`.
+Abre la web → **Registrar con Google** → entras a `/app`.
 
 ---
 
-## 6. Subir desde el iPhone (Atajo — provisional hasta la app nativa)
+## 5. Subir desde el iPhone (Atajo)
 
-1. En la web: **Ajustes → Crear token**. Copia el token.
-2. App **Atajos** → nuevo **"Subir a Upscale"**:
+1. Web → **Ajustes → Crear token**. Cópialo.
+2. App **Atajos** → **"Subir a Upscale"**:
    - **Buscar fotos** — «fecha de captura en los últimos 7 días», más antiguas primero, límite 150.
    - **Repetir con cada uno** → **Obtener detalles de las fotos** → *Nombre*.
-   - **Obtener contenido de la URL**: POST a `https://api.upscale.tudominio.es/v1/assets`,
+   - **Obtener contenido de la URL**: POST a `https://carri-pc.tailXXXX.ts.net/v1/assets`,
      cabeceras `X-Upload-Token` = tu token y `X-Filename` = *Nombre*, cuerpo = **Archivo**
      (*Elemento de repetición*).
-3. **Automatizaciones** (*Ejecutar inmediatamente*): al conectar al WiFi de casa, al
-   conectar el cargador, y hora del día 14:00 y 22:00. El servidor deduplica por hash.
-
-Backfill: duplica el atajo con ventana de 365 días y ejecútalo una vez.
+3. **Automatizaciones**: al conectar al WiFi de casa, al cargar, y a las 14:00 y 22:00.
 
 ---
 
-## Local (para probar antes)
+## PWA
 
-```bash
-cd proyectos/upscale
-corepack enable
-pnpm install
-cp .env.example apps/api/.env        # rellenar sección API
-cp .env.example apps/web/.env.local   # rellenar sección WEB
-docker compose -f infra/compose.dev.yml up -d   # Postgres + S3 local
-pnpm migrate
-pnpm dev                              # API :8080 · web :3001
-```
-
-Para el login en local necesitas igualmente un proyecto Supabase (el compose solo trae
-Postgres/S3, no Auth). Apunta `DATABASE_URL` al Postgres local pero
-`NEXT_PUBLIC_SUPABASE_*` y `SUPABASE_JWT_SECRET` al proyecto Supabase real.
+Instalable ya (manifest + service worker). En Chrome/Edge sale **Instalar**; en iPhone,
+*Compartir → Añadir a pantalla de inicio*.
 
 ---
 
-## Notas
+## Si algún día quieres nube de verdad (de pago)
 
-- Reproducción de vídeo HEVC en el navegador: la galería muestra el **póster** + botón
-  **Descargar original**. Streaming in-browser llega en otra iteración.
-- Los scripts `scripts/inbox-server.js` + Tailscale del workspace fueron la semilla de
-  esta API y quedan como vía manual de respaldo.
+Cambia en `apps/api/.env`: `STORAGE_DRIVER=r2` + las 4 variables `R2_*` (crea el bucket
+en Cloudflare R2, ~0,015 $/GB·mes, descargas gratis). La API entonces puede correr en
+el VPS (EasyPanel, `infra/api.Dockerfile`) y el PC ya no hace falta. Nada más cambia.

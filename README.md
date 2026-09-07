@@ -30,8 +30,13 @@ resolución, mismos FPS, mismos bits — y lo devuelve exactamente igual.
 
 ## Stack
 
-Auth + Postgres → Supabase · Originales → Cloudflare R2 · API + ffmpeg → VPS EasyPanel ·
-Web → Vercel · 3D → three / react-three-fiber / drei / postprocessing · PWA → @serwist.
+Auth + Postgres → **Supabase** (gratis) · Web → **Vercel** (gratis) ·
+Almacenamiento → **disco del PC** (`STORAGE_DRIVER=local`, coste 0) o Cloudflare R2 (de pago) ·
+API + ffmpeg → el PC (túnel Tailscale Funnel) o el VPS ·
+3D → three / react-three-fiber / drei / postprocessing · PWA → @serwist.
+
+Plan por defecto: **cero euros** — archivos en el PC, todo lo demás en tiers gratis.
+Contrapartida: el PC debe estar encendido para acceder desde fuera. Ver `docs/DEPLOY.md`.
 
 ## Desarrollo
 

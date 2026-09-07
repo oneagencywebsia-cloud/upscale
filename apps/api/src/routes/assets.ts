@@ -8,7 +8,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Asset, AssetListItem, AssetKind } from "@upscale/shared";
 import { env } from "../env.js";
 import { query, one } from "../db.js";
-import { putFile, signedGetUrl } from "../r2.js";
+import { put, signedUrl } from "../storage.js";
 import { probe, makeThumb, makePoster, extFor, mimeFor } from "../media.js";
 import { requireUser, requireUploadToken, principalOf } from "../auth.js";
 
@@ -38,8 +38,8 @@ function toAsset(r: Row): Asset {
 async function withUrls(r: Row): Promise<AssetListItem> {
   return {
     ...toAsset(r),
-    thumbUrl: await signedGetUrl(r.thumb_key, { expiresIn: 3600 }),
-    posterUrl: r.poster_key ? await signedGetUrl(r.poster_key, { expiresIn: 3600 }) : null,
+    thumbUrl: await signedUrl(r.thumb_key, { expiresIn: 3600 }),
+    posterUrl: r.poster_key ? await signedUrl(r.poster_key, { expiresIn: 3600 }) : null,
   };
 }
 
@@ -114,9 +114,9 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
         const posterKey = info.kind === "video" ? `copy/${base}/poster.jpg` : null;
         const mime = mimeFor(ext, contentType);
 
-        await putFile(originalKey, tmpOrig, mime);
-        await putFile(thumbKey, tmpThumb, "image/webp");
-        if (posterKey) await putFile(posterKey, tmpPoster, "image/jpeg");
+        await put(originalKey, tmpOrig, mime);
+        await put(thumbKey, tmpThumb, "image/webp");
+        if (posterKey) await put(posterKey, tmpPoster, "image/jpeg");
 
         const inserted = await one<{ id: string }>(
           `insert into assets
@@ -188,7 +188,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     logAccess(userId, id, "view", req.headers["user-agent"]);
     return {
       ...(await withUrls(r)),
-      originalUrl: await signedGetUrl(r.original_key, { expiresIn: 600, downloadName: r.filename }),
+      originalUrl: await signedUrl(r.original_key, { expiresIn: 600, downloadName: r.filename }),
     };
   });
 
@@ -199,7 +199,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     const r = await one<Row>("select a.* from assets a where a.id = $1 and a.user_id = $2 and a.deleted_at is null", [id, userId]);
     if (!r) return reply.code(404).send({ error: "no existe" });
     logAccess(userId, id, "download", req.headers["user-agent"]);
-    return reply.redirect(await signedGetUrl(r.original_key, { expiresIn: 600, downloadName: r.filename }), 302);
+    return reply.redirect(await signedUrl(r.original_key, { expiresIn: 600, downloadName: r.filename }), 302);
   });
 
   // ---------- póster / miniatura grande ----------
@@ -208,6 +208,6 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     const { id } = req.params as { id: string };
     const r = await one<Row>("select a.* from assets a where a.id = $1 and a.user_id = $2 and a.deleted_at is null", [id, userId]);
     if (!r) return reply.code(404).send({ error: "no existe" });
-    return reply.redirect(await signedGetUrl(r.poster_key ?? r.thumb_key, { expiresIn: 3600 }), 302);
+    return reply.redirect(await signedUrl(r.poster_key ?? r.thumb_key, { expiresIn: 3600 }), 302);
   });
 }

@@ -11,6 +11,8 @@ coverage/
 tmp/
 .turbo/
 apps/api/tmp/
+apps/api/data/
+data/
 
 # serwist / PWA (generado en build)
 apps/web/public/sw.js

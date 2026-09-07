@@ -13,16 +13,29 @@ iPhone (Atajo)          Navegador / PWA
   POST /v1/assets          Google / Apple (Supabase Auth)
   X-Upload-Token                 │  access_token (Bearer)
         │                        ▼
-        └──────────▶  API Upscale (Fastify, VPS EasyPanel)          Cloudflare R2
-                        ffprobe + sharp/ffmpeg                  ├─▶ orig/<uid>/AAAA/MM/<sha>.<ext>
-                        verifica JWT de Supabase                └─▶ copy/<uid>/.../thumb.webp · poster.jpg
-                              │
+        └──────────▶  API Upscale (Fastify)                    Almacenamiento
+                        ffprobe + sharp/ffmpeg          ┌── STORAGE_DRIVER=local (coste 0):
+                        verifica JWT de Supabase        │     disco del PC (STORAGE_DIR)
+                        corre en el PC (túnel Funnel)   │     servido por GET /v1/blob/<key>?e=&t=<hmac>
+                              │                         └── STORAGE_DRIVER=r2: Cloudflare R2 + URLs firmadas
                               ▼
                         Postgres (Supabase) — assets · upload_tokens · access_log
                               ▲
                    Web (Next.js 15, Vercel) — landing 3D · /app galería · /app/actividad · /app/ajustes
                    PWA (@serwist) · efectos WebGL (three / react-three-fiber)
 ```
+
+## Almacenamiento (`apps/api/src/storage.ts`)
+
+Capa con dos motores, elegido por `STORAGE_DRIVER`:
+
+- **`local`** (por defecto, coste 0): originales y copias en `STORAGE_DIR` del disco.
+  Se sirven por `GET /v1/blob/<key>?e=<exp>&t=<hmac>` — sin sesión, el enlace lleva un
+  token HMAC temporal firmado con `BLOB_SECRET` (`storage.signedUrl`). La API corre en
+  la máquina que tiene el disco (el PC), expuesta por Tailscale Funnel o Cloudflare Tunnel.
+- **`r2`**: Cloudflare R2 (S3), URLs firmadas nativas. La API puede ir entonces en el VPS.
+
+Cambiar de uno a otro es solo variables de entorno; el resto del código no cambia.
 
 ## Repo — monorepo pnpm (`proyectos/upscale/`)
 
