@@ -19,3 +19,5 @@ tg-cache/
 # serwist / PWA (generado en build)
 apps/web/public/sw.js
 apps/web/public/swe-worker-*.js
+
+packages/*/src/*.js
