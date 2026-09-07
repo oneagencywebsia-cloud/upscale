@@ -9,7 +9,7 @@ import type { Asset, AssetListItem, AssetKind } from "../types.js";
 import { env } from "../env.js";
 import { query, one } from "../db.js";
 import { put, signedUrl, remove } from "../storage.js";
-import { probe, sharpThumb, extractFrame, placeholderThumb, extFor, mimeFor } from "../media.js";
+import { probe, sharpThumb, extractFrame, placeholderThumb, extFor, mimeFor, safeIso } from "../media.js";
 import { requireUser, requireUploadToken, principalOf } from "../auth.js";
 
 interface Row {
@@ -50,7 +50,7 @@ async function withUrls(r: Row): Promise<AssetListItem> {
   };
 }
 
-function logAccess(userId: string, assetId: string | null, action: "view" | "download" | "list", ua?: string) {
+function logAccess(userId: string, assetId: string | null, action: "view" | "download", ua?: string) {
   query("insert into access_log (user_id, asset_id, action, ua) values ($1,$2,$3,$4)", [
     userId, assetId, action, ua?.slice(0, 300) ?? null,
   ]).catch(() => {});
@@ -93,6 +93,12 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
           await cleanup();
           return reply.code(400).send({ error: "archivo vacío" });
         }
+        // Telegram limita los documentos a 2 GB: rechazamos antes de intentar subir
+        // para no dejar un original truncado guardado como si fuera íntegro.
+        if (env.STORAGE_DRIVER === "telegram" && size > 2 * 1024 * 1024 * 1024) {
+          await cleanup();
+          return reply.code(413).send({ error: "el archivo supera el límite de 2 GB del almacenamiento" });
+        }
 
         const dup = await one<{ id: string }>(
           "select id from assets where user_id = $1 and sha256 = $2 and deleted_at is null",
@@ -104,10 +110,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
         }
 
         const info = await probe(tmpOrig, filename, contentType);
-        const capturedAt =
-          info.capturedAt ??
-          (capturedHeader ? new Date(capturedHeader).toISOString() : null) ??
-          new Date().toISOString();
+        const capturedAt = info.capturedAt ?? safeIso(capturedHeader) ?? new Date().toISOString();
 
         const d = new Date(capturedAt);
         const yyyy = d.getUTCFullYear();
@@ -249,7 +252,6 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
         ? Buffer.from(`${last.captured_at.toISOString()}|${last.id}`, "utf8").toString("base64url")
         : null;
 
-    logAccess(userId, null, "list", req.headers["user-agent"]);
     return { items, nextCursor };
   });
 

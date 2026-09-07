@@ -42,6 +42,13 @@ export interface Probe {
   lon: number | null;
 }
 
+/** Convierte una fecha arbitraria a ISO. Devuelve null si no se puede parsear (no lanza). */
+export function safeIso(s: string | null | undefined): string | null {
+  if (!s) return null;
+  const t = Date.parse(s);
+  return Number.isNaN(t) ? null : new Date(t).toISOString();
+}
+
 function parseRate(r: string | undefined): number | null {
   if (!r || !r.includes("/")) return null;
   const [a, b] = r.split("/").map(Number);
@@ -104,7 +111,7 @@ export async function probe(path: string, filename: string, contentType?: string
     fps,
     videoBitrate,
     codec: v?.codec_name ?? null,
-    capturedAt: capturedAt ? new Date(capturedAt).toISOString() : null,
+    capturedAt: safeIso(capturedAt),
     cameraMake: tags["com.apple.quicktime.make"] ?? tags["make"] ?? null,
     cameraModel: tags["com.apple.quicktime.model"] ?? tags["model"] ?? null,
     lens: tags["com.apple.quicktime.lens"] ?? null,

@@ -29,7 +29,10 @@ function safeLocalPath(key: string): string {
   return full;
 }
 
-const SECRET = (env.BLOB_SECRET ?? env.SUPABASE_JWT_SECRET ?? "upscale-dev-secret") as string;
+const SECRET = env.BLOB_SECRET ?? env.SUPABASE_JWT_SECRET ?? "";
+if ((env.STORAGE_DRIVER === "local" || env.STORAGE_DRIVER === "telegram") && SECRET.length < 16) {
+  throw new Error("BLOB_SECRET (>=16 chars) es obligatorio para firmar los enlaces de /v1/blob");
+}
 
 export function blobToken(key: string, exp: number): string {
   return createHmac("sha256", SECRET).update(`${key}\n${exp}`).digest("base64url");
@@ -74,7 +77,11 @@ export async function signedUrl(key: string, opts: SignOpts = {}): Promise<strin
     const { signedGetUrl } = await import("./r2.js");
     return signedGetUrl(key, opts);
   }
-  const exp = Math.floor(Date.now() / 1000) + (opts.expiresIn ?? 3600);
+  // Redondeamos la expiración a una ventana estable: así la URL firmada es idéntica
+  // entre renders sucesivos y el navegador puede cachear la miniatura de verdad.
+  const ttl = opts.expiresIn ?? 3600;
+  const bucket = Math.max(60, Math.floor(ttl / 4));
+  const exp = (Math.floor(Date.now() / 1000 / bucket) + Math.ceil(ttl / bucket)) * bucket;
   const t = blobToken(key, exp);
   const params = new URLSearchParams({ e: String(exp), t });
   if (opts.downloadName) params.set("dl", opts.downloadName);

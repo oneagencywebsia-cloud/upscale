@@ -21,13 +21,15 @@ export async function verifySupabaseToken(token: string): Promise<Principal | nu
   try {
     const res = await fetch(`${env.SUPABASE_URL!.replace(/\/$/, "")}/auth/v1/user`, {
       headers: { authorization: `Bearer ${token}`, apikey: env.SUPABASE_ANON_KEY! },
+      signal: AbortSignal.timeout(6000),
     });
     if (!res.ok) return null;
     const user = (await res.json()) as { id?: string; email?: string | null };
     if (!user.id) return null;
     const p: Principal = { userId: user.id, email: user.email ?? null };
     cache.set(token, { p, exp: Date.now() + 60_000 });
-    if (cache.size > 500) cache.clear();
+    // evicción del más antiguo (Map conserva orden de inserción) — evita el vaciado en masa
+    while (cache.size > 500) cache.delete(cache.keys().next().value!);
     return p;
   } catch {
     return null;

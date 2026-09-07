@@ -1,7 +1,7 @@
 import { createReadStream, existsSync, createWriteStream } from "node:fs";
 import { mkdir, stat, rm, readdir, utimes } from "node:fs/promises";
 import { join } from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { Readable } from "node:stream";
 import { TelegramClient, Api } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
@@ -20,18 +20,34 @@ let clientPromise: Promise<TelegramClient> | null = null;
 async function getClient(): Promise<TelegramClient> {
   if (!clientPromise) {
     clientPromise = (async () => {
-      const c = new TelegramClient(
-        new StringSession(env.TELEGRAM_SESSION!),
-        env.TELEGRAM_API_ID!,
-        env.TELEGRAM_API_HASH!,
-        { connectionRetries: 5, autoReconnect: true },
-      );
-      c.setLogLevel("error" as never);
-      await c.connect();
-      return c;
+      try {
+        const c = new TelegramClient(
+          new StringSession(env.TELEGRAM_SESSION!),
+          env.TELEGRAM_API_ID!,
+          env.TELEGRAM_API_HASH!,
+          { connectionRetries: 5, autoReconnect: true },
+        );
+        c.setLogLevel("error" as never);
+        await c.connect();
+        return c;
+      } catch (e) {
+        clientPromise = null; // no dejar cacheado un cliente muerto: el próximo intento reconecta
+        throw e;
+      }
     })();
   }
-  return clientPromise;
+  try {
+    const c = await clientPromise;
+    if (c.connected === false) {
+      clientPromise = null;
+      channelEntity = null;
+      return getClient();
+    }
+    return c;
+  } catch (e) {
+    clientPromise = null;
+    throw e;
+  }
 }
 
 let channelEntity: Api.TypeInputPeer | null = null;
@@ -148,7 +164,8 @@ export async function tgRead(key: string): Promise<{ stream: Readable; size: num
 
   const size = Number(row.bytes);
   await mkdir(env.TG_CACHE_DIR, { recursive: true });
-  const tmp = cp + ".dl";
+  // sufijo único: dos descargas simultáneas de la misma key no pueden pisarse el archivo
+  const tmp = `${cp}.${randomBytes(6).toString("hex")}.dl`;
   await c.downloadMedia(msg, { outputFile: tmp });
 
   if (size <= CACHE_INLINE_LIMIT) {

@@ -40,11 +40,15 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
 
   async function favorite(id: string, value: boolean) {
     setAssets((as) => as.map((a) => (a.id === id ? { ...a, isFavorite: value } : a)));
-    await fetch(`/api/assets/${id}/favorite`, {
+    const r = await fetch(`/api/assets/${id}/favorite`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ value }),
-    });
+    }).catch(() => null);
+    if (!r || !r.ok) {
+      // revierte el cambio optimista si el servidor no lo aceptó
+      setAssets((as) => as.map((a) => (a.id === id ? { ...a, isFavorite: !value } : a)));
+    }
   }
 
   async function del(id: string) {

@@ -18,16 +18,19 @@ export default function TopBar({ email }: { email: string }) {
     const files = Array.from(e.target.files ?? []);
     if (!files.length) return;
     setBusy(true);
+    let failed = 0;
     try {
       for (const file of files) {
         const fd = new FormData();
         fd.append("file", file);
-        await fetch("/api/upload", { method: "POST", body: fd });
+        const r = await fetch("/api/upload", { method: "POST", body: fd }).catch(() => null);
+        if (!r || !r.ok) failed++;
       }
       router.refresh();
     } finally {
       setBusy(false);
       if (fileInput.current) fileInput.current.value = "";
+      if (failed) alert(`${failed} de ${files.length} archivo(s) no se subieron. Vuelve a intentarlo.`);
     }
   }
 

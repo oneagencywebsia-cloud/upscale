@@ -33,9 +33,16 @@ export async function blobRoutes(app: FastifyInstance): Promise<void> {
 
     const ext = key.slice(key.lastIndexOf(".")).toLowerCase();
     reply.header("Content-Type", MIME[ext] ?? "application/octet-stream");
+    reply.header("X-Content-Type-Options", "nosniff");
     reply.header("Content-Length", file.size);
-    reply.header("Cache-Control", "private, max-age=3600");
-    if (q.dl) reply.header("Content-Disposition", `attachment; filename="${q.dl.replace(/"/g, "")}"`);
+    reply.header("Cache-Control", "private, max-age=86400, immutable");
+    if (q.dl) {
+      const ascii = q.dl.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "");
+      reply.header(
+        "Content-Disposition",
+        `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(q.dl)}`,
+      );
+    }
     return reply.send(file.stream);
   });
 }
