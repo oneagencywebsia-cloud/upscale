@@ -131,9 +131,11 @@ export async function sharpThumb(srcImage: string, out: string): Promise<void> {
 
 /** Extrae un fotograma de un vídeo a JPEG (ffmpeg siempre trae mjpeg). */
 export async function extractFrame(src: string, out: string, maxW = 1600): Promise<void> {
+  // Sin "-ss": cogemos el primer fotograma. Así funciona también con vídeos < 1 s
+  // (MOV de Live Photo, ráfagas) que antes se quedaban sin póster.
   await run(
     env.FFMPEG_PATH,
-    ["-y", "-ss", "1", "-i", src, "-frames:v", "1", "-vf", `scale='min(${maxW},iw)':-2`, "-q:v", "3", out],
+    ["-y", "-i", src, "-frames:v", "1", "-vf", `scale='min(${maxW},iw)':-2`, "-q:v", "3", out],
     { maxBuffer: 8 * 1024 * 1024 },
   );
 }

@@ -1619,6 +1619,38 @@ footer.status .dot {
   background: #000;
   outline: none;
 }
+.viewer-loading {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: max-content;
+  height: max-content;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 22px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: #fff;
+  font-size: 12px;
+  pointer-events: none;
+}
+.viewer-spin {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2.5px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  animation: viewer-spin 0.8s linear infinite;
+}
+@keyframes viewer-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .viewer-play {
   position: absolute;
   inset: 0;
@@ -1784,6 +1816,15 @@ footer.status .dot {
     background: var(--accent);
     box-shadow: 0 0 10px var(--accent);
   }
+  .mtab-burst {
+    position: absolute;
+    top: 10px;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: radial-gradient(circle, color-mix(in srgb, var(--accent) 55%, transparent), transparent 70%);
+    pointer-events: none;
+  }
 
   /* deja hueco para la barra inferior */
   .app {
@@ -1796,19 +1837,28 @@ footer.status .dot {
     bottom: calc(78px + env(safe-area-inset-bottom));
   }
 
+  /* deja respirar la zona segura (notch / Dynamic Island) */
+  .app-shell {
+    padding-top: env(safe-area-inset-top);
+  }
+
   /* barra superior compacta y SIN backdrop-filter (el blur en sticky arruina el scroll) */
   .bar {
-    top: 8px;
-    margin: 10px 0 16px;
-    padding: 9px 12px;
+    top: calc(env(safe-area-inset-top) + 6px);
+    margin: 8px 12px 16px;
+    padding: 10px 12px;
     gap: 8px;
     border-radius: 18px;
     background: var(--surface);
+    box-shadow: var(--shadow);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
+  .brand h1 {
+    font-size: 20px;
+  }
   .upload {
-    padding: 9px 12px;
+    padding: 10px 13px;
     font-size: 0;
     gap: 0;
   }

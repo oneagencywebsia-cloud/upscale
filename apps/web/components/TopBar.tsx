@@ -5,6 +5,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { supabaseBrowser } from "@/lib/supabase/client";
+
+const MotionLink = motion.create(Link);
 import ThemeToggle from "./ThemeToggle";
 import Segmented from "./Segmented";
 
@@ -58,8 +60,8 @@ export default function TopBar({ email }: { email: string }) {
       <Segmented />
 
       <nav className="topnav">
-        <Link href="/app/espacio" aria-current={pathname === "/app/espacio"}>Espacio</Link>
-        <Link href="/app/ajustes" aria-current={pathname === "/app/ajustes"}>Ajustes</Link>
+        <MotionLink href="/app/espacio" aria-current={pathname === "/app/espacio"} whileTap={{ scale: 0.9 }} whileHover={{ y: -1 }}>Espacio</MotionLink>
+        <MotionLink href="/app/ajustes" aria-current={pathname === "/app/ajustes"} whileTap={{ scale: 0.9 }} whileHover={{ y: -1 }}>Ajustes</MotionLink>
       </nav>
 
       <div className="spacer" aria-hidden="true" />

@@ -1,8 +1,9 @@
 "use client";
 
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 
 const MotionLink = motion.create(Link);
 
@@ -32,6 +33,50 @@ const I = {
   ),
 };
 
+function Tab({ href, label, icon, active }: { href: string; label: string; icon: ReactNode; active: boolean }) {
+  const [burst, setBurst] = useState(0);
+
+  return (
+    <MotionLink
+      href={href}
+      className={active ? "on" : ""}
+      aria-current={active}
+      whileTap={{ scale: 0.82 }}
+      onTapStart={() => setBurst((n) => n + 1)}
+      transition={{ type: "spring", stiffness: 500, damping: 22 }}
+    >
+      <AnimatePresence>
+        {burst > 0 && (
+          <motion.span
+            key={burst}
+            className="mtab-burst"
+            aria-hidden="true"
+            initial={{ scale: 0, opacity: 0.55 }}
+            animate={{ scale: 2.6, opacity: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.5, ease: [0.2, 0.7, 0.2, 1] }}
+          />
+        )}
+      </AnimatePresence>
+      <motion.span
+        className="mtab-ico"
+        animate={active ? { y: -2, scale: 1.15 } : { y: 0, scale: 1 }}
+        transition={{ type: "spring", stiffness: 420, damping: 18 }}
+      >
+        {icon}
+      </motion.span>
+      <span>{label}</span>
+      {active && (
+        <motion.span
+          layoutId="mtab-dot"
+          className="mtab-dot"
+          transition={{ type: "spring", stiffness: 420, damping: 32 }}
+        />
+      )}
+    </MotionLink>
+  );
+}
+
 export default function MobileTabs() {
   const pathname = usePathname();
   const sp = useSearchParams();
@@ -48,30 +93,7 @@ export default function MobileTabs() {
   return (
     <nav className="mtabs" aria-label="Navegación">
       {tabs.map((t) => (
-        <MotionLink
-          key={t.label}
-          href={t.href}
-          className={t.active ? "on" : ""}
-          aria-current={t.active}
-          whileTap={{ scale: 0.82 }}
-          transition={{ type: "spring", stiffness: 500, damping: 22 }}
-        >
-          <motion.span
-            className="mtab-ico"
-            animate={t.active ? { y: -2, scale: 1.15 } : { y: 0, scale: 1 }}
-            transition={{ type: "spring", stiffness: 420, damping: 18 }}
-          >
-            {t.icon}
-          </motion.span>
-          <span>{t.label}</span>
-          {t.active && (
-            <motion.span
-              layoutId="mtab-dot"
-              className="mtab-dot"
-              transition={{ type: "spring", stiffness: 420, damping: 32 }}
-            />
-          )}
-        </MotionLink>
+        <Tab key={t.label} {...t} />
       ))}
     </nav>
   );

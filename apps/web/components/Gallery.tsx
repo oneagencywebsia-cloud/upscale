@@ -30,6 +30,13 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
   // sincroniza si el server manda datos nuevos
   useEffect(() => setAssets(flat), [flat]);
 
+  function openAt(idx: number) {
+    const a = assets[idx];
+    // calienta la caché del servidor mientras se abre el visor (vídeos de Telegram)
+    if (a?.kind === "video") fetch(`/api/media/${a.id}`, { cache: "force-cache" }).catch(() => {});
+    setOpenIdx(idx);
+  }
+
   function toggleSel(id: string) {
     setSel((s) => {
       const n = new Set(s);
@@ -141,7 +148,7 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
                   transition={{ duration: 0.42, ease: [0.2, 0.7, 0.2, 1] }}
                   whileHover={{ y: -4, scale: 1.02, transition: { duration: 0.15 } }}
                   whileTap={{ scale: 0.97 }}
-                  onClick={() => (selecting ? toggleSel(a.id) : setOpenIdx(idx))}
+                  onClick={() => (selecting ? toggleSel(a.id) : openAt(idx))}
                 >
                   <motion.img layoutId={`ph-${a.id}`} src={a.thumbUrl} alt={a.filename} loading="lazy" />
                   {a.isFavorite && <span className="badge fav" aria-hidden="true">★</span>}

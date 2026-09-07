@@ -22,6 +22,9 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
   const open = index !== null;
   const a = open ? assets[index] : null;
 
+  const [videoReady, setVideoReady] = useState(false);
+  useEffect(() => setVideoReady(false), [a?.id]);
+
   const go = useCallback(
     (d: number) => {
       if (index === null) return;
@@ -69,18 +72,28 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
           >
             <div className="viewer-media">
               {a.kind === "video" ? (
-                <motion.video
-                  key={a.id}
-                  src={`/api/media/${a.id}`}
-                  poster={a.posterUrl ?? a.thumbUrl}
-                  controls
-                  autoPlay
-                  playsInline
-                  preload="metadata"
-                  initial={{ opacity: 0, scale: 0.94 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ type: "spring", stiffness: 260, damping: 26 }}
-                />
+                <>
+                  <motion.video
+                    key={a.id}
+                    src={`/api/media/${a.id}`}
+                    poster={a.posterUrl ?? a.thumbUrl}
+                    controls
+                    autoPlay
+                    playsInline
+                    preload="metadata"
+                    onLoadedData={() => setVideoReady(true)}
+                    onCanPlay={() => setVideoReady(true)}
+                    initial={{ opacity: 0, scale: 0.94 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ type: "spring", stiffness: 260, damping: 26 }}
+                  />
+                  {!videoReady && (
+                    <div className="viewer-loading" aria-live="polite">
+                      <span className="viewer-spin" aria-hidden="true" />
+                      <small>Preparando el vídeo…</small>
+                    </div>
+                  )}
+                </>
               ) : (
                 <motion.img
                   key={a.id}
