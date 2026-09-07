@@ -68,6 +68,9 @@ docs            BRANDING · ARCHITECTURE · DEPLOY
 | `GET` | `/v1/assets/:id` | ficha + `originalUrl` firmada. Registra `view` |
 | `GET` | `/v1/assets/:id/original` | 302 → URL firmada de R2. Registra `download` |
 | `GET` | `/v1/assets/:id/poster` | 302 → póster o miniatura |
+| `DELETE` | `/v1/assets/:id` | soft-delete + borra los blobs del disco (liberar espacio) |
+| `GET` | `/v1/blob/*?e=&t=` | (modo local) sirve un archivo del disco; token HMAC en la URL |
+| `GET` | `/v1/storage` | `{ driver, usedBytes, count, diskFreeBytes, diskTotalBytes }` |
 | `GET` | `/v1/tokens` · `POST` · `DELETE /:token` | tokens de subida del usuario |
 | `GET` | `/v1/activity?before=` | registro de `view`/`download`/`list` del usuario |
 

@@ -9,6 +9,7 @@ const withSerwist = withSerwistInit({
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  output: "standalone",
   transpilePackages: ["@upscale/shared", "three"],
   images: { unoptimized: true },
   eslint: { ignoreDuringBuilds: true },

@@ -75,6 +75,14 @@ export interface ActivityResponse {
   nextBefore: number | null;
 }
 
+export interface StorageInfo {
+  driver: "local" | "r2";
+  usedBytes: number;
+  count: number;
+  diskFreeBytes: number | null;
+  diskTotalBytes: number | null;
+}
+
 export interface HealthResult {
   ok: boolean;
   db: boolean;

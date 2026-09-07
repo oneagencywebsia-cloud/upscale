@@ -8,7 +8,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Asset, AssetListItem, AssetKind } from "@upscale/shared";
 import { env } from "../env.js";
 import { query, one } from "../db.js";
-import { put, signedUrl } from "../storage.js";
+import { put, signedUrl, remove } from "../storage.js";
 import { probe, makeThumb, makePoster, extFor, mimeFor } from "../media.js";
 import { requireUser, requireUploadToken, principalOf } from "../auth.js";
 
@@ -209,5 +209,18 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     const r = await one<Row>("select a.* from assets a where a.id = $1 and a.user_id = $2 and a.deleted_at is null", [id, userId]);
     if (!r) return reply.code(404).send({ error: "no existe" });
     return reply.redirect(await signedUrl(r.poster_key ?? r.thumb_key, { expiresIn: 3600 }), 302);
+  });
+
+  // ---------- borrar (liberar espacio) ----------
+  app.delete("/v1/assets/:id", { preHandler: requireUser }, async (req, reply) => {
+    const { userId } = principalOf(req);
+    const { id } = req.params as { id: string };
+    const r = await one<Row>("select a.* from assets a where a.id = $1 and a.user_id = $2 and a.deleted_at is null", [id, userId]);
+    if (!r) return reply.code(404).send({ error: "no existe" });
+
+    await query("update assets set deleted_at = now() where id = $1", [id]);
+    await Promise.allSettled([remove(r.original_key), remove(r.thumb_key), r.poster_key ? remove(r.poster_key) : Promise.resolve()]);
+    req.log.info({ id, userId, freed: Number(r.bytes) }, "asset borrado");
+    return reply.code(204).send();
   });
 }

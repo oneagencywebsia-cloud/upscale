@@ -60,6 +60,9 @@ export default function TopBar({ email }: { email: string }) {
       )}
 
       <nav className="topnav">
+        <Link href="/app/espacio" aria-current={pathname === "/app/espacio"}>
+          Espacio
+        </Link>
         <Link href="/app/actividad" aria-current={pathname === "/app/actividad"}>
           Actividad
         </Link>

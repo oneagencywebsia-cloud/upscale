@@ -30,13 +30,14 @@ resolución, mismos FPS, mismos bits — y lo devuelve exactamente igual.
 
 ## Stack
 
-Auth + Postgres → **Supabase** (gratis) · Web → **Vercel** (gratis) ·
-Almacenamiento → **disco del PC** (`STORAGE_DRIVER=local`, coste 0) o Cloudflare R2 (de pago) ·
-API + ffmpeg → el PC (túnel Tailscale Funnel) o el VPS ·
-3D → three / react-three-fiber / drei / postprocessing · PWA → @serwist.
+**Todo en el VPS (EasyPanel): API + web + archivos.** Login + Postgres → **Supabase**
+(gratis, sin tarjeta). 3D → three / react-three-fiber / drei / postprocessing · PWA → @serwist.
 
-Plan por defecto: **cero euros** — archivos en el PC, todo lo demás en tiers gratis.
-Contrapartida: el PC debe estar encendido para acceder desde fuera. Ver `docs/DEPLOY.md`.
+- Almacenamiento: `STORAGE_DRIVER=local` (disco del VPS, coste 0, con pantalla
+  **/app/espacio** para podar cuando se llene) o `r2` (Cloudflare R2, ~1 €/mes, ilimitado).
+- Subida: botón «Subir» en la web/PWA. El Atajo de iOS es opcional (originales 100 %).
+
+Plan por defecto: **cero euros**. Límite: el disco del VPS (~85 GB, compartido). Ver `docs/DEPLOY.md`.
 
 ## Desarrollo
 

@@ -8,6 +8,7 @@ import { assetRoutes } from "./routes/assets.js";
 import { tokenRoutes } from "./routes/tokens.js";
 import { activityRoutes } from "./routes/activity.js";
 import { blobRoutes } from "./routes/blob.js";
+import { storageRoutes } from "./routes/storage.js";
 
 const app = Fastify({
   logger: { level: process.env.LOG_LEVEL ?? "info" },
@@ -31,6 +32,7 @@ await app.register(assetRoutes);
 await app.register(tokenRoutes);
 await app.register(activityRoutes);
 await app.register(blobRoutes);
+await app.register(storageRoutes);
 
 try {
   await app.listen({ port: env.PORT, host: "0.0.0.0" });

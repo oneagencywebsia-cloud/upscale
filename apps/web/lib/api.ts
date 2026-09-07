@@ -1,7 +1,7 @@
 import "server-only";
 import { headers } from "next/headers";
 import { getAccessToken } from "@/lib/supabase/server";
-import type { AssetListResponse, AssetDetail, Me, ActivityResponse, UploadToken } from "@upscale/shared";
+import type { AssetListResponse, AssetDetail, Me, ActivityResponse, UploadToken, StorageInfo } from "@upscale/shared";
 
 const API = process.env.UPSCALE_API_URL ?? "http://localhost:8080";
 
@@ -39,6 +39,7 @@ export function listAssets(params?: { cursor?: string; kind?: string; limit?: nu
 }
 
 export const getAsset = (id: string) => req<AssetDetail>(`/v1/assets/${id}`);
+export const getStorage = () => req<StorageInfo>("/v1/storage");
 export const getActivity = (before?: number) =>
   req<ActivityResponse>(`/v1/activity${before ? `?before=${before}` : ""}`);
 export const listTokens = () => req<{ tokens: UploadToken[] }>("/v1/tokens");

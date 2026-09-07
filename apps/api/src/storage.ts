@@ -82,6 +82,16 @@ export async function readLocal(key: string): Promise<{ stream: Readable; size: 
   return { stream: createReadStream(p), size };
 }
 
+/** Borra un objeto del almacenamiento. No falla si no existe. */
+export async function remove(key: string): Promise<void> {
+  if (env.STORAGE_DRIVER === "r2") {
+    const { deleteObject } = await import("./r2.js");
+    await deleteObject(key).catch(() => {});
+    return;
+  }
+  await rm(safeLocalPath(key), { force: true }).catch(() => {});
+}
+
 export async function ensureStorageDir(): Promise<void> {
   if (env.STORAGE_DRIVER === "local") await mkdir(env.STORAGE_DIR, { recursive: true });
 }
