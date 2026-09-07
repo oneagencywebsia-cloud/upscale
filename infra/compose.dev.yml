@@ -1,0 +1,51 @@
+# Stack local de desarrollo:  docker compose -f infra/compose.dev.yml up
+# Postgres + MinIO (S3 local). La API y la web se corren aparte con `pnpm dev`.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: upscale
+      POSTGRES_PASSWORD: upscale
+      POSTGRES_DB: upscale
+    ports:
+      - "5432:5432"
+    volumes:
+      - upscale_db:/var/lib/postgresql/data
+
+  # S3 local para no gastar R2 en desarrollo
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: upscale
+      MINIO_ROOT_PASSWORD: upscale12345
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - upscale_s3:/data
+
+  # crea el bucket al arrancar
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until (mc alias set local http://minio:9000 upscale upscale12345) do sleep 1; done;
+      mc mb -p local/upscale;
+      mc anonymous set none local/upscale;
+      exit 0;
+      "
+
+volumes:
+  upscale_db:
+  upscale_s3:
+
+# .env para desarrollo con este stack:
+#   DATABASE_URL=postgresql://upscale:upscale@localhost:5432/upscale
+#   R2_ENDPOINT=http://localhost:9000
+#   R2_BUCKET=upscale
+#   R2_ACCESS_KEY_ID=upscale
+#   R2_SECRET_ACCESS_KEY=upscale12345
