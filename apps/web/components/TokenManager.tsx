@@ -24,10 +24,9 @@ export default function TokenManager({ initialTokens }: { initialTokens: UploadT
     }
   }
 
-  async function remove(token: string) {
-    await fetch(`/api/tokens/${token}`, { method: "DELETE" });
-    setTokens((t) => t.filter((x) => x.token !== token));
-    if (fresh === token) setFresh(null);
+  async function remove(id: string) {
+    await fetch(`/api/tokens/${id}`, { method: "DELETE" });
+    setTokens((t) => t.filter((x) => x.id !== id));
   }
 
   return (
@@ -49,13 +48,13 @@ export default function TokenManager({ initialTokens }: { initialTokens: UploadT
       {tokens.length > 0 && (
         <ul className="token-list">
           {tokens.map((t) => (
-            <li key={t.token}>
-              <code>{t.token.slice(0, 10)}…{t.token.slice(-4)}</code>
+            <li key={t.id}>
+              <code>{t.preview}</code>
               <span>{t.label ?? "iPhone"}</span>
               <span className="muted">
                 {t.last_used ? `usado ${new Date(t.last_used).toLocaleDateString("es-ES")}` : "sin usar"}
               </span>
-              <button className="btn ghost sm" type="button" onClick={() => remove(t.token)}>
+              <button className="btn ghost sm" type="button" onClick={() => remove(t.id)}>
                 Borrar
               </button>
             </li>

@@ -3,6 +3,24 @@ import { mkdir, rm, stat } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import { Transform, type Readable } from "node:stream";
 import { createHash } from "node:crypto";
+
+const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB (tope de documento de Telegram)
+const MAX_LIVE_BYTES = 512 * 1024 * 1024;
+
+/** Transform que aborta el stream si se superan `limit` bytes (evita llenar el disco). */
+function sizeLimiter(limit: number): Transform {
+  let seen = 0;
+  return new Transform({
+    transform(chunk: Buffer, _enc, cb) {
+      seen += chunk.length;
+      if (seen > limit) {
+        cb(Object.assign(new Error("PAYLOAD_TOO_LARGE"), { code: "PAYLOAD_TOO_LARGE" }));
+        return;
+      }
+      cb(null, chunk);
+    },
+  });
+}
 import { join } from "node:path";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Asset, AssetListItem, AssetKind } from "../types.js";
@@ -62,7 +80,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
   // ---------- subir (Atajo iOS / navegador) ----------
   app.post(
     "/v1/assets",
-    { preHandler: requireUploadToken, bodyLimit: 8 * 1024 * 1024 * 1024 },
+    { preHandler: requireUploadToken },
     async (req: FastifyRequest, reply) => {
       const { userId } = principalOf(req);
       const h = req.headers;
@@ -76,7 +94,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
       const contentType = typeof h["content-type"] === "string" ? h["content-type"] : undefined;
       const capturedHeader = typeof h["x-captured-at"] === "string" ? h["x-captured-at"] : undefined;
 
-      const ext = extFor(filename, contentType);
+      const ext = (extFor(filename, contentType).toLowerCase().match(/^\.[a-z0-9]{1,12}$/)?.[0]) ?? ".bin";
       const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const tmpOrig = join(env.TMP_DIR, `${stamp}${ext}`);
       const tmpThumb = join(env.TMP_DIR, `${stamp}.thumb.webp`);
@@ -92,18 +110,20 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
             cb(null, chunk);
           },
         });
-        await pipeline(req.body as Readable, hasher, createWriteStream(tmpOrig));
+        try {
+          await pipeline(req.body as Readable, sizeLimiter(MAX_UPLOAD_BYTES), hasher, createWriteStream(tmpOrig));
+        } catch (e) {
+          await cleanup();
+          if ((e as { code?: string })?.code === "PAYLOAD_TOO_LARGE") {
+            return reply.code(413).send({ error: "el archivo supera el límite de 2 GB" });
+          }
+          throw e;
+        }
         const sha256 = hash.digest("hex");
         const { size } = await stat(tmpOrig);
         if (size === 0) {
           await cleanup();
           return reply.code(400).send({ error: "archivo vacío" });
-        }
-        // Telegram limita los documentos a 2 GB: rechazamos antes de intentar subir
-        // para no dejar un original truncado guardado como si fuera íntegro.
-        if (env.STORAGE_DRIVER === "telegram" && size > 2 * 1024 * 1024 * 1024) {
-          await cleanup();
-          return reply.code(413).send({ error: "el archivo supera el límite de 2 GB del almacenamiento" });
         }
 
         const dup = await one<{ id: string }>(
@@ -175,7 +195,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
   // ---------- adjuntar el .MOV de un Live Photo ----------
   app.post(
     "/v1/assets/:id/live-video",
-    { preHandler: requireUploadToken, bodyLimit: 512 * 1024 * 1024 },
+    { preHandler: requireUploadToken },
     async (req: FastifyRequest, reply) => {
       const { userId } = principalOf(req);
       const { id } = req.params as { id: string };
@@ -188,7 +208,15 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
       const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const tmp = join(env.TMP_DIR, `${stamp}.live.mov`);
       try {
-        await pipeline(req.body as Readable, createWriteStream(tmp));
+        try {
+          await pipeline(req.body as Readable, sizeLimiter(MAX_LIVE_BYTES), createWriteStream(tmp));
+        } catch (e) {
+          await rm(tmp, { force: true });
+          if ((e as { code?: string })?.code === "PAYLOAD_TOO_LARGE") {
+            return reply.code(413).send({ error: "el vídeo supera el límite de 512 MB" });
+          }
+          throw e;
+        }
         const { size } = await stat(tmp);
         if (size === 0) {
           await rm(tmp, { force: true });

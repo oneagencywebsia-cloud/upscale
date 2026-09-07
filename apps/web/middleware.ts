@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { safeNext } from "@/lib/safe-next";
 
 /** Refresca la sesión de Supabase en cada request y protege /app/*. */
 export async function middleware(req: NextRequest) {
@@ -28,7 +29,8 @@ export async function middleware(req: NextRequest) {
   if (pathname.startsWith("/app") && !user) {
     const url = req.nextUrl.clone();
     url.pathname = "/";
-    url.searchParams.set("next", pathname);
+    url.search = "";
+    url.searchParams.set("next", safeNext(pathname));
     return NextResponse.redirect(url);
   }
   return res;

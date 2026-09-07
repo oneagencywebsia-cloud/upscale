@@ -57,7 +57,9 @@ export interface Me {
 }
 
 export interface UploadToken {
-  token: string;
+  id: string;
+  /** Vista enmascarada del token (p. ej. "upl_ab12…7f9c"). Nunca el token completo. */
+  preview: string;
   label: string | null;
   created_at: string;
   last_used: string | null;

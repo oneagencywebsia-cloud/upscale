@@ -1,5 +1,7 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import helmet from "@fastify/helmet";
+import rateLimit from "@fastify/rate-limit";
 import { env } from "./env.js";
 import { ensureStorageDir } from "./storage.js";
 import { runMigrations } from "./run-migrations.js";
@@ -13,8 +15,11 @@ import { storageRoutes } from "./routes/storage.js";
 
 const app = Fastify({
   logger: { level: process.env.LOG_LEVEL ?? "info" },
-  bodyLimit: 8 * 1024 * 1024 * 1024, // 8 GB — vídeos 4K
+  // Límite global bajo: los cuerpos JSON son minúsculos. Las rutas de subida
+  // fijan su propio límite y además validan el tamaño mientras hacen streaming.
+  bodyLimit: 256 * 1024,
   trustProxy: true,
+  disableRequestLogging: false,
 });
 
 // Cuerpos binarios (fotos/vídeos): pasar el stream tal cual, sin parsear.
@@ -26,9 +31,32 @@ await runMigrations().catch((e) => {
 });
 await ensureStorageDir();
 
+// Cabeceras de seguridad. Sin CSP (esto es una API JSON; la web tiene la suya).
+await app.register(helmet, {
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: "same-site" },
+});
+
+// Límite de peticiones por IP (la API es alcanzable desde el navegador vía /_api/*).
+await app.register(rateLimit, {
+  max: 800,
+  timeWindow: "1 minute",
+  // el blob va con token HMAC y son muchas miniaturas; healthz es para el orquestador
+  allowList: (req) => req.url === "/v1/healthz" || req.url.startsWith("/v1/blob/"),
+  keyGenerator: (req) => req.ip,
+});
+
 await app.register(cors, {
   origin: env.WEB_ORIGIN.split(",").map((s) => s.trim()),
   credentials: true,
+});
+
+// No revelar detalles internos en los errores 500.
+app.setErrorHandler((err: { statusCode?: number; message?: string }, req, reply) => {
+  const status = err.statusCode ?? 500;
+  if (status >= 500) req.log.error(err);
+  reply.code(status).send({ error: status >= 500 ? "error interno" : (err.message ?? "error") });
 });
 
 await app.register(healthRoutes);
@@ -38,6 +66,14 @@ await app.register(tokenRoutes);
 await app.register(activityRoutes);
 await app.register(blobRoutes);
 await app.register(storageRoutes);
+
+const close = async (sig: string) => {
+  app.log.info(`${sig} recibido, cerrando…`);
+  await app.close().catch(() => {});
+  process.exit(0);
+};
+process.on("SIGTERM", () => void close("SIGTERM"));
+process.on("SIGINT", () => void close("SIGINT"));
 
 try {
   await app.listen({ port: env.PORT, host: "0.0.0.0" });

@@ -3,9 +3,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase/client";
+import { safeNext } from "@/lib/safe-next";
 
-export default function AuthButtons({ next = "/app", label = "Registrar" }: { next?: string; label?: string }) {
+export default function AuthButtons({ next: nextProp = "/app", label = "Registrar" }: { next?: string; label?: string }) {
   const router = useRouter();
+  const next = safeNext(nextProp);
   const [busy, setBusy] = useState<"google" | "apple" | "email" | null>(null);
   const [mode, setMode] = useState<"signup" | "signin">("signup");
   const [email, setEmail] = useState("");

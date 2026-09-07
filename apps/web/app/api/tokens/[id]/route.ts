@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import { getAccessToken } from "@/lib/supabase/server";
+import { sameOrigin, forbidden } from "@/lib/guard";
 
 const API = process.env.UPSCALE_API_URL ?? "http://localhost:8080";
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ token: string }> }) {
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  if (!sameOrigin(req)) return forbidden();
   const access = await getAccessToken();
   if (!access) return NextResponse.json({ error: "no autorizado" }, { status: 401 });
-  const { token } = await params;
-  const res = await fetch(`${API}/v1/tokens/${token}`, {
+  const { id } = await params;
+  const res = await fetch(`${API}/v1/tokens/${encodeURIComponent(id)}`, {
     method: "DELETE",
     headers: { authorization: `Bearer ${access}` },
   });

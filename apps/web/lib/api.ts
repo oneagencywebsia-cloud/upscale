@@ -43,12 +43,12 @@ export const getAsset = (id: string) => req<AssetDetail>(`/v1/assets/${id}`);
 export const getStorage = () => req<StorageInfo>("/v1/storage");
 export const listTokens = () => req<{ tokens: UploadToken[] }>("/v1/tokens");
 export const createToken = (label?: string) =>
-  req<{ token: string }>("/v1/tokens", {
+  req<{ id: string; token: string }>("/v1/tokens", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ label }),
   });
-export const deleteToken = (token: string) => req<void>(`/v1/tokens/${token}`, { method: "DELETE" });
+export const deleteToken = (id: string) => req<void>(`/v1/tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
 
 export async function getMe(): Promise<Me | null> {
   try {
