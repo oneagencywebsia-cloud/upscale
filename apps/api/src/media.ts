@@ -76,8 +76,8 @@ export async function probe(path: string, filename: string, contentType?: string
   const fmt = data.format ?? {};
   const tags = { ...(fmt.tags ?? {}), ...(v?.tags ?? {}) } as Record<string, string>;
 
-  const hasRealVideo = !!v && Number(v.nb_frames ?? 0) !== 1 && Number(fmt.duration ?? 0) > 0.05;
-  const kind: AssetKind = looksVideo && hasRealVideo ? "video" : "photo";
+  // La extensión / mime manda: un .mov/.mp4 es vídeo aunque ffprobe no devuelva nada.
+  const kind: AssetKind = looksVideo ? "video" : "photo";
 
   const durationS = Number(fmt.duration) > 0 ? Math.round(Number(fmt.duration) * 100) / 100 : null;
   const fps = kind === "video" ? (parseRate(v?.avg_frame_rate) ?? parseRate(v?.r_frame_rate)) : null;
@@ -113,30 +113,30 @@ export async function probe(path: string, filename: string, contentType?: string
   };
 }
 
-/** Miniatura WebP ~640px. Para fotos usa sharp; si falla (HEIC sin libheif) tira de ffmpeg. */
-export async function makeThumb(src: string, kind: AssetKind, out: string): Promise<void> {
-  if (kind === "photo") {
-    try {
-      await sharp(src, { failOn: "none" })
-        .rotate()
-        .resize(640, 640, { fit: "inside", withoutEnlargement: true })
-        .webp({ quality: 80 })
-        .toFile(out);
-      return;
-    } catch {
-      // fallback ffmpeg
-    }
-  }
-  await run(env.FFMPEG_PATH, [
-    "-y", "-ss", kind === "video" ? "1" : "0", "-i", src,
-    "-frames:v", "1", "-vf", "scale='min(640,iw)':-2", out,
-  ], { maxBuffer: 8 * 1024 * 1024 });
+/** Miniatura WebP ~640px a partir de una IMAGEN (JPEG/PNG/HEIC/...). */
+export async function sharpThumb(srcImage: string, out: string): Promise<void> {
+  await sharp(srcImage, { failOn: "none" })
+    .rotate()
+    .resize(640, 640, { fit: "inside", withoutEnlargement: true })
+    .webp({ quality: 80 })
+    .toFile(out);
 }
 
-/** Póster JPEG ~1600px de un fotograma del vídeo. */
-export async function makePoster(src: string, out: string): Promise<void> {
-  await run(env.FFMPEG_PATH, [
-    "-y", "-ss", "1", "-i", src, "-frames:v", "1",
-    "-vf", "scale='min(1600,iw)':-2", "-q:v", "3", out,
-  ], { maxBuffer: 8 * 1024 * 1024 });
+/** Extrae un fotograma de un vídeo a JPEG (ffmpeg siempre trae mjpeg). */
+export async function extractFrame(src: string, out: string, maxW = 1600): Promise<void> {
+  await run(
+    env.FFMPEG_PATH,
+    ["-y", "-ss", "1", "-i", src, "-frames:v", "1", "-vf", `scale='min(${maxW},iw)':-2`, "-q:v", "3", out],
+    { maxBuffer: 8 * 1024 * 1024 },
+  );
+}
+
+export const makePoster = extractFrame;
+
+/** Miniatura de reserva: cuadro oscuro. Nunca falla (sharp la crea de cero). */
+export async function placeholderThumb(out: string, kind: AssetKind): Promise<void> {
+  const bg = kind === "video" ? { r: 18, g: 23, b: 38 } : { r: 26, g: 30, b: 45 };
+  await sharp({ create: { width: 640, height: 640, channels: 3, background: bg } })
+    .webp({ quality: 60 })
+    .toFile(out);
 }

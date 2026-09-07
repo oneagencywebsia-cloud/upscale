@@ -9,7 +9,7 @@ import type { Asset, AssetListItem, AssetKind } from "../types.js";
 import { env } from "../env.js";
 import { query, one } from "../db.js";
 import { put, signedUrl, remove } from "../storage.js";
-import { probe, makeThumb, makePoster, extFor, mimeFor } from "../media.js";
+import { probe, sharpThumb, extractFrame, placeholderThumb, extFor, mimeFor } from "../media.js";
 import { requireUser, requireUploadToken, principalOf } from "../auth.js";
 
 interface Row {
@@ -109,17 +109,29 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
           (capturedHeader ? new Date(capturedHeader).toISOString() : null) ??
           new Date().toISOString();
 
-        await makeThumb(tmpOrig, info.kind, tmpThumb);
-        if (info.kind === "video") await makePoster(tmpOrig, tmpPoster);
-
         const d = new Date(capturedAt);
         const yyyy = d.getUTCFullYear();
         const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
         const base = `${userId}/${yyyy}/${mm}/${sha256}`;
         const originalKey = `orig/${base}${ext}`;
         const thumbKey = `copy/${base}/thumb.webp`;
-        const posterKey = info.kind === "video" ? `copy/${base}/poster.jpg` : null;
         const mime = mimeFor(ext, contentType);
+
+        // Derivados: si algo falla, seguimos con una miniatura de reserva (no perdemos el original).
+        let posterKey: string | null = null;
+        try {
+          if (info.kind === "video") {
+            await extractFrame(tmpOrig, tmpPoster);
+            await sharpThumb(tmpPoster, tmpThumb);
+            posterKey = `copy/${base}/poster.jpg`;
+          } else {
+            await sharpThumb(tmpOrig, tmpThumb);
+          }
+        } catch (e) {
+          req.log.warn(e, "no se pudo generar miniatura, uso reserva");
+          await placeholderThumb(tmpThumb, info.kind).catch(() => {});
+          posterKey = null;
+        }
 
         await put(originalKey, tmpOrig, mime);
         await put(thumbKey, tmpThumb, "image/webp");

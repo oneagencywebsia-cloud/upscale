@@ -131,11 +131,12 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
                   role="listitem"
                   aria-label={a.filename}
                   aria-current={selected}
-                  initial={{ opacity: 0, y: 14, rotateX: 10 }}
-                  whileInView={{ opacity: 1, y: 0, rotateX: 0 }}
-                  viewport={{ once: true, margin: "80px" }}
-                  transition={{ duration: 0.35, ease: [0.2, 0.7, 0.2, 1] }}
-                  whileHover={{ y: -3, transition: { duration: 0.15 } }}
+                  initial={{ opacity: 0, y: 22, rotateX: 16, scale: 0.94 }}
+                  whileInView={{ opacity: 1, y: 0, rotateX: 0, scale: 1 }}
+                  viewport={{ once: true, margin: "120px" }}
+                  transition={{ duration: 0.42, ease: [0.2, 0.7, 0.2, 1] }}
+                  whileHover={{ y: -4, scale: 1.02, transition: { duration: 0.15 } }}
+                  whileTap={{ scale: 0.97 }}
                   onClick={() => (selecting ? toggleSel(a.id) : setOpenIdx(idx))}
                 >
                   <img src={a.thumbUrl} alt={a.filename} loading="lazy" />
