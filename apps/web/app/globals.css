@@ -441,9 +441,14 @@ button {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(var(--tile, 128px), 1fr));
   gap: 8px;
   perspective: 1000px;
+}
+@media (min-width: 900px) {
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(calc(var(--tile, 128px) * 1.4), 1fr));
+  }
 }
 .frame {
   position: relative;
@@ -833,9 +838,6 @@ footer.status .dot {
   .seg,
   .search {
     display: none;
-  }
-  .grid {
-    grid-template-columns: repeat(auto-fill, minmax(106px, 1fr));
   }
 }
 
@@ -1468,24 +1470,46 @@ footer.status .dot {
   display: flex;
   padding: 3px;
   gap: 2px;
-  border-radius: 10px;
+  border-radius: 11px;
   background: color-mix(in srgb, var(--light) 7%, transparent);
   border: 1px solid var(--stroke);
 }
 .density button {
+  position: relative;
   border: 0;
   cursor: pointer;
   background: transparent;
-  color: var(--text-dim);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 600;
-  padding: 5px 9px;
-  border-radius: 7px;
+  color: var(--text-mute);
+  width: 36px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  transition: color 0.16s, transform 0.1s;
+}
+.density button:active {
+  transform: scale(0.9);
 }
 .density button[aria-pressed="true"] {
   color: var(--light);
+}
+.density button svg {
+  position: relative;
+  z-index: 1;
+}
+.density-pill {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: 8px;
   background: var(--glass-strong);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+@media (max-width: 720px) {
+  .density button {
+    width: 42px;
+    height: 36px;
+  }
 }
 
 .frame .badge.fav {

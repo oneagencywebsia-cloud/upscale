@@ -6,6 +6,7 @@ import { motion } from "motion/react";
 import type { AssetListItem } from "@upscale/shared";
 import { durationHuman } from "@/lib/format";
 import Viewer from "./Viewer";
+import DensityControl from "./DensityControl";
 
 interface DayGroup {
   key: string;
@@ -13,8 +14,7 @@ interface DayGroup {
   items: AssetListItem[];
 }
 
-const DENSITY = { s: 118, m: 150, l: 196 } as const;
-type Size = keyof typeof DENSITY;
+const TILE = [96, 128, 176]; // px base por densidad (0=grande … 2=pequeña); CSS lo escala en desktop
 
 export default function Gallery({ groups, error }: { groups: DayGroup[]; error: string | null }) {
   const router = useRouter();
@@ -23,7 +23,7 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const [selecting, setSelecting] = useState(false);
   const [sel, setSel] = useState<Set<string>>(new Set());
-  const [size, setSize] = useState<Size>("m");
+  const [density, setDensity] = useState(1);
 
   // sincroniza si el server manda datos nuevos
   useEffect(() => setAssets(flat), [flat]);
@@ -99,13 +99,7 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
   return (
     <>
       <div className="gallery-toolbar">
-        <div className="density" role="group" aria-label="Tamaño">
-          {(["s", "m", "l"] as Size[]).map((k) => (
-            <button key={k} aria-pressed={size === k} onClick={() => setSize(k)}>
-              {k.toUpperCase()}
-            </button>
-          ))}
-        </div>
+        <DensityControl value={density} onChange={setDensity} />
         <button
           className="btn ghost sm"
           onClick={() => {
@@ -120,7 +114,11 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
       {liveGroups.map((g) => (
         <section className="daygroup" key={g.key}>
           <h3><b>{g.label}</b></h3>
-          <div className="grid" role="list" style={{ gridTemplateColumns: `repeat(auto-fill,minmax(${DENSITY[size]}px,1fr))` }}>
+          <div
+            className="grid"
+            role="list"
+            style={{ ["--tile" as string]: `${TILE[density]}px` }}
+          >
             {g.items.map((a) => {
               const idx = assets.findIndex((x) => x.id === a.id);
               const selected = sel.has(a.id);
