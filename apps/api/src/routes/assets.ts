@@ -20,6 +20,7 @@ interface Row {
   lens: string | null; lat: number | null; lon: number | null; is_live: boolean;
   thumb_key: string; poster_key: string | null; original_key: string;
   live_video_key: string | null; live_video_bytes: string | null;
+  is_favorite: boolean;
 }
 
 function toAsset(r: Row): Asset {
@@ -34,6 +35,7 @@ function toAsset(r: Row): Asset {
     cameraMake: r.camera_make, cameraModel: r.camera_model, lens: r.lens,
     lat: r.lat, lon: r.lon, isLive: r.is_live,
     liveVideoBytes: r.live_video_bytes === null ? null : Number(r.live_video_bytes),
+    isFavorite: r.is_favorite,
   };
 }
 
@@ -190,10 +192,23 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
+  // ---------- favorito on/off ----------
+  app.post("/v1/assets/:id/favorite", { preHandler: requireUser }, async (req, reply) => {
+    const { userId } = principalOf(req);
+    const { id } = req.params as { id: string };
+    const body = (req.body as { value?: boolean } | undefined) ?? {};
+    const r = await one<{ is_favorite: boolean }>(
+      "update assets set is_favorite = $1 where id = $2 and user_id = $3 and deleted_at is null returning is_favorite",
+      [body.value ?? true, id, userId],
+    );
+    if (!r) return reply.code(404).send({ error: "no existe" });
+    return { isFavorite: r.is_favorite };
+  });
+
   // ---------- listar ----------
   app.get("/v1/assets", { preHandler: requireUser }, async (req) => {
     const { userId } = principalOf(req);
-    const q = req.query as { limit?: string; cursor?: string; kind?: string };
+    const q = req.query as { limit?: string; cursor?: string; kind?: string; fav?: string };
     const limit = Math.min(Math.max(Number(q.limit) || 80, 1), 200);
     const params: unknown[] = [userId];
     let sql = "select a.* from assets a where a.user_id = $1 and a.deleted_at is null";
@@ -202,6 +217,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
       params.push(q.kind);
       sql += ` and a.kind = $${params.length}`;
     }
+    if (q.fav === "1") sql += " and a.is_favorite";
     if (q.cursor) {
       const [ts, id] = Buffer.from(q.cursor, "base64url").toString("utf8").split("|");
       params.push(ts, id);

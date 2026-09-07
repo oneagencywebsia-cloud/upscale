@@ -23,6 +23,7 @@ export interface Asset {
   lat: number | null;
   lon: number | null;
   isLive: boolean;
+  isFavorite: boolean;
   liveVideoBytes: number | null;
 }
 

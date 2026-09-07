@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { env } from "./env.js";
 import { ensureStorageDir } from "./storage.js";
+import { runMigrations } from "./run-migrations.js";
 import { healthRoutes } from "./routes/health.js";
 import { authRoutes } from "./routes/auth.js";
 import { assetRoutes } from "./routes/assets.js";
@@ -19,6 +20,10 @@ const app = Fastify({
 // Cuerpos binarios (fotos/vídeos): pasar el stream tal cual, sin parsear.
 app.addContentTypeParser("*", (_req, payload, done) => done(null, payload));
 
+await runMigrations().catch((e) => {
+  console.error("[migrate] fallo:", e);
+  process.exit(1);
+});
 await ensureStorageDir();
 
 await app.register(cors, {

@@ -1,7 +1,7 @@
 import "server-only";
 import { headers } from "next/headers";
 import { getAccessToken } from "@/lib/supabase/server";
-import type { AssetListResponse, AssetDetail, Me, ActivityResponse, UploadToken, StorageInfo } from "@upscale/shared";
+import type { AssetListResponse, AssetDetail, Me, UploadToken, StorageInfo } from "@upscale/shared";
 
 const API = process.env.UPSCALE_API_URL ?? "http://localhost:8080";
 
@@ -29,19 +29,18 @@ export async function forwardHeadersFrom(): Promise<Record<string, string>> {
   return { "user-agent": h.get("user-agent") ?? "upscale-web" };
 }
 
-export function listAssets(params?: { cursor?: string; kind?: string; limit?: number }): Promise<AssetListResponse> {
+export function listAssets(params?: { cursor?: string; kind?: string; limit?: number; fav?: boolean }): Promise<AssetListResponse> {
   const q = new URLSearchParams();
   if (params?.cursor) q.set("cursor", params.cursor);
   if (params?.kind) q.set("kind", params.kind);
   if (params?.limit) q.set("limit", String(params.limit));
+  if (params?.fav) q.set("fav", "1");
   const qs = q.toString();
   return req<AssetListResponse>(`/v1/assets${qs ? `?${qs}` : ""}`);
 }
 
 export const getAsset = (id: string) => req<AssetDetail>(`/v1/assets/${id}`);
 export const getStorage = () => req<StorageInfo>("/v1/storage");
-export const getActivity = (before?: number) =>
-  req<ActivityResponse>(`/v1/activity${before ? `?before=${before}` : ""}`);
 export const listTokens = () => req<{ tokens: UploadToken[] }>("/v1/tokens");
 export const createToken = (label?: string) =>
   req<{ token: string }>("/v1/tokens", {

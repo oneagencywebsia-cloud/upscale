@@ -25,6 +25,7 @@ export interface Asset {
   lat: number | null;
   lon: number | null;
   isLive: boolean;
+  isFavorite: boolean;
   /** Tamaño del .MOV del Live Photo (bytes), si lo hay. */
   liveVideoBytes: number | null;
 }
