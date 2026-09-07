@@ -1,4 +1,3 @@
-import jwt from "jsonwebtoken";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { env } from "./env.js";
 import { one } from "./db.js";
@@ -8,21 +7,36 @@ export interface Principal {
   email: string | null;
 }
 
-/** Verifica un access token de Supabase (HS256 con el JWT Secret del proyecto). */
-export function verifySupabaseToken(token: string): Principal | null {
+// caché corta de tokens verificados para no llamar a Supabase en cada request
+const cache = new Map<string, { p: Principal; exp: number }>();
+
+/**
+ * Verifica un access token de Supabase preguntando a `/auth/v1/user`.
+ * Funciona con cualquier algoritmo de firma (HS256 legacy o claves asimétricas nuevas).
+ */
+export async function verifySupabaseToken(token: string): Promise<Principal | null> {
+  const hit = cache.get(token);
+  if (hit && hit.exp > Date.now()) return hit.p;
+
   try {
-    const p = jwt.verify(token, env.SUPABASE_JWT_SECRET, { algorithms: ["HS256"] }) as jwt.JwtPayload;
-    if (typeof p.sub !== "string") return null;
-    return { userId: p.sub, email: typeof p.email === "string" ? p.email : null };
+    const res = await fetch(`${env.SUPABASE_URL!.replace(/\/$/, "")}/auth/v1/user`, {
+      headers: { authorization: `Bearer ${token}`, apikey: env.SUPABASE_ANON_KEY! },
+    });
+    if (!res.ok) return null;
+    const user = (await res.json()) as { id?: string; email?: string | null };
+    if (!user.id) return null;
+    const p: Principal = { userId: user.id, email: user.email ?? null };
+    cache.set(token, { p, exp: Date.now() + 60_000 });
+    if (cache.size > 500) cache.clear();
+    return p;
   } catch {
     return null;
   }
 }
 
-/** preHandler: exige un usuario autenticado por Supabase (cabecera Authorization: Bearer). */
 export async function requireUser(req: FastifyRequest, reply: FastifyReply): Promise<void> {
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, "");
-  const principal = token ? verifySupabaseToken(token) : null;
+  const principal = token ? await verifySupabaseToken(token) : null;
   if (!principal) {
     await reply.code(401).send({ error: "no autorizado" });
     return;
@@ -36,7 +50,7 @@ export async function requireUser(req: FastifyRequest, reply: FastifyReply): Pro
  */
 export async function requireUploadToken(req: FastifyRequest, reply: FastifyReply): Promise<void> {
   const bearer = req.headers.authorization?.replace(/^Bearer\s+/i, "");
-  const fromSession = bearer ? verifySupabaseToken(bearer) : null;
+  const fromSession = bearer ? await verifySupabaseToken(bearer) : null;
   if (fromSession) {
     (req as FastifyRequest & { principal?: Principal }).principal = fromSession;
     return;

@@ -29,8 +29,10 @@ function safeLocalPath(key: string): string {
   return full;
 }
 
+const SECRET = (env.BLOB_SECRET ?? env.SUPABASE_JWT_SECRET ?? "upscale-dev-secret") as string;
+
 export function blobToken(key: string, exp: number): string {
-  return createHmac("sha256", env.BLOB_SECRET).update(`${key}\n${exp}`).digest("base64url");
+  return createHmac("sha256", SECRET).update(`${key}\n${exp}`).digest("base64url");
 }
 
 export function verifyBlobToken(key: string, exp: number, token: string): boolean {
