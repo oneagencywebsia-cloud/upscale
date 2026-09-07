@@ -89,6 +89,10 @@ body {
   text-rendering: optimizeLegibility;
   min-height: 100vh;
   overflow-x: hidden;
+  overscroll-behavior-y: none;
+}
+html {
+  overscroll-behavior-y: none;
 }
 
 a {
@@ -409,6 +413,8 @@ button {
 
 .daygroup {
   margin-bottom: 30px;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 480px;
 }
 .daygroup > h3 {
   position: sticky;
@@ -859,16 +865,16 @@ footer.status .dot {
   position: absolute;
   inset: -20%;
   background: radial-gradient(40% 40% at 30% 30%, rgba(122, 220, 236, 0.14), transparent 70%);
-  animation: floatglow 26s ease-in-out infinite alternate;
 }
 @keyframes floatglow {
   to {
     transform: translate3d(18%, 10%, 0) scale(1.2);
   }
 }
-@media (prefers-reduced-motion: reduce) {
+/* la animación de fondo solo en pantallas grandes (en móvil arruina el scroll) */
+@media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {
   .landing-bg::after {
-    animation: none;
+    animation: floatglow 26s ease-in-out infinite alternate;
   }
 }
 .landing > * {
@@ -1091,6 +1097,7 @@ footer.status .dot {
   inset: 0;
   z-index: 0;
   pointer-events: none;
+  overflow: hidden;
   background:
     radial-gradient(46% 40% at 22% 0%, rgba(79, 197, 220, 0.14), transparent 70%),
     radial-gradient(40% 40% at 85% 6%, rgba(255, 214, 150, 0.09), transparent 72%),
@@ -1102,11 +1109,10 @@ footer.status .dot {
   position: absolute;
   inset: -25%;
   background: radial-gradient(35% 35% at 40% 20%, rgba(122, 220, 236, 0.1), transparent 70%);
-  animation: floatglow 32s ease-in-out infinite alternate;
 }
-@media (prefers-reduced-motion: reduce) {
+@media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {
   .aurora-gl::after {
-    animation: none;
+    animation: floatglow 32s ease-in-out infinite alternate;
   }
 }
 .app-shell {
@@ -1137,11 +1143,16 @@ footer.status .dot {
   text-decoration: none;
 }
 
-/* 3D tilt on frames */
+/* 3D tilt on frames (la perspectiva la pone .grid; sin preserve-3d ni will-change
+   permanentes, que crean cientos de capas y arruinan el scroll en móvil) */
 .frame.tilt {
-  transform-style: preserve-3d;
   transition: transform 0.18s cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 0.22s;
-  will-change: transform;
+}
+/* el tilt del puntero solo en dispositivos con ratón */
+@media (hover: none) {
+  .frame.tilt {
+    transform: none !important;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .frame.tilt {
@@ -1706,9 +1717,7 @@ footer.status .dot {
     display: flex;
     justify-content: space-around;
     padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
-    background: var(--glass-strong);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
-    backdrop-filter: blur(24px) saturate(180%);
+    background: var(--surface);
     border-top: 1px solid var(--stroke);
   }
   .mtabs a {
@@ -1743,12 +1752,16 @@ footer.status .dot {
     bottom: calc(78px + env(safe-area-inset-bottom));
   }
 
-  /* barra superior más compacta */
+  /* barra superior compacta y SIN backdrop-filter (el blur en sticky arruina el scroll) */
   .bar {
     top: 8px;
+    margin: 10px 0 16px;
     padding: 9px 12px;
     gap: 8px;
     border-radius: 18px;
+    background: var(--surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
   .upload {
     padding: 9px 12px;
@@ -1790,8 +1803,8 @@ footer.status .dot {
   .viewer {
     display: block;
     overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
+    touch-action: pan-y;
   }
   .viewer-stage {
     display: flex;
