@@ -777,10 +777,29 @@ footer.status .dot {
   inset: 0;
   z-index: 0;
   pointer-events: none;
+  background:
+    radial-gradient(48% 55% at 18% 8%, rgba(79, 197, 220, 0.22), transparent 70%),
+    radial-gradient(50% 55% at 82% 4%, rgba(255, 214, 150, 0.16), transparent 72%),
+    radial-gradient(70% 45% at 50% 100%, rgba(124, 140, 255, 0.14), transparent 72%),
+    var(--night);
+  filter: saturate(115%);
 }
-.hero-canvas {
-  width: 100% !important;
-  height: 100% !important;
+.landing-bg::after {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  background: radial-gradient(40% 40% at 30% 30%, rgba(122, 220, 236, 0.14), transparent 70%);
+  animation: floatglow 26s ease-in-out infinite alternate;
+}
+@keyframes floatglow {
+  to {
+    transform: translate3d(18%, 10%, 0) scale(1.2);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-bg::after {
+    animation: none;
+  }
 }
 .landing > * {
   position: relative;
@@ -1021,14 +1040,22 @@ footer.status .dot {
   inset: 0;
   z-index: 0;
   pointer-events: none;
+  background:
+    radial-gradient(46% 40% at 22% 0%, rgba(79, 197, 220, 0.14), transparent 70%),
+    radial-gradient(40% 40% at 85% 6%, rgba(255, 214, 150, 0.09), transparent 72%),
+    radial-gradient(60% 35% at 50% 100%, rgba(124, 140, 255, 0.08), transparent 72%),
+    var(--night);
 }
-.aurora-gl canvas {
-  width: 100% !important;
-  height: 100% !important;
+.aurora-gl::after {
+  content: "";
+  position: absolute;
+  inset: -25%;
+  background: radial-gradient(35% 35% at 40% 20%, rgba(122, 220, 236, 0.1), transparent 70%);
+  animation: floatglow 32s ease-in-out infinite alternate;
 }
 @media (prefers-reduced-motion: reduce) {
-  .aurora-gl {
-    background: radial-gradient(60% 50% at 30% 0%, rgba(79, 197, 220, 0.12), transparent 70%), var(--night);
+  .aurora-gl::after {
+    animation: none;
   }
 }
 .app-shell {

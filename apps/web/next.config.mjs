@@ -16,7 +16,7 @@ const nextConfig = {
   output: "standalone",
   // raíz del monorepo, para que el trazado de la salida standalone incluya las deps del workspace
   outputFileTracingRoot: path.join(import.meta.dirname, "../../"),
-  transpilePackages: ["@upscale/shared", "three"],
+  transpilePackages: ["@upscale/shared"],
   images: { unoptimized: true },
   eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
