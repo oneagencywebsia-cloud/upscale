@@ -139,7 +139,7 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
                   whileTap={{ scale: 0.97 }}
                   onClick={() => (selecting ? toggleSel(a.id) : setOpenIdx(idx))}
                 >
-                  <img src={a.thumbUrl} alt={a.filename} loading="lazy" />
+                  <motion.img layoutId={`ph-${a.id}`} src={a.thumbUrl} alt={a.filename} loading="lazy" />
                   {a.isFavorite && <span className="badge fav" aria-hidden="true">★</span>}
                   {a.kind === "video" && (
                     <span className="badge vid">

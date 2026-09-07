@@ -30,7 +30,7 @@ export default function Landing({ loggedIn, next }: { loggedIn: boolean; next: s
 
       <header className="landing-nav">
         <div className="brand">
-          <h1>upscale</h1>
+          <h1><span className="wm-up">up</span>scale</h1>
         </div>
         {loggedIn ? (
           <Link className="btn primary sm" href="/app">

@@ -55,15 +55,21 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
         >
           <motion.div
             className="viewer-stage"
-            key={a.id}
-            initial={{ opacity: 0, scale: 0.92, rotateX: 8, y: 24 }}
-            animate={{ opacity: 1, scale: 1, rotateX: 0, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96 }}
-            transition={{ type: "spring", stiffness: 260, damping: 26 }}
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.97 }}
+            transition={{ type: "spring", stiffness: 300, damping: 30 }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="viewer-media">
-              <img src={a.posterUrl ?? a.thumbUrl} alt={a.filename} draggable={false} />
+              <motion.img
+                key={a.id}
+                layoutId={`ph-${a.id}`}
+                src={a.posterUrl ?? a.thumbUrl}
+                alt={a.filename}
+                draggable={false}
+                transition={{ type: "spring", stiffness: 300, damping: 32 }}
+              />
               {a.kind === "video" && (
                 <div className="viewer-play" aria-hidden="true">
                   <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>

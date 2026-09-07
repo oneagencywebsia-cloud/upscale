@@ -2,26 +2,17 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import ThemeToggle from "./ThemeToggle";
-
-const FILTERS = [
-  { key: "all", label: "Todo", href: "/app" },
-  { key: "photo", label: "Fotos", href: "/app?kind=photo" },
-  { key: "video", label: "Vídeos", href: "/app?kind=video" },
-  { key: "fav", label: "★", href: "/app?fav=1" },
-];
+import Segmented from "./Segmented";
 
 export default function TopBar({ email }: { email: string }) {
   const router = useRouter();
   const pathname = usePathname();
-  const sp = useSearchParams();
   const fileInput = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const initials = email.slice(0, 2).toUpperCase();
-  const inGallery = pathname === "/app";
-  const active = sp.get("fav") === "1" ? "fav" : sp.get("kind") ?? "all";
 
   async function onFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
@@ -49,18 +40,12 @@ export default function TopBar({ email }: { email: string }) {
   return (
     <header className="bar">
       <Link href="/app" className="brand">
-        <h1>upscale</h1>
+        <h1>
+          <span className="wm-up">up</span>scale
+        </h1>
       </Link>
 
-      {inGallery && (
-        <div className="seg" role="group" aria-label="Filtrar biblioteca">
-          {FILTERS.map((f) => (
-            <Link key={f.key} href={f.href} role="button" aria-pressed={active === f.key}>
-              {f.label}
-            </Link>
-          ))}
-        </div>
-      )}
+      <Segmented />
 
       <nav className="topnav">
         <Link href="/app/espacio" aria-current={pathname === "/app/espacio"}>Espacio</Link>
