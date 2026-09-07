@@ -106,15 +106,43 @@ export async function remove(key: string): Promise<void> {
   await rm(safeLocalPath(key), { force: true }).catch(() => {});
 }
 
-/** Stream de lectura (motores "local" y "telegram"). Lo usa GET /v1/blob. */
-export async function readBlob(key: string): Promise<{ stream: Readable; size: number }> {
+export interface ByteRange {
+  start: number;
+  end: number; // inclusivo
+}
+
+/**
+ * Stream de lectura (motores "local" y "telegram"). Lo usa GET /v1/blob.
+ * Si se pasa `range`, devuelve solo esos bytes (para <video> y descargas con reanudación).
+ */
+export async function readBlob(
+  key: string,
+  range?: ByteRange,
+): Promise<{ stream: Readable; size: number; totalSize: number }> {
   if (env.STORAGE_DRIVER === "telegram") {
     const { tgRead } = await import("./telegram.js");
-    return tgRead(key);
+    return tgRead(key, range);
   }
   const p = safeLocalPath(key);
   const { size } = await stat(p);
-  return { stream: createReadStream(p), size };
+  if (range) {
+    return {
+      stream: createReadStream(p, { start: range.start, end: range.end }),
+      size: range.end - range.start + 1,
+      totalSize: size,
+    };
+  }
+  return { stream: createReadStream(p), size, totalSize: size };
+}
+
+/** Tamaño en bytes de un objeto, sin descargarlo (telegram lo lee de blob_refs). */
+export async function blobSize(key: string): Promise<number> {
+  if (env.STORAGE_DRIVER === "telegram") {
+    const { tgSize } = await import("./telegram.js");
+    return tgSize(key);
+  }
+  const { size } = await stat(safeLocalPath(key));
+  return size;
 }
 
 export async function ensureStorageDir(): Promise<void> {

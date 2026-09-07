@@ -68,18 +68,30 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
             onClick={(e) => e.stopPropagation()}
           >
             <div className="viewer-media">
-              <motion.img
-                key={a.id}
-                layoutId={`ph-${a.id}`}
-                src={a.posterUrl ?? a.thumbUrl}
-                alt={a.filename}
-                draggable={false}
-                transition={{ type: "spring", stiffness: 300, damping: 32 }}
-              />
-              {a.kind === "video" && (
-                <div className="viewer-play" aria-hidden="true">
-                  <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-                </div>
+              {a.kind === "video" ? (
+                <motion.video
+                  key={a.id}
+                  src={`/api/media/${a.id}`}
+                  poster={a.posterUrl ?? a.thumbUrl}
+                  controls
+                  autoPlay
+                  playsInline
+                  preload="metadata"
+                  initial={{ opacity: 0, scale: 0.94 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ type: "spring", stiffness: 260, damping: 26 }}
+                />
+              ) : (
+                <motion.img
+                  key={a.id}
+                  layoutId={`ph-${a.id}`}
+                  src={a.posterUrl ?? a.thumbUrl}
+                  alt={a.filename}
+                  draggable={false}
+                  whileTap={{ scale: 0.97 }}
+                  animate={{ scale: [0.96, 1] }}
+                  transition={{ type: "spring", stiffness: 260, damping: 24 }}
+                />
               )}
               {assets.length > 1 && (
                 <>

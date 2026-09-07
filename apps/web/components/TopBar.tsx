@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { motion } from "motion/react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import ThemeToggle from "./ThemeToggle";
 import Segmented from "./Segmented";
@@ -21,9 +22,15 @@ export default function TopBar({ email }: { email: string }) {
     let failed = 0;
     try {
       for (const file of files) {
-        const fd = new FormData();
-        fd.append("file", file);
-        const r = await fetch("/api/upload", { method: "POST", body: fd }).catch(() => null);
+        const r = await fetch("/api/upload", {
+          method: "POST",
+          headers: {
+            "content-type": file.type || "application/octet-stream",
+            "x-filename": encodeURIComponent(file.name),
+            "x-captured-at": new Date(file.lastModified || Date.now()).toISOString(),
+          },
+          body: file,
+        }).catch(() => null);
         if (!r || !r.ok) failed++;
       }
       router.refresh();
@@ -58,12 +65,25 @@ export default function TopBar({ email }: { email: string }) {
       <div className="spacer" aria-hidden="true" />
 
       <input ref={fileInput} type="file" accept="image/*,video/*" multiple hidden onChange={onFiles} />
-      <button className="upload" type="button" disabled={busy} onClick={() => fileInput.current?.click()}>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round">
+      <motion.button
+        className="upload"
+        type="button"
+        disabled={busy}
+        onClick={() => fileInput.current?.click()}
+        whileTap={{ scale: 0.94 }}
+        whileHover={{ y: -1 }}
+        transition={{ type: "spring", stiffness: 500, damping: 28 }}
+      >
+        <motion.svg
+          width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"
+          animate={busy ? { y: [0, -3, 0] } : { y: 0 }}
+          transition={busy ? { duration: 0.9, repeat: Infinity, ease: "easeInOut" } : { duration: 0.2 }}
+        >
           <path d="M12 19V5m0 0-6 6m6-6 6 6" />
-        </svg>
+        </motion.svg>
         {busy ? "Subiendo…" : "Subir"}
-      </button>
+      </motion.button>
 
       <ThemeToggle />
 

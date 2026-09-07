@@ -1,5 +1,5 @@
 import { createReadStream, existsSync, createWriteStream } from "node:fs";
-import { mkdir, stat, rm, readdir, utimes } from "node:fs/promises";
+import { mkdir, stat, rm, readdir, utimes, rename } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import type { Readable } from "node:stream";
@@ -142,40 +142,65 @@ export async function tgDelete(key: string): Promise<void> {
   await rm(cachePath(key), { force: true }).catch(() => {});
 }
 
-/** Devuelve un stream de lectura del objeto (de la caché o descargándolo de Telegram). */
-export async function tgRead(key: string): Promise<{ stream: Readable; size: number }> {
+/** Tamaño en bytes registrado para una key (sin tocar Telegram). */
+export async function tgSize(key: string): Promise<number> {
+  const row = await one<{ bytes: string }>("select bytes from blob_refs where key = $1", [key]);
+  if (!row) throw new Error("blob no registrado");
+  return Number(row.bytes);
+}
+
+let downloading: Map<string, Promise<void>> | null = null;
+
+/** Descarga la key entera a la caché de disco (una sola vez aunque llamen en paralelo). */
+async function ensureCached(key: string): Promise<string> {
   const cp = cachePath(key);
   if (existsSync(cp)) {
-    const s = await stat(cp);
     await utimes(cp, new Date(), new Date()).catch(() => {}); // LRU touch
-    return { stream: createReadStream(cp), size: s.size };
+    return cp;
   }
-
-  const row = await one<{ tg_message_id: string; bytes: string }>(
-    "select tg_message_id, bytes from blob_refs where key = $1",
-    [key],
-  );
-  if (!row) throw new Error("blob no registrado");
-
-  const c = await getClient();
-  const channel = await getChannel();
-  const [msg] = await c.getMessages(channel, { ids: [Number(row.tg_message_id)] });
-  if (!msg || !msg.media) throw new Error("mensaje no encontrado en Telegram");
-
-  const size = Number(row.bytes);
-  await mkdir(env.TG_CACHE_DIR, { recursive: true });
-  // sufijo único: dos descargas simultáneas de la misma key no pueden pisarse el archivo
-  const tmp = `${cp}.${randomBytes(6).toString("hex")}.dl`;
-  await c.downloadMedia(msg, { outputFile: tmp });
-
-  if (size <= CACHE_INLINE_LIMIT) {
-    await rm(cp, { force: true }).catch(() => {});
-    await (await import("node:fs/promises")).rename(tmp, cp);
-    pruneCache();
-    return { stream: createReadStream(cp), size };
+  downloading ??= new Map();
+  let job = downloading.get(key);
+  if (!job) {
+    job = (async () => {
+      const row = await one<{ tg_message_id: string }>(
+        "select tg_message_id from blob_refs where key = $1",
+        [key],
+      );
+      if (!row) throw new Error("blob no registrado");
+      const c = await getClient();
+      const channel = await getChannel();
+      const [msg] = await c.getMessages(channel, { ids: [Number(row.tg_message_id)] });
+      if (!msg || !msg.media) throw new Error("mensaje no encontrado en Telegram");
+      await mkdir(env.TG_CACHE_DIR, { recursive: true });
+      const tmp = `${cp}.${randomBytes(6).toString("hex")}.dl`;
+      await c.downloadMedia(msg, { outputFile: tmp });
+      await rm(cp, { force: true }).catch(() => {});
+      await rename(tmp, cp);
+      pruneCache();
+    })();
+    downloading.set(key, job);
   }
-  // grande: servimos y borramos, no lo dejamos en caché
-  const stream = createReadStream(tmp);
-  stream.on("close", () => void rm(tmp, { force: true }));
-  return { stream, size };
+  try {
+    await job;
+  } finally {
+    downloading.delete(key);
+  }
+  return cp;
+}
+
+/** Stream de lectura del objeto (de la caché de disco; lo baja de Telegram si hace falta). */
+export async function tgRead(
+  key: string,
+  range?: { start: number; end: number },
+): Promise<{ stream: Readable; size: number; totalSize: number }> {
+  const cp = await ensureCached(key);
+  const { size } = await stat(cp);
+  if (range) {
+    return {
+      stream: createReadStream(cp, { start: range.start, end: range.end }),
+      size: range.end - range.start + 1,
+      totalSize: size,
+    };
+  }
+  return { stream: createReadStream(cp), size, totalSize: size };
 }

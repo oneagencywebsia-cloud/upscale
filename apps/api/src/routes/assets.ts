@@ -66,7 +66,13 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     async (req: FastifyRequest, reply) => {
       const { userId } = principalOf(req);
       const h = req.headers;
-      const filename = typeof h["x-filename"] === "string" ? h["x-filename"] : "IMG.bin";
+      const rawName = typeof h["x-filename"] === "string" ? h["x-filename"] : "IMG.bin";
+      let filename = rawName;
+      try {
+        filename = decodeURIComponent(rawName);
+      } catch {
+        /* nombre no codificado: se deja tal cual */
+      }
       const contentType = typeof h["content-type"] === "string" ? h["content-type"] : undefined;
       const capturedHeader = typeof h["x-captured-at"] === "string" ? h["x-captured-at"] : undefined;
 
@@ -266,6 +272,18 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
       ...(await withUrls(r)),
       originalUrl: await signedUrl(r.original_key, { expiresIn: 600, downloadName: r.filename }),
     };
+  });
+
+  // ---------- reproducir / ver el original en línea (sin forzar descarga) ----------
+  app.get("/v1/assets/:id/stream", { preHandler: requireUser }, async (req, reply) => {
+    const { userId } = principalOf(req);
+    const { id } = req.params as { id: string };
+    const r = await one<Row>(
+      "select a.* from assets a where a.id = $1 and a.user_id = $2 and a.deleted_at is null",
+      [id, userId],
+    );
+    if (!r) return reply.code(404).send({ error: "no existe" });
+    return reply.redirect(await signedUrl(r.original_key, { expiresIn: 3600 }), 302);
   });
 
   // ---------- descargar original ----------

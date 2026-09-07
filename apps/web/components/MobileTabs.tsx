@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import { motion } from "motion/react";
+
+const MotionLink = motion.create(Link);
 
 const I = {
   lib: (
@@ -45,10 +48,30 @@ export default function MobileTabs() {
   return (
     <nav className="mtabs" aria-label="Navegación">
       {tabs.map((t) => (
-        <Link key={t.label} href={t.href} className={t.active ? "on" : ""} aria-current={t.active}>
-          {t.icon}
+        <MotionLink
+          key={t.label}
+          href={t.href}
+          className={t.active ? "on" : ""}
+          aria-current={t.active}
+          whileTap={{ scale: 0.82 }}
+          transition={{ type: "spring", stiffness: 500, damping: 22 }}
+        >
+          <motion.span
+            className="mtab-ico"
+            animate={t.active ? { y: -2, scale: 1.15 } : { y: 0, scale: 1 }}
+            transition={{ type: "spring", stiffness: 420, damping: 18 }}
+          >
+            {t.icon}
+          </motion.span>
           <span>{t.label}</span>
-        </Link>
+          {t.active && (
+            <motion.span
+              layoutId="mtab-dot"
+              className="mtab-dot"
+              transition={{ type: "spring", stiffness: 420, damping: 32 }}
+            />
+          )}
+        </MotionLink>
       ))}
     </nav>
   );
