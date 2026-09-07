@@ -1,3 +1,4 @@
+import path from "node:path";
 import withSerwistInit from "@serwist/next";
 
 const withSerwist = withSerwistInit({
@@ -13,10 +14,11 @@ const INTERNAL_API = process.env.INTERNAL_API_URL || "http://127.0.0.1:8080";
 const nextConfig = {
   reactStrictMode: true,
   output: "standalone",
+  // raíz del monorepo, para que el trazado de la salida standalone incluya las deps del workspace
+  outputFileTracingRoot: path.join(import.meta.dirname, "../../"),
   transpilePackages: ["@upscale/shared", "three"],
   images: { unoptimized: true },
   eslint: { ignoreDuringBuilds: true },
-  // Primer despliegue sin haber corrido el build en local; pon a false cuando `pnpm build` pase limpio.
   typescript: { ignoreBuildErrors: true },
   async rewrites() {
     return [{ source: "/_api/:path*", destination: `${INTERNAL_API}/:path*` }];
