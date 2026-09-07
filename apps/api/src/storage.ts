@@ -78,7 +78,10 @@ export async function signedUrl(key: string, opts: SignOpts = {}): Promise<strin
   const t = blobToken(key, exp);
   const params = new URLSearchParams({ e: String(exp), t });
   if (opts.downloadName) params.set("dl", opts.downloadName);
-  return `${env.PUBLIC_API_URL.replace(/\/$/, "")}/v1/blob/${key}?${params}`;
+  const base = env.PUBLIC_API_URL
+    .replace(/^(https?:\/\/)(https?:\/\/)+/i, "$1") // corrige "https://https://..."
+    .replace(/\/+$/, "");
+  return `${base}/v1/blob/${key}?${params}`;
 }
 
 /** Borra un objeto del almacenamiento. No falla si no existe. */
