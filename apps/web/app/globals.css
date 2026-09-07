@@ -1690,3 +1690,124 @@ footer.status .dot {
   }
 }
 
+/* ===================================================================
+   Móvil: barra inferior de navegación + arreglos de comodidad
+   =================================================================== */
+.mtabs {
+  display: none;
+}
+@media (max-width: 720px) {
+  .mtabs {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 60;
+    display: flex;
+    justify-content: space-around;
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+    background: var(--glass-strong);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    backdrop-filter: blur(24px) saturate(180%);
+    border-top: 1px solid var(--stroke);
+  }
+  .mtabs a {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 6px 2px;
+    border-radius: 12px;
+    text-decoration: none;
+    color: var(--text-mute);
+    font-size: 10.5px;
+    font-weight: 600;
+    transition: color 0.16s, transform 0.1s;
+  }
+  .mtabs a:active {
+    transform: scale(0.92);
+  }
+  .mtabs a.on {
+    color: var(--accent);
+  }
+
+  /* deja hueco para la barra inferior */
+  .app {
+    padding-bottom: calc(84px + env(safe-area-inset-bottom));
+  }
+  .selbar {
+    bottom: calc(78px + env(safe-area-inset-bottom));
+  }
+  .install-toast {
+    bottom: calc(78px + env(safe-area-inset-bottom));
+  }
+
+  /* barra superior más compacta */
+  .bar {
+    top: 8px;
+    padding: 9px 12px;
+    gap: 8px;
+    border-radius: 18px;
+  }
+  .upload {
+    padding: 9px 12px;
+    font-size: 0;
+    gap: 0;
+  }
+  .upload svg {
+    width: 17px;
+    height: 17px;
+  }
+
+  /* cabecera de página: en columna, sin cristal apretando */
+  .libhead {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .libhead p {
+    text-align: left;
+  }
+  .prism {
+    display: none;
+  }
+
+  /* URLs largas de Ajustes no desbordan */
+  .panel code,
+  .panel-lede code {
+    display: inline-block;
+    max-width: 100%;
+    word-break: break-all;
+  }
+  .gallery-toolbar {
+    flex-wrap: wrap;
+  }
+}
+
+/* Visor en móvil: que SÍ se pueda desplazar el panel */
+@media (max-width: 860px) {
+  .viewer {
+    display: block;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  .viewer-stage {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 100%;
+    max-width: 100%;
+    overflow: visible;
+  }
+  .viewer-media {
+    flex: none;
+  }
+  .viewer-panel {
+    flex: none;
+    overflow: visible;
+    padding-bottom: calc(20px + env(safe-area-inset-bottom));
+  }
+}
+
