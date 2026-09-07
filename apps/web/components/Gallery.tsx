@@ -126,6 +126,11 @@ function Inspector({ asset }: { asset: AssetListItem }) {
             </svg>
             Descargar original
           </a>
+          {asset.liveVideoUrl && (
+            <a className="btn" href={asset.liveVideoUrl}>
+              Vídeo Live
+            </a>
+          )}
         </div>
       </div>
     </aside>

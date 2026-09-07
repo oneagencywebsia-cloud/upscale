@@ -25,11 +25,15 @@ export interface Asset {
   lat: number | null;
   lon: number | null;
   isLive: boolean;
+  /** Tamaño del .MOV del Live Photo (bytes), si lo hay. */
+  liveVideoBytes: number | null;
 }
 
 export interface AssetListItem extends Asset {
   thumbUrl: string;
   posterUrl: string | null;
+  /** URL firmada del .MOV del Live Photo, si lo hay. */
+  liveVideoUrl: string | null;
 }
 
 export interface AssetDetail extends AssetListItem {

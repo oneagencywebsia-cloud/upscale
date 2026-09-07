@@ -29,6 +29,9 @@ create table if not exists assets (
   original_key  text not null,
   thumb_key     text not null,
   poster_key    text,
+  -- Live Photo: el .MOV que acompaña al .HEIC (se guarda aparte, byte a byte)
+  live_video_key   text,
+  live_video_bytes bigint,
   deleted_at    timestamptz
 );
 
@@ -59,3 +62,11 @@ create table if not exists access_log (
   ua       text
 );
 create index if not exists access_log_user_idx on access_log (user_id, at desc);
+
+-- Mapa key -> mensaje de Telegram (STORAGE_DRIVER=telegram).
+create table if not exists blob_refs (
+  key            text primary key,
+  tg_message_id  bigint not null,
+  bytes          bigint,
+  created_at     timestamptz not null default now()
+);

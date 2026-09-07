@@ -7,10 +7,12 @@ import type { Readable } from "node:stream";
 import { env } from "./env.js";
 
 /**
- * Capa de almacenamiento con dos motores:
- *  - "local": los archivos viven en el disco (STORAGE_DIR). Se sirven por
- *    GET /v1/blob/<key>?e=<exp>&t=<hmac>. Coste 0.
- *  - "r2": Cloudflare R2 (S3). URLs firmadas nativas.
+ * Capa de almacenamiento con tres motores (STORAGE_DRIVER):
+ *  - "telegram": canal privado de Telegram, subido como documento (bytes EXACTOS).
+ *  - "local":    disco de esta máquina (STORAGE_DIR).
+ *  - "r2":       Cloudflare R2 (S3), URLs firmadas nativas.
+ * En "telegram" y "local" los archivos se sirven por
+ *   GET /v1/blob/<key>?e=<exp>&t=<hmac>
  */
 
 export interface SignOpts {
@@ -38,8 +40,6 @@ export function verifyBlobToken(key: string, exp: number, token: string): boolea
   return good.length === got.length && timingSafeEqual(good, got);
 }
 
-// ------------------------------- API --------------------------------
-
 async function putLocal(key: string, filePath: string): Promise<void> {
   const dest = safeLocalPath(key);
   await mkdir(dirname(dest), { recursive: true });
@@ -51,14 +51,18 @@ async function putLocal(key: string, filePath: string): Promise<void> {
   }
 }
 
-async function putR2(key: string, filePath: string, contentType: string): Promise<void> {
-  const { putFile } = await import("./r2.js");
-  await putFile(key, filePath, contentType);
-}
+// ------------------------------- API --------------------------------
 
 /** Guarda un archivo del disco temporal en el almacenamiento definitivo. */
 export async function put(key: string, filePath: string, contentType: string): Promise<void> {
-  if (env.STORAGE_DRIVER === "r2") return putR2(key, filePath, contentType);
+  if (env.STORAGE_DRIVER === "r2") {
+    const { putFile } = await import("./r2.js");
+    return putFile(key, filePath, contentType);
+  }
+  if (env.STORAGE_DRIVER === "telegram") {
+    const { tgPut } = await import("./telegram.js");
+    return tgPut(key, filePath);
+  }
   return putLocal(key, filePath);
 }
 
@@ -75,13 +79,6 @@ export async function signedUrl(key: string, opts: SignOpts = {}): Promise<strin
   return `${env.PUBLIC_API_URL.replace(/\/$/, "")}/v1/blob/${key}?${params}`;
 }
 
-/** Stream de lectura (motor local). Lanza si no existe. */
-export async function readLocal(key: string): Promise<{ stream: Readable; size: number }> {
-  const p = safeLocalPath(key);
-  const { size } = await stat(p);
-  return { stream: createReadStream(p), size };
-}
-
 /** Borra un objeto del almacenamiento. No falla si no existe. */
 export async function remove(key: string): Promise<void> {
   if (env.STORAGE_DRIVER === "r2") {
@@ -89,11 +86,31 @@ export async function remove(key: string): Promise<void> {
     await deleteObject(key).catch(() => {});
     return;
   }
+  if (env.STORAGE_DRIVER === "telegram") {
+    const { tgDelete } = await import("./telegram.js");
+    await tgDelete(key).catch(() => {});
+    return;
+  }
   await rm(safeLocalPath(key), { force: true }).catch(() => {});
+}
+
+/** Stream de lectura (motores "local" y "telegram"). Lo usa GET /v1/blob. */
+export async function readBlob(key: string): Promise<{ stream: Readable; size: number }> {
+  if (env.STORAGE_DRIVER === "telegram") {
+    const { tgRead } = await import("./telegram.js");
+    return tgRead(key);
+  }
+  const p = safeLocalPath(key);
+  const { size } = await stat(p);
+  return { stream: createReadStream(p), size };
 }
 
 export async function ensureStorageDir(): Promise<void> {
   if (env.STORAGE_DRIVER === "local") await mkdir(env.STORAGE_DIR, { recursive: true });
+  if (env.STORAGE_DRIVER === "telegram") {
+    const { ensureTelegram } = await import("./telegram.js");
+    await ensureTelegram();
+  }
 }
 
 export { createWriteStream, pipeline };

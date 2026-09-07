@@ -1,106 +1,123 @@
-# Upscale — puesta en marcha (todo en tu VPS, coste 0 €)
+# Upscale — puesta en marcha (0 €, sin tu PC ni tu VPS de almacén)
 
 Código en GitHub (`oneagencywebsia-cloud/upscale`, público).
 
-**Plan:** API + web + archivos, **todo en EasyPanel** (tu VPS, que ya está 24/7 y ya pagas).
-Login y base de datos en **Supabase** (cuenta gratis, sin tarjeta). Nada de Vercel, ni
-Tailscale, ni tu PC, ni tarjeta.
+**Plan:** los archivos viven en un **canal privado de Telegram** (gratis, sin límite
+práctico, no en tu PC ni ocupando el disco del VPS). El **código** (API + web) corre en
+tu VPS con EasyPanel (que ya pagas). Login y base de datos en **Supabase gratis**.
 
-**Límite honesto:** el disco del VPS tiene ~85 GB libres (compartidos con CLIPSO/n8n).
-Upscale trae una pantalla **Espacio** para borrar lo viejo cuando se llene. Es una
-biblioteca "reciente", no infinita. Para quitar el límite → `STORAGE_DRIVER=r2`
-(Cloudflare R2, ~1 €/mes).
+**Sin pérdida de calidad:** el bot sube cada archivo *como documento* → Telegram guarda
+los **bytes exactos**. Todo lo que el iPhone metió dentro (HDR/Dolby Vision, profundidad
+de Retrato, ProRAW, modo Cine, EXIF, ubicación…) se conserva. Se verifica con SHA-256 al
+subir y al bajar. Los **Live Photos** se guardan como dos archivos (HEIC + MOV).
+
+Límite real: **2 GB por archivo** (4 GB con Telegram Premium). Vídeo del iPhone entra de
+sobra; solo ProRes 4K largo se pasaría.
 
 ---
 
 ## 1. Supabase (login + base de datos) — gratis, sin tarjeta
 
-1. supabase.com → **New project** `upscale`, región Europa. Guarda la contraseña.
+1. supabase.com → **New project** `upscale`, región Europa.
 2. **Settings → Database → Connection string → "Session pooler"** (5432) → `DATABASE_URL`.
 3. **Settings → API**: `Project URL` → `NEXT_PUBLIC_SUPABASE_URL`; `anon public` →
    `NEXT_PUBLIC_SUPABASE_ANON_KEY`; **JWT Secret** → `SUPABASE_JWT_SECRET`.
-4. **Authentication → Providers → Google**: OAuth client en Google Cloud Console
-   (tipo Web), *Authorized redirect URI* = la que da Supabase. Pega Client ID + Secret.
-   (Apple: solo si tienes cuenta Apple Developer; si no, lo dejas para después.)
-5. **Authentication → URL Configuration** (tras el paso 3 de abajo):
-   Site URL = `https://upscale.tudominio.es`, Redirect URL = `.../auth/callback`.
-6. Esquema — desde tu PC una sola vez:
+4. **Authentication → Providers → Google**: OAuth client en Google Cloud Console (Web),
+   *redirect URI* = la que da Supabase. (Apple: solo si tienes cuenta Apple Developer.)
+5. Esquema — desde tu PC una vez:
    ```bash
    cd proyectos/upscale
    corepack enable && pnpm install
-   cp .env.example apps/api/.env      # rellena DATABASE_URL, SUPABASE_JWT_SECRET
+   cp .env.example apps/api/.env      # rellena DATABASE_URL y SUPABASE_JWT_SECRET
    pnpm --filter @upscale/api migrate
    ```
 
 ---
 
-## 2. API en EasyPanel
+## 2. Telegram (el almacén) — gratis
 
-1. EasyPanel → *Create → App* → GitHub `oneagencywebsia-cloud/upscale`, branch `main`, Build Path `/`.
-2. Build: **Dockerfile** `infra/api.Dockerfile`.
-3. **Volumes**: monta un volumen en `/data` (aquí van los archivos).
-4. **Environment**:
+1. En Telegram, crea un **canal privado** nuevo (o grupo). Será el "disco". No escribas nada.
+2. Entra en **https://my.telegram.org** → *API development tools* → crea una app.
+   Apunta **api_id** y **api_hash**.
+3. En tu PC, genera la sesión:
+   ```bash
+   TELEGRAM_API_ID=xxdígitos TELEGRAM_API_HASH=xxhash pnpm --filter @upscale/api tg-login
    ```
-   PORT=8080
-   DATABASE_URL=...supabase...
-   SUPABASE_JWT_SECRET=...supabase...
-   STORAGE_DRIVER=local
-   STORAGE_DIR=/data
+   Mete tu número, el código que te llega y (si tienes) la 2FA. Al terminar imprime:
+   - un **TELEGRAM_SESSION** largo → cópialo
+   - la lista de tus canales con su **TELEGRAM_CHANNEL_ID** (ej. `-1001234567890`) → copia el del canal que creaste
+4. En `apps/api/.env`:
+   ```
+   STORAGE_DRIVER=telegram
+   TELEGRAM_API_ID=...
+   TELEGRAM_API_HASH=...
+   TELEGRAM_SESSION=...
+   TELEGRAM_CHANNEL_ID=-100...
    BLOB_SECRET=            (openssl rand -hex 32)
-   PUBLIC_API_URL=https://api.upscale.tudominio.es
-   WEB_ORIGIN=https://upscale.tudominio.es
    ```
-5. **Domains**: `api.upscale.tudominio.es` → puerto `8080`, HTTPS.
-6. Deploy → `https://api.upscale.tudominio.es/v1/healthz` → `{"ok":true,"db":true,...}`.
 
 ---
 
-## 3. Web en EasyPanel (otra app)
+## 3. API en EasyPanel
 
-1. EasyPanel → *Create → App* → mismo repo, branch `main`, Build Path `/`.
+1. *Create → App* → GitHub `oneagencywebsia-cloud/upscale`, branch `main`, Build Path `/`.
+2. Build: **Dockerfile** `infra/api.Dockerfile`.
+3. **Environment** (todo lo de la sección API del `.env`):
+   `PORT=8080`, `DATABASE_URL`, `SUPABASE_JWT_SECRET`,
+   `STORAGE_DRIVER=telegram`, `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `TELEGRAM_SESSION`,
+   `TELEGRAM_CHANNEL_ID`, `BLOB_SECRET`,
+   `PUBLIC_API_URL=https://api.upscale.tudominio.es`,
+   `WEB_ORIGIN=https://upscale.tudominio.es`.
+4. (Opcional) un volumen pequeño en `/app/apps/api/tg-cache` para la caché de miniaturas
+   (se limita sola a 2 GB con `TG_CACHE_MAX_MB`).
+5. **Domains**: `api.upscale.tudominio.es` → puerto `8080`, HTTPS.
+6. Deploy → `https://api.upscale.tudominio.es/v1/healthz` → `{"ok":true,"db":true,...}`.
+   Si la sesión de Telegram está mal, la API no arranca y lo dice en los logs.
+
+---
+
+## 4. Web en EasyPanel (otra app)
+
+1. *Create → App* → mismo repo, branch `main`, Build Path `/`.
 2. Build: **Dockerfile** `infra/web.Dockerfile`.
-3. **Build Args** (Next los necesita al compilar):
-   `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
-4. **Environment**:
-   ```
-   NEXT_PUBLIC_SUPABASE_URL=...
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=...
-   UPSCALE_API_URL=https://api.upscale.tudominio.es
-   ```
+3. **Build Args**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+4. **Environment**: los dos `NEXT_PUBLIC_*` + `UPSCALE_API_URL=https://api.upscale.tudominio.es`.
 5. **Domains**: `upscale.tudominio.es` → puerto `3001`, HTTPS.
-6. Deploy. Vuelve a Supabase → Auth → URL Configuration con `https://upscale.tudominio.es`.
+6. Supabase → Auth → URL Configuration: Site URL y `.../auth/callback` con esa URL.
 
 Abre `https://upscale.tudominio.es` → **Registrar con Google** → entras a `/app`.
 
 ---
 
-## 4. Subir fotos
+## 5. Subir fotos
 
-**Desde la web/app**: botón **«Subir»** arriba → eliges fotos/vídeos. Ya está.
-(En el iPhone, si instalas la PWA, el botón abre el carrete.)
-
-**Nota de calidad**: al elegir desde el carrete de iOS, a veces Safari convierte HEIC→JPEG.
-Si quieres el original 100 % garantizado, el Atajo de iOS sigue disponible (Ajustes →
-crear token). Pero no es obligatorio.
+- **Desde la web/PWA**: botón **«Subir»** arriba.
+- **Live Photos y originales 100 % garantizados**: el **Atajo de iOS** (Ajustes → crear
+  token). El Atajo manda el HEIC a `POST /v1/assets` y, si es Live Photo, el MOV a
+  `POST /v1/assets/<id>/live-video` con la misma cabecera `X-Upload-Token`.
 
 ---
 
-## 5. Gestionar espacio
+## 6. Espacio y actividad
 
-`/app/espacio`: barra de uso + lista de lo más pesado con botón **Borrar**. Cuando la
-barra se acerque al 100 %, borra lo que ya tengas editado/descargado. Borrar libera el
-disco del VPS al instante.
+- `/app/espacio`: cuánto ocupa tu biblioteca. Con Telegram no hay tope del disco, así
+  que aquí solo ves el total y puedes borrar lo que no quieras (borra también de Telegram).
+- `/app/actividad`: registro de lo que abres y descargas.
 
 ---
 
 ## PWA
 
-Instalable ya. Chrome/Edge: botón **Instalar**. iPhone: *Compartir → Añadir a pantalla de inicio*.
+Instalable. Chrome/Edge: **Instalar**. iPhone: *Compartir → Añadir a pantalla de inicio*.
 
 ---
 
-## Si algún día quieres biblioteca infinita (de pago, ~1 €/mes)
+## Avisos honestos sobre usar Telegram de almacén
 
-En la API cambia `STORAGE_DRIVER=r2` y añade `R2_ENDPOINT`, `R2_BUCKET`,
-`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` (bucket en Cloudflare R2). Quita el volumen
-`/data`. Nada más cambia.
+- Es un uso no previsto. A escala personal la gente lo hace sin problema, pero si Telegram
+  lo considerara abuso podría limitar o cerrar la cuenta → se perdería todo (haz copia del
+  canal de vez en cuando, o exporta con Telegram Desktop).
+- Más lento que una nube de verdad (la primera vez que ves un original hay que bajarlo de
+  Telegram; las miniaturas se quedan en caché).
+- Si algún día quieres algo "de servicio", cambia `STORAGE_DRIVER` a `r2` (~1 €/mes) o
+  `local` — nada más del código cambia.

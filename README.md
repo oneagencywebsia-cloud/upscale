@@ -30,14 +30,13 @@ resolución, mismos FPS, mismos bits — y lo devuelve exactamente igual.
 
 ## Stack
 
-**Todo en el VPS (EasyPanel): API + web + archivos.** Login + Postgres → **Supabase**
-(gratis, sin tarjeta). 3D → three / react-three-fiber / drei / postprocessing · PWA → @serwist.
+- **Archivos** → `STORAGE_DRIVER`: **`telegram`** (canal privado, coste 0, no tu PC ni
+  tu VPS, subido *como documento* = bytes exactos) · `local` (disco) · `r2` (Cloudflare, de pago).
+- **Login + Postgres** → Supabase (gratis, sin tarjeta).
+- **Código (API + web)** → EasyPanel (VPS). 3D → three / react-three-fiber / drei / postprocessing · PWA → @serwist.
 
-- Almacenamiento: `STORAGE_DRIVER=local` (disco del VPS, coste 0, con pantalla
-  **/app/espacio** para podar cuando se llene) o `r2` (Cloudflare R2, ~1 €/mes, ilimitado).
-- Subida: botón «Subir» en la web/PWA. El Atajo de iOS es opcional (originales 100 %).
-
-Plan por defecto: **cero euros**. Límite: el disco del VPS (~85 GB, compartido). Ver `docs/DEPLOY.md`.
+Sin pérdida de calidad: todo lo que el iPhone embebe (HDR, profundidad, ProRAW, EXIF, GPS)
+se conserva; los **Live Photos** se guardan como dos archivos. Ver `docs/DEPLOY.md`.
 
 ## Desarrollo
 

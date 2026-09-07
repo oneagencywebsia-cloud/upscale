@@ -27,15 +27,29 @@ iPhone (Atajo)          Navegador / PWA
 
 ## Almacenamiento (`apps/api/src/storage.ts`)
 
-Capa con dos motores, elegido por `STORAGE_DRIVER`:
+Capa con tres motores, elegido por `STORAGE_DRIVER`. Interfaz común:
+`put(key, filePath, mime)`, `signedUrl(key)`, `remove(key)`, `readBlob(key)`.
 
-- **`local`** (por defecto, coste 0): originales y copias en `STORAGE_DIR` del disco.
-  Se sirven por `GET /v1/blob/<key>?e=<exp>&t=<hmac>` — sin sesión, el enlace lleva un
-  token HMAC temporal firmado con `BLOB_SECRET` (`storage.signedUrl`). La API corre en
-  la máquina que tiene el disco (el PC), expuesta por Tailscale Funnel o Cloudflare Tunnel.
-- **`r2`**: Cloudflare R2 (S3), URLs firmadas nativas. La API puede ir entonces en el VPS.
+- **`telegram`** (por defecto, coste 0): sube cada archivo a un canal privado con
+  `client.sendFile(channel, { forceDocument: true })` — Telegram guarda los **bytes
+  exactos** (nada de recompresión). `apps/api/src/telegram.ts` usa GramJS (`telegram`
+  npm) con una sesión de usuario (`TELEGRAM_SESSION`, generada por `pnpm … tg-login`).
+  `blob_refs` mapea `key → tg_message_id`. Lectura: caché LRU en disco (`TG_CACHE_DIR`,
+  `TG_CACHE_MAX_MB`) para miniaturas/pósters; los originales grandes se bajan y sirven al
+  vuelo sin cachear. Se sirve por `GET /v1/blob/<key>?e=<exp>&t=<hmac>`.
+- **`local`** (coste 0): archivos en `STORAGE_DIR` del disco. Mismo `GET /v1/blob`.
+- **`r2`**: Cloudflare R2 (S3), URLs firmadas nativas.
 
-Cambiar de uno a otro es solo variables de entorno; el resto del código no cambia.
+`/v1/blob` no usa sesión: el enlace lleva un token HMAC temporal firmado con
+`BLOB_SECRET` (`storage.signedUrl`). Cambiar de motor es solo variables de entorno.
+
+### Sin pérdida de calidad + Live Photos
+
+Como se guarda el archivo **byte a byte**, todo lo que el iPhone embebe (HDR/Dolby
+Vision, mapa de profundidad de Retrato, ProRAW, modo Cine, EXIF, GPS) se conserva sin
+hacer nada especial. El **Live Photo** son dos archivos: el `.HEIC` va por
+`POST /v1/assets`; el `.MOV` por `POST /v1/assets/:id/live-video` (columna
+`live_video_key`). La galería ofrece "Descargar original" y "Vídeo Live" por separado.
 
 ## Repo — monorepo pnpm (`proyectos/upscale/`)
 
@@ -63,7 +77,8 @@ docs            BRANDING · ARCHITECTURE · DEPLOY
 |---|---|---|
 | `GET` | `/v1/healthz` | estado |
 | `GET` | `/v1/auth/me` | `{ userId, email }` de la sesión |
-| `POST` | `/v1/assets` | sube el original (stream→R2), deriva, indexa. Dedup por `(user_id, sha256)` |
+| `POST` | `/v1/assets` | sube el original (stream→almacén), deriva, indexa. Dedup por `(user_id, sha256)` |
+| `POST` | `/v1/assets/:id/live-video` | adjunta el `.MOV` de un Live Photo (byte a byte) |
 | `GET` | `/v1/assets?limit=&cursor=&kind=` | feed del usuario, keyset por `(captured_at,id)` |
 | `GET` | `/v1/assets/:id` | ficha + `originalUrl` firmada. Registra `view` |
 | `GET` | `/v1/assets/:id/original` | 302 → URL firmada de R2. Registra `download` |

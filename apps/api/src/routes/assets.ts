@@ -1,4 +1,4 @@
-import { createWriteStream } from "node:fs";
+import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, rm, stat } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import { Transform, type Readable } from "node:stream";
@@ -19,6 +19,7 @@ interface Row {
   captured_at: Date; uploaded_at: Date; camera_make: string | null; camera_model: string | null;
   lens: string | null; lat: number | null; lon: number | null; is_live: boolean;
   thumb_key: string; poster_key: string | null; original_key: string;
+  live_video_key: string | null; live_video_bytes: string | null;
 }
 
 function toAsset(r: Row): Asset {
@@ -32,6 +33,7 @@ function toAsset(r: Row): Asset {
     capturedAt: r.captured_at.toISOString(), uploadedAt: r.uploaded_at.toISOString(),
     cameraMake: r.camera_make, cameraModel: r.camera_model, lens: r.lens,
     lat: r.lat, lon: r.lon, isLive: r.is_live,
+    liveVideoBytes: r.live_video_bytes === null ? null : Number(r.live_video_bytes),
   };
 }
 
@@ -40,6 +42,9 @@ async function withUrls(r: Row): Promise<AssetListItem> {
     ...toAsset(r),
     thumbUrl: await signedUrl(r.thumb_key, { expiresIn: 3600 }),
     posterUrl: r.poster_key ? await signedUrl(r.poster_key, { expiresIn: 3600 }) : null,
+    liveVideoUrl: r.live_video_key
+      ? await signedUrl(r.live_video_key, { expiresIn: 3600, downloadName: r.filename.replace(/\.[^.]+$/, "") + ".mov" })
+      : null,
   };
 }
 
@@ -144,6 +149,47 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
+  // ---------- adjuntar el .MOV de un Live Photo ----------
+  app.post(
+    "/v1/assets/:id/live-video",
+    { preHandler: requireUploadToken, bodyLimit: 512 * 1024 * 1024 },
+    async (req: FastifyRequest, reply) => {
+      const { userId } = principalOf(req);
+      const { id } = req.params as { id: string };
+      const r = await one<Row>(
+        "select a.* from assets a where a.id = $1 and a.user_id = $2 and a.deleted_at is null",
+        [id, userId],
+      );
+      if (!r) return reply.code(404).send({ error: "no existe" });
+
+      const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const tmp = join(env.TMP_DIR, `${stamp}.live.mov`);
+      try {
+        await pipeline(req.body as Readable, createWriteStream(tmp));
+        const { size } = await stat(tmp);
+        if (size === 0) {
+          await rm(tmp, { force: true });
+          return reply.code(400).send({ error: "vídeo vacío" });
+        }
+        const sha = createHash("sha256");
+        await pipeline(createReadStream(tmp), new Transform({ transform(c, _e, cb) { sha.update(c); cb(null, c); } }));
+        const key = `live/${r.user_id}/${sha.digest("hex")}.mov`;
+
+        await put(key, tmp, "video/quicktime");
+        await query(
+          "update assets set live_video_key = $1, live_video_bytes = $2, is_live = true where id = $3",
+          [key, size, id],
+        );
+        await rm(tmp, { force: true });
+        return { status: "saved", id };
+      } catch (err) {
+        await rm(tmp, { force: true });
+        req.log.error(err, "fallo al adjuntar live video");
+        return reply.code(500).send({ error: "no se pudo procesar el vídeo" });
+      }
+    },
+  );
+
   // ---------- listar ----------
   app.get("/v1/assets", { preHandler: requireUser }, async (req) => {
     const { userId } = principalOf(req);
@@ -219,7 +265,12 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     if (!r) return reply.code(404).send({ error: "no existe" });
 
     await query("update assets set deleted_at = now() where id = $1", [id]);
-    await Promise.allSettled([remove(r.original_key), remove(r.thumb_key), r.poster_key ? remove(r.poster_key) : Promise.resolve()]);
+    await Promise.allSettled([
+      remove(r.original_key),
+      remove(r.thumb_key),
+      r.poster_key ? remove(r.poster_key) : Promise.resolve(),
+      r.live_video_key ? remove(r.live_video_key) : Promise.resolve(),
+    ]);
     req.log.info({ id, userId, freed: Number(r.bytes) }, "asset borrado");
     return reply.code(204).send();
   });

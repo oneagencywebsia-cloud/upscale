@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { env } from "../env.js";
-import { verifyBlobToken, readLocal } from "../storage.js";
+import { verifyBlobToken, readBlob } from "../storage.js";
 
 const MIME: Record<string, string> = {
   ".webp": "image/webp", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
@@ -9,11 +9,11 @@ const MIME: Record<string, string> = {
 };
 
 /**
- * Sirve archivos del disco (STORAGE_DRIVER=local). No usa sesión: el enlace lleva
- * un token HMAC temporal (?e=&t=) generado por storage.signedUrl().
+ * Sirve archivos de los motores "local" y "telegram". No usa sesión: el enlace
+ * lleva un token HMAC temporal (?e=&t=) generado por storage.signedUrl().
  */
 export async function blobRoutes(app: FastifyInstance): Promise<void> {
-  if (env.STORAGE_DRIVER !== "local") return;
+  if (env.STORAGE_DRIVER === "r2") return;
 
   app.get("/v1/blob/*", async (req, reply) => {
     const key = (req.params as Record<string, string>)["*"] ?? "";
@@ -26,7 +26,7 @@ export async function blobRoutes(app: FastifyInstance): Promise<void> {
 
     let file;
     try {
-      file = await readLocal(key);
+      file = await readBlob(key);
     } catch {
       return reply.code(404).send({ error: "no existe" });
     }

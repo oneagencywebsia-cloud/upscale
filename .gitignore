@@ -12,7 +12,9 @@ tmp/
 .turbo/
 apps/api/tmp/
 apps/api/data/
+apps/api/tg-cache/
 data/
+tg-cache/
 
 # serwist / PWA (generado en build)
 apps/web/public/sw.js
