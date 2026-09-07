@@ -1,123 +1,102 @@
-# Upscale — puesta en marcha (0 €, sin tu PC ni tu VPS de almacén)
+# Upscale — puesta en marcha (1 app en EasyPanel, 0 €)
 
-Código en GitHub (`oneagencywebsia-cloud/upscale`, público).
+Código en GitHub: `oneagencywebsia-cloud/upscale` (público).
 
-**Plan:** los archivos viven en un **canal privado de Telegram** (gratis, sin límite
-práctico, no en tu PC ni ocupando el disco del VPS). El **código** (API + web) corre en
-tu VPS con EasyPanel (que ya pagas). Login y base de datos en **Supabase gratis**.
-
-**Sin pérdida de calidad:** el bot sube cada archivo *como documento* → Telegram guarda
-los **bytes exactos**. Todo lo que el iPhone metió dentro (HDR/Dolby Vision, profundidad
-de Retrato, ProRAW, modo Cine, EXIF, ubicación…) se conserva. Se verifica con SHA-256 al
-subir y al bajar. Los **Live Photos** se guardan como dos archivos (HEIC + MOV).
-
-Límite real: **2 GB por archivo** (4 GB con Telegram Premium). Vídeo del iPhone entra de
-sobra; solo ProRes 4K largo se pasaría.
+- **Archivos** → canal privado de **Telegram** (gratis, no tu PC ni tu VPS, bytes exactos).
+- **Login + base de datos** → **Supabase** (gratis, sin tarjeta).
+- **Código** → **1 sola App** en EasyPanel (API + web en el mismo contenedor).
 
 ---
 
-## 1. Supabase (login + base de datos) — gratis, sin tarjeta
+## Paso 1 — Supabase
 
-1. supabase.com → **New project** `upscale`, región Europa.
-2. **Settings → Database → Connection string → "Session pooler"** (5432) → `DATABASE_URL`.
-3. **Settings → API**: `Project URL` → `NEXT_PUBLIC_SUPABASE_URL`; `anon public` →
-   `NEXT_PUBLIC_SUPABASE_ANON_KEY`; **JWT Secret** → `SUPABASE_JWT_SECRET`.
-4. **Authentication → Providers → Google**: OAuth client en Google Cloud Console (Web),
-   *redirect URI* = la que da Supabase. (Apple: solo si tienes cuenta Apple Developer.)
-5. Esquema — desde tu PC una vez:
-   ```bash
+1. supabase.com → **New Project** `upscale`.
+2. **Settings → Database → Connection string → Session pooler** (puerto 5432) → guarda como `DATABASE_URL`.
+3. **Settings → API** → guarda: `Project URL`, `anon public`, `JWT Secret`.
+4. **Authentication → Providers → Google** → sigue el asistente (crea el OAuth client en Google Cloud, pega Client ID + Secret). Apple solo si tienes cuenta Apple Developer.
+5. **Authentication → URL Configuration** (lo rellenas al final):
+   Site URL = `https://TU-DOMINIO`, Redirect URLs = `https://TU-DOMINIO/auth/callback`.
+6. En tu PC, aplica el esquema una vez:
+   ```
    cd proyectos/upscale
    corepack enable && pnpm install
-   cp .env.example apps/api/.env      # rellena DATABASE_URL y SUPABASE_JWT_SECRET
-   pnpm --filter @upscale/api migrate
+   DATABASE_URL="LA-DE-SUPABASE" pnpm --filter @upscale/api migrate
    ```
 
----
+## Paso 2 — Telegram (el almacén)
 
-## 2. Telegram (el almacén) — gratis
+1. En Telegram crea un **canal privado** nuevo (será el "disco"). No escribas nada.
+2. Ve a **my.telegram.org → API development tools → Create app** → apunta `api_id` y `api_hash`.
+3. En tu PC:
+   ```
+   TELEGRAM_API_ID=xxxx TELEGRAM_API_HASH=xxxx pnpm --filter @upscale/api tg-login
+   ```
+   Mete tu número + el código que te llega. Al final imprime:
+   - `TELEGRAM_SESSION` (cadena larga) → cópiala
+   - la lista de canales con su id → copia el del canal que creaste (`TELEGRAM_CHANNEL_ID`, ej. `-1001234567890`)
 
-1. En Telegram, crea un **canal privado** nuevo (o grupo). Será el "disco". No escribas nada.
-2. Entra en **https://my.telegram.org** → *API development tools* → crea una app.
-   Apunta **api_id** y **api_hash**.
-3. En tu PC, genera la sesión:
-   ```bash
-   TELEGRAM_API_ID=xxdígitos TELEGRAM_API_HASH=xxhash pnpm --filter @upscale/api tg-login
+## Paso 3 — La App en EasyPanel
+
+1. Proyecto → **+ Service → App** → nómbrala `upscale`.
+2. **Source → Github**: repo `oneagencywebsia-cloud/upscale`, branch `main`, Build Path `/`.
+3. **Build**: método **Dockerfile**, ruta `infra/allinone.Dockerfile`.
+4. **Build Args** (Environment tiene una pestaña de build args, o ponlos también arriba):
    ```
-   Mete tu número, el código que te llega y (si tienes) la 2FA. Al terminar imprime:
-   - un **TELEGRAM_SESSION** largo → cópialo
-   - la lista de tus canales con su **TELEGRAM_CHANNEL_ID** (ej. `-1001234567890`) → copia el del canal que creaste
-4. En `apps/api/.env`:
+   NEXT_PUBLIC_SUPABASE_URL=...          (Project URL de Supabase)
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=...     (anon public de Supabase)
    ```
+5. **Environment** — pega esto y rellena:
+   ```
+   DATABASE_URL=
+   SUPABASE_JWT_SECRET=
+   NEXT_PUBLIC_SUPABASE_URL=
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=
+   UPSCALE_API_URL=http://127.0.0.1:8080
+   INTERNAL_API_URL=http://127.0.0.1:8080
+
    STORAGE_DRIVER=telegram
-   TELEGRAM_API_ID=...
-   TELEGRAM_API_HASH=...
-   TELEGRAM_SESSION=...
-   TELEGRAM_CHANNEL_ID=-100...
-   BLOB_SECRET=            (openssl rand -hex 32)
+   TELEGRAM_API_ID=
+   TELEGRAM_API_HASH=
+   TELEGRAM_SESSION=
+   TELEGRAM_CHANNEL_ID=
+   TG_CACHE_MAX_MB=2048
+
+   BLOB_SECRET=
+   PUBLIC_API_URL=https://TU-DOMINIO/_api
+   WEB_ORIGIN=https://TU-DOMINIO
    ```
+   - `BLOB_SECRET`: te lo doy generado abajo (o `openssl rand -hex 32`).
+   - `TU-DOMINIO`: el dominio que le pongas a esta app (paso 6). `UPSCALE_API_URL` e
+     `INTERNAL_API_URL` se quedan tal cual (son internas del contenedor).
+6. **Domains**: añade tu dominio (o el que te da EasyPanel) → **puerto 3001**, HTTPS.
+7. **Deploy**.
+8. Vuelve a Supabase (paso 1.5) y pon ahí ese dominio.
+
+Abre `https://TU-DOMINIO` → **Registrar con Google** → dentro.
 
 ---
 
-## 3. API en EasyPanel
+## Comprobar
 
-1. *Create → App* → GitHub `oneagencywebsia-cloud/upscale`, branch `main`, Build Path `/`.
-2. Build: **Dockerfile** `infra/api.Dockerfile`.
-3. **Environment** (todo lo de la sección API del `.env`):
-   `PORT=8080`, `DATABASE_URL`, `SUPABASE_JWT_SECRET`,
-   `STORAGE_DRIVER=telegram`, `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `TELEGRAM_SESSION`,
-   `TELEGRAM_CHANNEL_ID`, `BLOB_SECRET`,
-   `PUBLIC_API_URL=https://api.upscale.tudominio.es`,
-   `WEB_ORIGIN=https://upscale.tudominio.es`.
-4. (Opcional) un volumen pequeño en `/app/apps/api/tg-cache` para la caché de miniaturas
-   (se limita sola a 2 GB con `TG_CACHE_MAX_MB`).
-5. **Domains**: `api.upscale.tudominio.es` → puerto `8080`, HTTPS.
-6. Deploy → `https://api.upscale.tudominio.es/v1/healthz` → `{"ok":true,"db":true,...}`.
-   Si la sesión de Telegram está mal, la API no arranca y lo dice en los logs.
+- `https://TU-DOMINIO/_api/v1/healthz` → `{"ok":true,"db":true,...}` (si la sesión de
+  Telegram falla, la app no arranca y lo dice en los logs de EasyPanel).
+- Sube una foto con el botón «Subir». Aparece en la galería.
 
----
+## Subir desde el iPhone
 
-## 4. Web en EasyPanel (otra app)
+- Botón **«Subir»** en la web/PWA (instálala: *Compartir → Añadir a pantalla de inicio*).
+- Para Live Photos y originales 100 % garantizados: **Ajustes → Crear token** y monta el
+  Atajo de iOS (instrucciones en la propia pantalla de Ajustes).
 
-1. *Create → App* → mismo repo, branch `main`, Build Path `/`.
-2. Build: **Dockerfile** `infra/web.Dockerfile`.
-3. **Build Args**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
-4. **Environment**: los dos `NEXT_PUBLIC_*` + `UPSCALE_API_URL=https://api.upscale.tudominio.es`.
-5. **Domains**: `upscale.tudominio.es` → puerto `3001`, HTTPS.
-6. Supabase → Auth → URL Configuration: Site URL y `.../auth/callback` con esa URL.
+## Avisos
 
-Abre `https://upscale.tudominio.es` → **Registrar con Google** → entras a `/app`.
+- Usar Telegram de almacén es un uso no previsto; a escala personal va bien, pero si lo
+  consideraran abuso podrían cerrar la cuenta → exporta el canal de vez en cuando.
+- Límite 2 GB/archivo (4 con Telegram Premium).
+- Si algún día quieres un servicio "de verdad": `STORAGE_DRIVER=r2` (~1 €/mes) o `local`.
 
----
+## Alternativa: 2 apps separadas
 
-## 5. Subir fotos
-
-- **Desde la web/PWA**: botón **«Subir»** arriba.
-- **Live Photos y originales 100 % garantizados**: el **Atajo de iOS** (Ajustes → crear
-  token). El Atajo manda el HEIC a `POST /v1/assets` y, si es Live Photo, el MOV a
-  `POST /v1/assets/<id>/live-video` con la misma cabecera `X-Upload-Token`.
-
----
-
-## 6. Espacio y actividad
-
-- `/app/espacio`: cuánto ocupa tu biblioteca. Con Telegram no hay tope del disco, así
-  que aquí solo ves el total y puedes borrar lo que no quieras (borra también de Telegram).
-- `/app/actividad`: registro de lo que abres y descargas.
-
----
-
-## PWA
-
-Instalable. Chrome/Edge: **Instalar**. iPhone: *Compartir → Añadir a pantalla de inicio*.
-
----
-
-## Avisos honestos sobre usar Telegram de almacén
-
-- Es un uso no previsto. A escala personal la gente lo hace sin problema, pero si Telegram
-  lo considerara abuso podría limitar o cerrar la cuenta → se perdería todo (haz copia del
-  canal de vez en cuando, o exporta con Telegram Desktop).
-- Más lento que una nube de verdad (la primera vez que ves un original hay que bajarlo de
-  Telegram; las miniaturas se quedan en caché).
-- Si algún día quieres algo "de servicio", cambia `STORAGE_DRIVER` a `r2` (~1 €/mes) o
-  `local` — nada más del código cambia.
+Si prefieres separar, usa `infra/api.Dockerfile` (puerto 8080) e `infra/web.Dockerfile`
+(puerto 3001) en dos Apps, y pon `PUBLIC_API_URL`/`UPSCALE_API_URL` con la URL pública
+de la API. El resultado es el mismo.
