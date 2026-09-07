@@ -5,7 +5,7 @@ import { Transform, type Readable } from "node:stream";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import type { Asset, AssetListItem, AssetKind } from "@upscale/shared";
+import type { Asset, AssetListItem, AssetKind } from "../types.js";
 import { env } from "../env.js";
 import { query, one } from "../db.js";
 import { put, signedUrl, remove } from "../storage.js";

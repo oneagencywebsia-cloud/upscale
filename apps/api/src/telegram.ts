@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import type { Readable } from "node:stream";
 import { TelegramClient, Api } from "telegram";
-import { StringSession } from "telegram/sessions";
+import { StringSession } from "telegram/sessions/index.js";
 import { env } from "./env.js";
 import { query, one } from "./db.js";
 

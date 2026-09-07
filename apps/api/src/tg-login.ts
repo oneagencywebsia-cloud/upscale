@@ -1,6 +1,6 @@
 import input from "input";
 import { TelegramClient } from "telegram";
-import { StringSession } from "telegram/sessions";
+import { StringSession } from "telegram/sessions/index.js";
 
 /**
  * Login único de Telegram. Genera el TELEGRAM_SESSION que va en .env.

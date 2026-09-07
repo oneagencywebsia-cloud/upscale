@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import { extname } from "node:path";
 import sharp from "sharp";
 import { env } from "./env.js";
-import type { AssetKind } from "@upscale/shared";
+import type { AssetKind } from "./types.js";
 
 const run = promisify(execFile);
 
