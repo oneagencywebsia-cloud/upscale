@@ -1,9 +1,23 @@
 import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { pool } from "./db.js";
+import pg from "pg";
 
-/** Migrador mínimo: ejecuta migrations/*.sql en orden, una sola vez cada una. */
+/**
+ * Migrador mínimo: ejecuta migrations/*.sql en orden, una sola vez cada una.
+ * Solo necesita DATABASE_URL (no valida el resto de la config de la app).
+ */
+const url = process.env.DATABASE_URL;
+if (!url) {
+  console.error("Falta DATABASE_URL. Ejemplo:\n  $env:DATABASE_URL=\"postgresql://...\"; pnpm --filter @upscale/api migrate");
+  process.exit(1);
+}
+
+const pool = new pg.Pool({
+  connectionString: url,
+  ssl: url.includes("localhost") || url.includes("127.0.0.1") ? undefined : { rejectUnauthorized: false },
+});
+
 const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
 
 async function main() {
