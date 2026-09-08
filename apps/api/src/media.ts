@@ -6,20 +6,30 @@ import { env } from "./env.js";
 import type { AssetKind } from "./types.js";
 
 const run = promisify(execFile);
+const RUN_OPTS = { maxBuffer: 8 * 1024 * 1024, timeout: 45_000, killSignal: "SIGKILL" as const };
 
-const VIDEO_EXT = new Set([".mov", ".mp4", ".m4v", ".hevc", ".avci", ".3gp", ".avi", ".mkv"]);
+const VIDEO_EXT = new Set([".mov", ".mp4", ".m4v", ".hevc", ".avci", ".3gp", ".avi", ".mkv", ".webm"]);
+const IMAGE_EXT = new Set([".heic", ".heif", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".tiff", ".dng", ".avif"]);
 const EXT_MIME: Record<string, string> = {
   ".heic": "image/heic", ".heif": "image/heif", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
   ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif", ".tiff": "image/tiff",
   ".dng": "image/x-adobe-dng", ".mov": "video/quicktime", ".mp4": "video/mp4",
-  ".m4v": "video/x-m4v", ".avi": "video/x-msvideo", ".mkv": "video/x-matroska",
+  ".m4v": "video/x-m4v", ".avi": "video/x-msvideo", ".mkv": "video/x-matroska", ".webm": "video/webm",
 };
 
+/**
+ * Extensión real del archivo. Si el nombre no trae una extensión conocida
+ * (p. ej. el Atajo de iOS no manda X-Filename → "IMG.bin"), se deduce del
+ * Content-Type. Clave para que un vídeo se guarde y se sirva como vídeo.
+ */
 export function extFor(filename: string, contentType?: string): string {
   const e = extname(filename).toLowerCase();
-  if (e) return e;
-  const fromMime = Object.entries(EXT_MIME).find(([, m]) => m === contentType)?.[0];
-  return fromMime ?? ".bin";
+  if (VIDEO_EXT.has(e) || IMAGE_EXT.has(e)) return e;
+  const byMime = Object.entries(EXT_MIME).find(([, m]) => m === contentType)?.[0];
+  if (byMime) return byMime;
+  if (contentType?.startsWith("video/")) return ".mov";
+  if (contentType?.startsWith("image/")) return ".jpg";
+  return e || ".bin";
 }
 
 export function mimeFor(ext: string, contentType?: string): string {
@@ -72,7 +82,7 @@ export async function probe(path: string, filename: string, contentType?: string
   try {
     const { stdout } = await run(env.FFPROBE_PATH, [
       "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", path,
-    ], { maxBuffer: 8 * 1024 * 1024 });
+    ], RUN_OPTS);
     data = JSON.parse(stdout || "{}");
   } catch {
     data = {};
@@ -136,7 +146,7 @@ export async function extractFrame(src: string, out: string, maxW = 1600): Promi
   await run(
     env.FFMPEG_PATH,
     ["-y", "-i", src, "-frames:v", "1", "-vf", `scale='min(${maxW},iw)':-2`, "-q:v", "3", out],
-    { maxBuffer: 8 * 1024 * 1024 },
+    RUN_OPTS,
   );
 }
 

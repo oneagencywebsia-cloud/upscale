@@ -63,9 +63,7 @@ async function getClient(): Promise<TelegramClient> {
 async function getChannel(): Promise<Api.TypeInputPeer> {
   if (channelEntity) return channelEntity;
   const c = await getClient();
-  const raw = env.TELEGRAM_CHANNEL_ID!;
-  const id: string | number = /^-?\d+$/.test(raw) ? raw : raw;
-  channelEntity = await c.getInputEntity(id);
+  channelEntity = await c.getInputEntity(env.TELEGRAM_CHANNEL_ID!);
   return channelEntity;
 }
 
@@ -214,11 +212,18 @@ async function ensureCached(key: string): Promise<string> {
  * Descarga SOLO el rango pedido directamente de Telegram (sin bajar el archivo
  * entero). Así un vídeo empieza a reproducirse en cuanto llega el primer trozo.
  */
-async function tgReadRangeLive(
+// Cache corta de la localización del documento: durante la reproducción de un
+// vídeo el navegador pide decenas de rangos; sin esto haríamos un getMessages
+// (ida y vuelta a Telegram) por cada rango.
+const docCache = new Map<string, { loc: Api.InputDocumentFileLocation; total: number; at: number }>();
+const DOC_TTL = 90_000; // el fileReference caduca; 90 s va sobrado para un vídeo
+
+async function docLocation(
   key: string,
-  start: number,
-  end: number,
-): Promise<{ stream: Readable; totalSize: number }> {
+): Promise<{ loc: Api.InputDocumentFileLocation; total: number }> {
+  const hit = docCache.get(key);
+  if (hit && Date.now() - hit.at < DOC_TTL) return { loc: hit.loc, total: hit.total };
+
   const row = await one<{ tg_message_id: string; bytes: string }>(
     "select tg_message_id, bytes from blob_refs where key = $1",
     [key],
@@ -232,12 +237,24 @@ async function tgReadRangeLive(
   const doc = msg?.document as Api.Document | undefined;
   if (!doc) throw new Error("mensaje sin documento");
 
-  const location = new Api.InputDocumentFileLocation({
+  const loc = new Api.InputDocumentFileLocation({
     id: doc.id,
     accessHash: doc.accessHash,
     fileReference: doc.fileReference,
     thumbSize: "",
   });
+  docCache.set(key, { loc, total, at: Date.now() });
+  if (docCache.size > 50) docCache.delete(docCache.keys().next().value!);
+  return { loc, total };
+}
+
+async function tgReadRangeLive(
+  key: string,
+  start: number,
+  end: number,
+): Promise<{ stream: Readable; totalSize: number }> {
+  const c = await getClient();
+  const { loc: location, total } = await docLocation(key);
 
   const CHUNK = 512 * 1024; // requestSize: múltiplo de 4096, máx 512 KB
   const alignedStart = Math.floor(start / CHUNK) * CHUNK;
@@ -300,6 +317,7 @@ export async function tgRead(
       const { stream, totalSize } = await tgReadRangeLive(key, range.start, range.end);
       return { stream, size: range.end - range.start + 1, totalSize };
     } catch (e) {
+      docCache.delete(key); // por si el fileReference caducó
       // si el streaming directo falla, caemos a descargar entero y servir el rango
       console.error("[tg] streaming directo falló, uso caché completa:", (e as Error).message);
     }

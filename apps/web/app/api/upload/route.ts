@@ -8,15 +8,24 @@ export const runtime = "nodejs";
 export const maxDuration = 800;
 
 /**
- * Sube desde el navegador. El cliente manda el archivo como cuerpo binario crudo
- * (no multipart) para no bufferizarlo: se hace passthrough del stream a la API.
+ * Sube un archivo (navegador o Atajo de iOS). El cliente manda el binario crudo
+ * como cuerpo (no multipart); aquí se hace passthrough del stream a la API sin
+ * bufferizar. Auth: sesión Supabase (navegador) o cabecera X-Upload-Token (Atajo).
  */
 export async function POST(request: Request) {
-  if (!sameOrigin(request)) return forbidden();
-  const token = await getAccessToken();
-  if (!token) return NextResponse.json({ error: "no autorizado" }, { status: 401 });
+  const uploadToken = request.headers.get("x-upload-token");
 
-  const filename = request.headers.get("x-filename") ?? "IMG.bin";
+  let auth: Record<string, string>;
+  if (uploadToken) {
+    auth = { "x-upload-token": uploadToken };
+  } else {
+    if (!sameOrigin(request)) return forbidden();
+    const token = await getAccessToken();
+    if (!token) return NextResponse.json({ error: "no autorizado" }, { status: 401 });
+    auth = { authorization: `Bearer ${token}` };
+  }
+
+  const filename = request.headers.get("x-filename") ?? "IMG";
   const contentType = request.headers.get("content-type") || "application/octet-stream";
   const capturedAt = request.headers.get("x-captured-at") ?? new Date().toISOString();
 
@@ -24,12 +33,7 @@ export async function POST(request: Request) {
 
   const res = await fetch(`${API}/v1/assets`, {
     method: "POST",
-    headers: {
-      authorization: `Bearer ${token}`,
-      "x-filename": filename,
-      "content-type": contentType,
-      "x-captured-at": capturedAt,
-    },
+    headers: { ...auth, "x-filename": filename, "content-type": contentType, "x-captured-at": capturedAt },
     body: request.body,
     // @ts-expect-error -- requerido por undici para body de tipo stream
     duplex: "half",

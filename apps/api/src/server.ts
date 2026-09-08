@@ -15,10 +15,14 @@ import { storageRoutes } from "./routes/storage.js";
 
 const app = Fastify({
   logger: { level: process.env.LOG_LEVEL ?? "info" },
-  // Límite global bajo: los cuerpos JSON son minúsculos. Las rutas de subida
-  // fijan su propio límite y además validan el tamaño mientras hacen streaming.
-  bodyLimit: 256 * 1024,
+  // Los cuerpos JSON son minúsculos; las subidas van por el parser "*" (stream
+  // crudo, sin bufferizar) y validan su tamaño con sizeLimiter. Aun así dejamos
+  // un techo generoso por si Fastify cambia el trato del parser crudo.
+  bodyLimit: 3 * 1024 * 1024 * 1024,
   trustProxy: true,
+  // subidas grandes: hasta 20 min por petición; keepAlive largo para el proxy
+  requestTimeout: 20 * 60_000,
+  keepAliveTimeout: 75_000,
   disableRequestLogging: false,
 });
 
