@@ -4,6 +4,15 @@
 **/tmp
 **/.env
 **/.env.local
+**/.git
 .git
+.github
 *.log
 docs
+notas
+**/*.md
+**/tsconfig.tsbuildinfo
+**/.DS_Store
+**/data
+**/tg-cache
+**/.vscode

@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Upscale — TODO en un contenedor (API Fastify + Web Next.js).
 # En EasyPanel: 1 sola App → Dockerfile = infra/allinone.Dockerfile, Build Path = /, puerto 3001.
 #
@@ -7,17 +8,21 @@
 FROM node:20-bookworm-slim AS base
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
   && rm -rf /var/lib/apt/lists/*
+ENV PNPM_HOME=/pnpm
+ENV PATH=/pnpm:$PATH
+ENV NEXT_TELEMETRY_DISABLED=1
 RUN corepack enable
 WORKDIR /app
 
 # ---------- deps + build ----------
 FROM base AS build
-COPY package.json pnpm-workspace.yaml ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
 COPY packages/shared/package.json ./packages/shared/package.json
 COPY apps/api/package.json ./apps/api/package.json
 COPY apps/web/package.json ./apps/web/package.json
-COPY pnpm-lock.yaml* ./
-RUN pnpm install --config.node-linker=hoisted
+# La store de pnpm se cachea entre builds: al añadir una dependencia solo baja la nueva.
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --store-dir /pnpm/store --config.node-linker=hoisted
 
 COPY . .
 
@@ -27,7 +32,9 @@ ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
 ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 RUN pnpm --filter @upscale/api build
-RUN pnpm --filter @upscale/web build
+# La caché de compilación de Next se conserva entre builds → recompila solo lo cambiado.
+RUN --mount=type=cache,id=next-cache,target=/app/apps/web/.next/cache \
+    pnpm --filter @upscale/web build
 
 # ---------- runtime ----------
 FROM base AS runtime
