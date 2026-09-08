@@ -1,12 +1,32 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="u" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="bar" x1="150" y1="364" x2="362" y2="388" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#7adcec"/>
-      <stop offset="1" stop-color="#4fc5dc"/>
+      <stop offset="1" stop-color="#3fb9d2"/>
     </linearGradient>
+    <linearGradient id="chev" x1="150" y1="140" x2="362" y2="320" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d3ecf5"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="10" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <radialGradient id="vig" cx="0.5" cy="0.36" r="0.9">
+      <stop offset="0" stop-color="#1a2740"/>
+      <stop offset="1" stop-color="#0a0d14"/>
+    </radialGradient>
   </defs>
-  <rect width="512" height="512" rx="112" fill="#0a0d14"/>
-  <text x="256" y="322" text-anchor="middle" font-family="Arial, sans-serif"
-        font-weight="800" font-size="230" letter-spacing="-8" fill="#eef2fb">u</text>
-  <rect x="150" y="352" width="212" height="20" rx="10" fill="url(#u)"/>
+
+  <rect width="512" height="512" rx="112" fill="url(#vig)"/>
+
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M206 168 L256 140 L306 168" stroke="#7adcec" stroke-width="34" opacity="0.9"/>
+    <path d="M150 320 L256 216 L362 320" stroke="url(#chev)" stroke-width="42"/>
+  </g>
+
+  <g filter="url(#glow)">
+    <rect x="150" y="364" width="212" height="24" rx="12" fill="url(#bar)"/>
+    <circle cx="374" cy="376" r="12" fill="#8fe6f4"/>
+  </g>
 </svg>
