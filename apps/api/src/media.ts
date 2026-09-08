@@ -90,13 +90,20 @@ export async function probe(path: string, filename: string, contentType?: string
 
   const streams: any[] = data.streams ?? [];
   const v = streams.find((s) => s.codec_type === "video");
+  const audio = streams.find((s) => s.codec_type === "audio");
   const fmt = data.format ?? {};
   const tags = { ...(fmt.tags ?? {}), ...(v?.tags ?? {}) } as Record<string, string>;
 
-  // La extensión / mime manda: un .mov/.mp4 es vídeo aunque ffprobe no devuelva nada.
-  const kind: AssetKind = looksVideo ? "video" : "photo";
-
   const durationS = Number(fmt.duration) > 0 ? Math.round(Number(fmt.duration) * 100) / 100 : null;
+  const nbFrames = Number(v?.nb_frames) || 0;
+
+  // Ground truth = ffprobe. Una FOTO también aparece como stream "video" (mjpeg/hevc/png),
+  // pero sin duración, sin pista de audio y con 1 solo frame. Un VÍDEO real tiene
+  // duración > 0.3 s, o audio, o varios frames.
+  const looksVideoByProbe =
+    (durationS ?? 0) > 0.3 || !!audio || nbFrames > 1;
+  const kind: AssetKind = looksVideo || looksVideoByProbe ? "video" : "photo";
+
   const fps = kind === "video" ? (parseRate(v?.avg_frame_rate) ?? parseRate(v?.r_frame_rate)) : null;
   const videoBitrate = kind === "video"
     ? Number(v?.bit_rate) || Number(fmt.bit_rate) || null

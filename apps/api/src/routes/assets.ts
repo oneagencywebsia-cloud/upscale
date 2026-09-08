@@ -94,7 +94,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
       const contentType = typeof h["content-type"] === "string" ? h["content-type"] : undefined;
       const capturedHeader = typeof h["x-captured-at"] === "string" ? h["x-captured-at"] : undefined;
 
-      const ext = (extFor(filename, contentType).toLowerCase().match(/^\.[a-z0-9]{1,12}$/)?.[0]) ?? ".bin";
+      let ext = (extFor(filename, contentType).toLowerCase().match(/^\.[a-z0-9]{1,12}$/)?.[0]) ?? ".bin";
       const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const tmpOrig = join(env.TMP_DIR, `${stamp}${ext}`);
       const tmpThumb = join(env.TMP_DIR, `${stamp}.thumb.webp`);
@@ -136,6 +136,14 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
         }
 
         const info = await probe(tmpOrig, filename, contentType);
+
+        // La extensión de almacenamiento la manda lo que ffprobe detectó, no el
+        // nombre/tipo que llegó (el Atajo suele mandar octet-stream / sin nombre).
+        const VIDEO_EXTS = [".mov", ".mp4", ".m4v", ".webm", ".mkv", ".avi"];
+        const IMAGE_EXTS = [".heic", ".heif", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".tiff", ".dng", ".avif"];
+        if (info.kind === "video" && !VIDEO_EXTS.includes(ext)) ext = ".mov";
+        if (info.kind === "photo" && !IMAGE_EXTS.includes(ext)) ext = ".jpg";
+
         const capturedAt = info.capturedAt ?? safeIso(capturedHeader) ?? new Date().toISOString();
 
         const d = new Date(capturedAt);
