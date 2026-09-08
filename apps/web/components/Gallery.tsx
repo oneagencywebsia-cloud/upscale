@@ -32,8 +32,10 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
 
   function openAt(idx: number) {
     const a = assets[idx];
-    // calienta la caché del servidor mientras se abre el visor (vídeos de Telegram)
-    if (a?.kind === "video") fetch(`/api/media/${a.id}`, { cache: "force-cache" }).catch(() => {});
+    // pide ya el primer trozo del vídeo para que empiece a reproducirse al instante
+    if (a?.kind === "video") {
+      fetch(`/api/media/${a.id}`, { headers: { range: "bytes=0-1048575" } }).catch(() => {});
+    }
     setOpenIdx(idx);
   }
 

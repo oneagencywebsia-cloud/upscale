@@ -146,6 +146,10 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
         const thumbKey = `copy/${base}/thumb.webp`;
         const mime = mimeFor(ext, contentType);
 
+        // El original se sube YA, en paralelo con la generación de miniaturas.
+        const origUpload = put(originalKey, tmpOrig, mime);
+        origUpload.catch(() => {}); // se maneja en el Promise.all de abajo
+
         // Derivados: si algo falla, seguimos con una miniatura de reserva (no perdemos el original).
         let posterKey: string | null = null;
         try {
@@ -162,9 +166,9 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
           posterKey = null;
         }
 
-        await put(originalKey, tmpOrig, mime);
-        await put(thumbKey, tmpThumb, "image/webp");
-        if (posterKey) await put(posterKey, tmpPoster, "image/jpeg");
+        const uploads: Promise<unknown>[] = [origUpload, put(thumbKey, tmpThumb, "image/webp")];
+        if (posterKey) uploads.push(put(posterKey, tmpPoster, "image/jpeg"));
+        await Promise.all(uploads);
 
         const inserted = await one<{ id: string }>(
           `insert into assets

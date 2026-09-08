@@ -28,6 +28,9 @@ importers:
       '@upscale/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      big-integer:
+        specifier: ^1.6.52
+        version: 1.6.52
       fastify:
         specifier: ^5.1.0
         version: 5.12.3

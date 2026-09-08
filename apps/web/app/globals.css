@@ -1651,6 +1651,115 @@ footer.status .dot {
     transform: rotate(360deg);
   }
 }
+
+/* ---------- overlay de subida ---------- */
+.up-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+.up-card {
+  width: min(460px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px;
+  border-radius: 20px;
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  box-shadow: var(--shadow);
+}
+.up-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.up-head h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 16px;
+}
+.up-pct {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.up-track {
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  overflow: hidden;
+}
+.up-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #fff));
+}
+.up-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.up-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  font-size: 12px;
+}
+.up-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+.up-state {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-mute);
+}
+.up-item.done .up-state {
+  color: #29b673;
+}
+.up-item.error .up-state {
+  color: #e5484d;
+}
+.up-mini {
+  grid-column: 1 / -1;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  overflow: hidden;
+}
+.up-mini-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.up-item.done .up-mini-fill {
+  background: #29b673;
+}
+.up-item.error .up-mini-fill {
+  background: #e5484d;
+}
+.up-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-mute);
+}
 .viewer-play {
   position: absolute;
   inset: 0;

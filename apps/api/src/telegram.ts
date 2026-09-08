@@ -2,7 +2,8 @@ import { createReadStream, existsSync, createWriteStream } from "node:fs";
 import { mkdir, stat, rm, readdir, utimes, rename } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
-import type { Readable } from "node:stream";
+import { Readable } from "node:stream";
+import bigInt from "big-integer";
 import { TelegramClient, Api } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
 import { env } from "./env.js";
@@ -106,11 +107,13 @@ export async function tgPut(key: string, filePath: string): Promise<void> {
   const c = await getClient();
   const channel = await getChannel();
   const { size } = await stat(filePath);
+  // más "workers" = más trozos en paralelo = subida más rápida en archivos grandes
+  const workers = size > 8 * 1024 * 1024 ? 16 : 4;
   const msg = await c.sendFile(channel, {
     file: filePath,
     forceDocument: true,
     caption: key,
-    workers: 4,
+    workers,
   });
   const messageId = Number((msg as Api.Message).id);
   await query(
@@ -188,19 +191,109 @@ async function ensureCached(key: string): Promise<string> {
   return cp;
 }
 
-/** Stream de lectura del objeto (de la caché de disco; lo baja de Telegram si hace falta). */
+/**
+ * Descarga SOLO el rango pedido directamente de Telegram (sin bajar el archivo
+ * entero). Así un vídeo empieza a reproducirse en cuanto llega el primer trozo.
+ */
+async function tgReadRangeLive(
+  key: string,
+  start: number,
+  end: number,
+): Promise<{ stream: Readable; totalSize: number }> {
+  const row = await one<{ tg_message_id: string; bytes: string }>(
+    "select tg_message_id, bytes from blob_refs where key = $1",
+    [key],
+  );
+  if (!row) throw new Error("blob no registrado");
+  const total = Number(row.bytes);
+
+  const c = await getClient();
+  const channel = await getChannel();
+  const [msg] = await c.getMessages(channel, { ids: [Number(row.tg_message_id)] });
+  const doc = msg?.document as Api.Document | undefined;
+  if (!doc) throw new Error("mensaje sin documento");
+
+  const location = new Api.InputDocumentFileLocation({
+    id: doc.id,
+    accessHash: doc.accessHash,
+    fileReference: doc.fileReference,
+    thumbSize: "",
+  });
+
+  const CHUNK = 512 * 1024; // requestSize: múltiplo de 4096, máx 512 KB
+  const alignedStart = Math.floor(start / CHUNK) * CHUNK;
+  const skip = start - alignedStart;
+  const wantLen = end - start + 1;
+
+  const iter = c.iterDownload({
+    file: location,
+    offset: bigInt(alignedStart),
+    limit: wantLen + skip,
+    requestSize: CHUNK,
+  });
+
+  async function* gen(): AsyncGenerator<Buffer> {
+    let dropped = 0;
+    let emitted = 0;
+    for await (const chunk of iter) {
+      let buf = Buffer.from(chunk as Uint8Array);
+      if (dropped < skip) {
+        const d = Math.min(skip - dropped, buf.length);
+        dropped += d;
+        buf = buf.subarray(d);
+      }
+      if (!buf.length) continue;
+      const remaining = wantLen - emitted;
+      if (buf.length > remaining) buf = buf.subarray(0, remaining);
+      emitted += buf.length;
+      yield buf;
+      if (emitted >= wantLen) return;
+    }
+  }
+
+  return { stream: Readable.from(gen()), totalSize: total };
+}
+
+/** Stream de lectura del objeto. Con `range` intenta servir en directo desde Telegram. */
 export async function tgRead(
   key: string,
   range?: { start: number; end: number },
 ): Promise<{ stream: Readable; size: number; totalSize: number }> {
-  const cp = await ensureCached(key);
-  const { size } = await stat(cp);
+  const cp = cachePath(key);
+
+  // ya cacheado: servir del disco (rápido y con seek instantáneo)
+  if (existsSync(cp)) {
+    await utimes(cp, new Date(), new Date()).catch(() => {});
+    const { size } = await stat(cp);
+    if (range) {
+      return {
+        stream: createReadStream(cp, { start: range.start, end: range.end }),
+        size: range.end - range.start + 1,
+        totalSize: size,
+      };
+    }
+    return { stream: createReadStream(cp), size, totalSize: size };
+  }
+
+  // rango + no cacheado: streaming en directo desde Telegram (arranca al instante)
+  if (range) {
+    try {
+      const { stream, totalSize } = await tgReadRangeLive(key, range.start, range.end);
+      return { stream, size: range.end - range.start + 1, totalSize };
+    } catch (e) {
+      // si el streaming directo falla, caemos a descargar entero y servir el rango
+      console.error("[tg] streaming directo falló, uso caché completa:", (e as Error).message);
+    }
+  }
+
+  const full = await ensureCached(key);
+  const { size } = await stat(full);
   if (range) {
     return {
-      stream: createReadStream(cp, { start: range.start, end: range.end }),
+      stream: createReadStream(full, { start: range.start, end: range.end }),
       size: range.end - range.start + 1,
       totalSize: size,
     };
   }
-  return { stream: createReadStream(cp), size, totalSize: size };
+  return { stream: createReadStream(full), size, totalSize: size };
 }
