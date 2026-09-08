@@ -56,26 +56,44 @@ export default async function AjustesPage() {
         <p className="panel-lede">
           Al elegir un vídeo desde <b>Fototeca</b> en el navegador, iOS lo <b>recodifica</b>
           (60→30 fps, HEVC→H.264, menos bitrate) <b>antes</b> de que llegue a Upscale. Ninguna
-          web puede impedirlo. Vías que sí guardan el original:
+          web puede impedirlo. Dos vías que sí guardan el original:
+        </p>
+
+        <p className="panel-lede" style={{ marginTop: 4 }}>
+          <b>1 · Archivos (sin instalar nada).</b>
         </p>
         <ol className="steps">
+          <li>En <b>Fotos</b>, abre el vídeo → <b>Compartir</b> → <b>Guardar en Archivos</b>.</li>
+          <li>Aquí, pulsa <b>Subir</b> → en el menú elige <b>Explorar</b> → cógelo de <b>Archivos</b>.</li>
+          <li>Se sube byte a byte (mismo SHA-256). La pantalla de subida te confirma los fps.</li>
+        </ol>
+
+        <p className="panel-lede" style={{ marginTop: 10 }}>
+          <b>2 · Atajo (se monta una vez, luego va desde «Compartir»).</b> iOS ya no deja
+          importar atajos de un archivo; hay que crearlo en el iPhone. Son 6 pasos:
+        </p>
+        <ol className="steps">
+          <li>App <b>Atajos</b> → <b>+</b> → <b>Añadir acción</b>.</li>
           <li>
-            <b>Atajo listo (recomendado):</b> descárgalo aquí, ábrelo → <b>Añadir atajo</b>.
-            Luego, en <b>Fotos</b>: selecciona vídeos → <b>Compartir</b> → <b>Upscale (original)</b>.
-            Sube el archivo intacto, en lote.{" "}
-            <a className="btn primary sm" href="/app/shortcut" download="Upscale.shortcut" style={{ marginTop: 8 }}>
-              Descargar Atajo
-            </a>
-            <br />
-            <small>
-              La primera vez: Ajustes de iOS → <b>Atajos</b> → <b>Atajos avanzados</b> →
-              activa <b>«Permitir atajos no fiables»</b> (aparece tras ejecutar cualquier atajo una vez).
-            </small>
+            Busca <b>«Repetir con cada»</b> y añádelo. Como entrada deja{" "}
+            <i>«Entrada del atajo»</i>.
           </li>
           <li>
-            <b>Manual:</b> en <b>Fotos</b>, abre el vídeo → <b>Compartir</b> →{" "}
-            <b>Guardar en Archivos</b>. Luego pulsa <b>Subir</b> → <b>Explorar</b> y cógelo de
-            <b> Archivos</b>. Byte a byte.
+            Dentro del repetir, <b>Añadir acción</b> → <b>«Obtener contenido de la URL»</b>.
+            URL: <code>{endpoint}</code>
+          </li>
+          <li>
+            En esa acción pulsa <b>«Mostrar más»</b>: Método <b>POST</b> · Cabeceras <b>+</b>{" "}
+            clave <code>X-Upload-Token</code> y de valor tu token (créalo abajo) · Solicitar
+            cuerpo <b>Archivo</b> · Archivo = variable <i>«Elemento de repetición»</i>.
+          </li>
+          <li>
+            Arriba, toca el nombre → <b>ⓘ Detalles</b> → activa{" "}
+            <b>«Mostrar en la hoja de compartir»</b> (tipos: imágenes y vídeos).
+          </li>
+          <li>
+            Ya está. En <b>Fotos</b>: selecciona vídeos → <b>Compartir</b> → tu atajo. Sube el
+            original, en lote. En <b>Editar acciones</b> de la hoja de Compartir lo pones el primero.
           </li>
         </ol>
       </section>
@@ -90,26 +108,13 @@ export default async function AjustesPage() {
       </section>
 
       <section className="panel">
-        <h3>Cómo montar el Atajo</h3>
+        <h3>Variante en lote (todo el carrete)</h3>
         <p className="panel-lede">
-          <b>Modo lote</b> (recorre el carrete) o <b>modo compartir</b> (lo activas desde la
-          hoja de Compartir sobre 1 o varios vídeos). Para el segundo, en los ajustes del
-          Atajo activa <b>«Mostrar en hoja de compartir»</b> y tipo de entrada <i>Imágenes y
-          vídeos</i>; luego <b>Editar acciones</b> en la hoja de Compartir para ponerlo arriba.
+          El mismo atajo, pero en vez de <i>«Entrada del atajo»</i> empieza con{" "}
+          <b>«Buscar fotos»</b> (filtro: últimos 7 días, más antiguas primero, límite 150) y
+          el resto igual. Añádele <b>Automatizaciones</b> (al llegar al WiFi de casa, al
+          conectar el cargador, a las 14:00 y 22:00) y sube solo sin que hagas nada.
         </p>
-        <ol className="steps">
-          <li>
-            <b>Lote:</b> <b>Buscar fotos</b> — «fecha de captura en los últimos 7 días», más
-            antiguas primero, límite 150. <b>Compartir:</b> usa <i>Entrada del Atajo</i>.
-          </li>
-          <li><b>Repetir con cada uno</b> → <b>Obtener detalles de las fotos</b> → <i>Nombre</i>.</li>
-          <li>
-            <b>Obtener contenido de la URL</b>: POST a <code>{endpoint}</code>, cabeceras{" "}
-            <code>X-Upload-Token</code> (tu token) y <code>X-Filename</code> (el Nombre), cuerpo ={" "}
-            <i>Archivo</i> → <i>Elemento de repetición</i>.
-          </li>
-          <li>Automatizaciones: al llegar al WiFi de casa, al conectar el cargador, y a las 14:00 y 22:00.</li>
-        </ol>
       </section>
     </div>
   );
