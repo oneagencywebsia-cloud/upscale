@@ -28,6 +28,30 @@ export default async function AjustesPage() {
       </div>
 
       <section className="panel">
+        <h3>«Compartir → Upscale» desde Fotos</h3>
+        <p className="panel-lede">
+          Para que <b>Upscale</b> aparezca en la hoja de Compartir del iPhone tienes que
+          <b> instalar la app</b> primero: abre Upscale en Safari → botón <b>Compartir</b> →
+          <b> Añadir a pantalla de inicio</b>. A partir de ahí, al compartir una foto o vídeo
+          verás <b>Upscale</b> entre las apps y se sube directo.
+        </p>
+        <ol className="steps">
+          <li>
+            <b>El orden lo decide iOS</b> (según lo que uses). No se puede forzar que salga
+            primero, pero sube solo: en la hoja de Compartir desliza la fila de apps → <b>Más</b>
+            {" "}→ <b>Editar</b> y arrastra Upscale arriba (o marca la estrella).
+          </li>
+          <li>
+            El vídeo compartido a la app <b>puede recodificarlo iOS</b> igual que la Fototeca.
+            Si lo hace, la pantalla de subida te avisa. Para el original garantizado desde
+            Compartir, usa el <b>Atajo</b> (más abajo) con <i>«Mostrar en hoja de compartir»</i>
+            activado: los Atajos sí reciben el archivo intacto y ese sí lo puedes fijar arriba
+            en <b>Editar acciones</b>.
+          </li>
+        </ol>
+      </section>
+
+      <section className="panel">
         <h3>Vídeo en calidad original</h3>
         <p className="panel-lede">
           Al elegir un vídeo desde <b>Fototeca</b> en el navegador, iOS lo <b>recodifica</b>
@@ -57,8 +81,17 @@ export default async function AjustesPage() {
 
       <section className="panel">
         <h3>Cómo montar el Atajo</h3>
+        <p className="panel-lede">
+          <b>Modo lote</b> (recorre el carrete) o <b>modo compartir</b> (lo activas desde la
+          hoja de Compartir sobre 1 o varios vídeos). Para el segundo, en los ajustes del
+          Atajo activa <b>«Mostrar en hoja de compartir»</b> y tipo de entrada <i>Imágenes y
+          vídeos</i>; luego <b>Editar acciones</b> en la hoja de Compartir para ponerlo arriba.
+        </p>
         <ol className="steps">
-          <li><b>Buscar fotos</b> — «fecha de captura en los últimos 7 días», más antiguas primero, límite 150.</li>
+          <li>
+            <b>Lote:</b> <b>Buscar fotos</b> — «fecha de captura en los últimos 7 días», más
+            antiguas primero, límite 150. <b>Compartir:</b> usa <i>Entrada del Atajo</i>.
+          </li>
           <li><b>Repetir con cada uno</b> → <b>Obtener detalles de las fotos</b> → <i>Nombre</i>.</li>
           <li>
             <b>Obtener contenido de la URL</b>: POST a <code>{endpoint}</code>, cabeceras{" "}
