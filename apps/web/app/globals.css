@@ -1760,6 +1760,13 @@ footer.status .dot {
   font-size: 11px;
   color: var(--text-mute);
 }
+.up-warn {
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: color-mix(in srgb, #e5a11e 16%, transparent);
+  color: color-mix(in srgb, #e5a11e 92%, var(--text));
+  line-height: 1.45;
+}
 .viewer-play {
   position: absolute;
   inset: 0;

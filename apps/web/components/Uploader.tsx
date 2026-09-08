@@ -9,6 +9,7 @@ interface Job {
   name: string;
   pct: number;
   phase: Phase;
+  video: boolean;
 }
 
 const PHASE_TEXT: Record<Phase, string> = {
@@ -57,9 +58,15 @@ export default function Uploader({ onDone, busyLabel }: { onDone: () => void; bu
     ? Math.round(jobs.reduce((s, j) => s + (j.phase === "done" || j.phase === "error" ? 100 : j.pct), 0) / jobs.length)
     : 0;
   const failed = running ? jobs.filter((j) => j.phase === "error").length : 0;
+  const hasVideo = running ? jobs.some((j) => j.video) : false;
 
   async function run(files: File[]) {
-    const init: Job[] = files.map((f) => ({ name: f.name, pct: 0, phase: "wait" }));
+    const init: Job[] = files.map((f) => ({
+      name: f.name,
+      pct: 0,
+      phase: "wait",
+      video: (f.type || "").startsWith("video/") || /\.(mov|mp4|m4v|hevc)$/i.test(f.name),
+    }));
     setJobs(init);
     for (let i = 0; i < files.length; i++) {
       const set = (patch: Partial<Job>) =>
@@ -126,6 +133,12 @@ export default function Uploader({ onDone, busyLabel }: { onDone: () => void; bu
           ))}
         </ul>
 
+        {hasVideo && (
+          <p className="up-hint up-warn">
+            Los vídeos subidos desde el navegador del iPhone pueden perder fps y calidad
+            (iOS los recodifica). Para el original íntegro usa el Atajo — mira Ajustes.
+          </p>
+        )}
         {allSettled && (
           <button className="btn primary sm" type="button" onClick={() => setJobs(null)}>
             Cerrar

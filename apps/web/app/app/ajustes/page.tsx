@@ -30,8 +30,10 @@ export default async function AjustesPage() {
       <section className="panel">
         <h3>Token de subida (Atajo de iOS)</h3>
         <p className="panel-lede">
-          <b>Opcional.</b> Para subir fotos del iPhone automáticamente. Crea un token y úsalo en un
-          Atajo como cabecera <code>X-Upload-Token</code>. El endpoint es <code>{endpoint}</code>.
+          <b>Recomendado para vídeo.</b> El botón «Subir» del navegador vale para fotos, pero
+          iOS <b>recodifica los vídeos</b> antes de subirlos (60→30 fps, HEVC→H.264, menos
+          bitrate). El Atajo manda el archivo <b>tal cual sale del iPhone</b>. Crea un token y
+          úsalo como cabecera <code>X-Upload-Token</code>. Endpoint: <code>{endpoint}</code>.
         </p>
         <TokenManager initialTokens={tokens} />
       </section>

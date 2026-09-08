@@ -88,6 +88,45 @@ Abre `https://TU-DOMINIO` → **Registrar con Google** → dentro.
 - Para Live Photos y originales 100 % garantizados: **Ajustes → Crear token** y monta el
   Atajo de iOS (instrucciones en la propia pantalla de Ajustes).
 
+## Deploy rápido: imagen pre-construida (GitHub Actions → GHCR)
+
+En vez de que EasyPanel construya la imagen en el VPS (lento), GitHub la construye
+y la sube a `ghcr.io/oneagencywebsia-cloud/upscale:latest`. EasyPanel solo la
+descarga y reinicia (~1 min).
+
+**Una vez:**
+
+1. GitHub → repo `upscale` → **Settings → Secrets and variables → Actions → Variables**
+   → **New repository variable** (x2):
+   - `NEXT_PUBLIC_SUPABASE_URL` = Project URL de Supabase
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = anon public de Supabase
+   (No son secretos: ya viajan al navegador. Van como *Variables*, no *Secrets*.)
+2. Haz un push a `main` (o Actions → *build & push image* → **Run workflow**). Espera a que
+   termine en verde.
+3. GitHub → tu perfil/organización → **Packages** → `upscale` → **Package settings** →
+   **Change visibility → Public** (así EasyPanel lo baja sin credenciales).
+4. EasyPanel → app `upscale` → **Source**: cambia de *Github/Dockerfile* a
+   **Docker Image** = `ghcr.io/oneagencywebsia-cloud/upscale:latest`.
+   Deja **igual** todo lo de *Environment* y el dominio (puerto 3001).
+5. **Deploy**. A partir de ahora, cada push a `main` reconstruye la imagen en GitHub;
+   para publicarla pulsa **Deploy** en EasyPanel (o configura un *Deploy hook*:
+   EasyPanel te da una URL; ponla como secreto `EASYPANEL_DEPLOY_HOOK` y descomenta
+   el último paso de `.github/workflows/build.yml` para que se redespliegue solo).
+
+Las migraciones de la BD siguen corriendo solas al arrancar el contenedor.
+
+## Vídeo desde el iPhone: 30 fps vs 60/120/240 fps
+
+Subir un vídeo con el **botón «Subir» del navegador en el iPhone** = iOS lo
+**recodifica** antes de dárselo a la web (HEVC→H.264 y a menudo 60→30 fps, menos
+bitrate). Es una limitación de Safari/iOS, no de Upscale: la web nunca llega a ver
+el archivo original.
+
+Para guardar el vídeo **tal cual sale del iPhone** (60/120/240 fps, HEVC, bitrate
+completo): usa el **Atajo de iOS** (Ajustes → Crear token). El Atajo manda el
+archivo original sin pasar por el recodificador de Safari. Las fotos por el
+navegador sí van íntegras; el problema es solo el vídeo.
+
 ## Avisos
 
 - Usar Telegram de almacén es un uso no previsto; a escala personal va bien, pero si lo
