@@ -200,8 +200,8 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
         return { status: "saved", id };
       } catch (err) {
         await cleanup();
-        req.log.error(err, "fallo al subir asset");
-        return reply.code(500).send({ error: "no se pudo procesar el archivo" });
+        req.log.error({ err: (err as Error)?.message, stack: (err as Error)?.stack, filename, userId }, "fallo al subir asset");
+        return reply.code(500).send({ error: "no se pudo procesar el archivo", detalle: (err as Error)?.message });
       }
     },
   );

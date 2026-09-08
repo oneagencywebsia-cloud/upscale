@@ -17,6 +17,15 @@ import { query, one } from "./db.js";
  */
 
 let clientPromise: Promise<TelegramClient> | null = null;
+let channelEntity: Api.TypeInputPeer | null = null;
+
+/** Descarta el cliente y el canal cacheados: la siguiente llamada reconecta de cero. */
+function resetTelegram(): void {
+  const dying = clientPromise;
+  clientPromise = null;
+  channelEntity = null;
+  dying?.then((c) => c.disconnect().catch(() => {})).catch(() => {});
+}
 
 async function getClient(): Promise<TelegramClient> {
   if (!clientPromise) {
@@ -51,7 +60,6 @@ async function getClient(): Promise<TelegramClient> {
   }
 }
 
-let channelEntity: Api.TypeInputPeer | null = null;
 async function getChannel(): Promise<Api.TypeInputPeer> {
   if (channelEntity) return channelEntity;
   const c = await getClient();
@@ -104,17 +112,28 @@ export async function ensureTelegram(): Promise<void> {
 
 /** Sube el archivo como documento (bytes exactos) y registra key -> message_id. */
 export async function tgPut(key: string, filePath: string): Promise<void> {
-  const c = await getClient();
   const channel = await getChannel();
   const { size } = await stat(filePath);
   // más "workers" = más trozos en paralelo = subida más rápida en archivos grandes
   const workers = size > 8 * 1024 * 1024 ? 20 : 4;
-  const msg = await c.sendFile(channel, {
-    file: filePath,
-    forceDocument: true,
-    caption: key,
-    workers,
-  });
+
+  let msg: unknown;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const c = await getClient();
+      msg = await c.sendFile(channel, { file: filePath, forceDocument: true, caption: key, workers });
+      lastErr = null;
+      break;
+    } catch (e) {
+      lastErr = e;
+      // fuerza reconexión limpia antes de reintentar
+      resetTelegram();
+      await new Promise((r) => setTimeout(r, 1500 * attempt));
+    }
+  }
+  if (lastErr || !msg) throw lastErr ?? new Error("sendFile no devolvió mensaje");
+
   const messageId = Number((msg as Api.Message).id);
   await query(
     `insert into blob_refs (key, tg_message_id, bytes) values ($1,$2,$3)
