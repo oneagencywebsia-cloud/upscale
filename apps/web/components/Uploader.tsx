@@ -10,6 +10,8 @@ interface Job {
   pct: number;
   phase: Phase;
   video: boolean;
+  fps: number | null;
+  degraded: boolean; // iOS lo recodificó (≈30 fps) al pasarlo por el navegador
 }
 
 const PHASE_TEXT: Record<Phase, string> = {
@@ -20,11 +22,59 @@ const PHASE_TEXT: Record<Phase, string> = {
   error: "Error",
 };
 
-function uploadOne(
-  file: File,
-  onPct: (p: number) => void,
-  onProcessing: () => void,
-): Promise<boolean> {
+const isVideo = (f: File) =>
+  (f.type || "").startsWith("video/") || /\.(mov|mp4|m4v|hevc|webm|mkv)$/i.test(f.name);
+
+/** Mide los fps reales del archivo reproduciendo unos fotogramas en un <video> oculto. */
+function probeFps(file: File): Promise<number | null> {
+  return new Promise((resolve) => {
+    const v = document.createElement("video");
+    const url = URL.createObjectURL(file);
+    let done = false;
+    const finish = (fps: number | null) => {
+      if (done) return;
+      done = true;
+      try {
+        v.pause();
+      } catch {}
+      URL.revokeObjectURL(url);
+      resolve(fps);
+    };
+    const rvfc = (
+      v as HTMLVideoElement & {
+        requestVideoFrameCallback?: (cb: (now: number, meta: { mediaTime: number }) => void) => number;
+      }
+    ).requestVideoFrameCallback?.bind(v);
+    if (!rvfc) return finish(null);
+
+    v.muted = true;
+    v.playsInline = true;
+    v.preload = "auto";
+    v.src = url;
+
+    let frames = 0;
+    let t0 = -1;
+    let lastT = -1;
+    const tick = (_now: number, meta: { mediaTime: number }) => {
+      if (t0 < 0) t0 = meta.mediaTime;
+      lastT = meta.mediaTime;
+      frames++;
+      const elapsed = lastT - t0;
+      if (elapsed >= 0.7 && frames > 4) return finish(Math.round(frames / elapsed));
+      rvfc(tick);
+    };
+    v.onloadeddata = () => {
+      v.play().then(() => rvfc(tick)).catch(() => finish(null));
+    };
+    v.onerror = () => finish(null);
+    setTimeout(() => {
+      const elapsed = lastT - t0;
+      finish(frames > 4 && elapsed > 0.2 ? Math.round(frames / elapsed) : null);
+    }, 3500);
+  });
+}
+
+function uploadOne(file: File, onPct: (p: number) => void, onProcessing: () => void): Promise<boolean> {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/upload");
@@ -46,7 +96,7 @@ function uploadOne(
   });
 }
 
-export default function Uploader({ onDone, busyLabel }: { onDone: () => void; busyLabel?: string }) {
+export default function Uploader({ onDone }: { onDone: () => void }) {
   const input = useRef<HTMLInputElement>(null);
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -55,29 +105,46 @@ export default function Uploader({ onDone, busyLabel }: { onDone: () => void; bu
   const running = jobs !== null;
   const allSettled = running && jobs.every((j) => j.phase === "done" || j.phase === "error");
   const overall = running
-    ? Math.round(jobs.reduce((s, j) => s + (j.phase === "done" || j.phase === "error" ? 100 : j.pct), 0) / jobs.length)
+    ? Math.round(
+        jobs.reduce((s, j) => s + (j.phase === "done" || j.phase === "error" ? 100 : j.pct), 0) / jobs.length,
+      )
     : 0;
   const failed = running ? jobs.filter((j) => j.phase === "error").length : 0;
-  const hasVideo = running ? jobs.some((j) => j.video) : false;
+  const anyDegraded = running ? jobs.some((j) => j.degraded) : false;
+  const anyVideo = running ? jobs.some((j) => j.video) : false;
 
   async function run(files: File[]) {
-    const init: Job[] = files.map((f) => ({
-      name: f.name,
-      pct: 0,
-      phase: "wait",
-      video: (f.type || "").startsWith("video/") || /\.(mov|mp4|m4v|hevc)$/i.test(f.name),
-    }));
-    setJobs(init);
+    const set = (i: number, patch: Partial<Job>) =>
+      setJobs((js) => (js ? js.map((j, k) => (k === i ? { ...j, ...patch } : j)) : js));
+
+    setJobs(
+      files.map((f) => ({
+        name: f.name,
+        pct: 0,
+        phase: "wait",
+        video: isVideo(f),
+        fps: null,
+        degraded: false,
+      })),
+    );
+
+    // mide fps de los vídeos en paralelo (no bloquea la subida)
+    files.forEach((f, i) => {
+      if (!isVideo(f)) return;
+      probeFps(f).then((fps) => {
+        if (fps == null) return;
+        set(i, { fps, degraded: fps > 0 && fps <= 32 });
+      });
+    });
+
     for (let i = 0; i < files.length; i++) {
-      const set = (patch: Partial<Job>) =>
-        setJobs((js) => (js ? js.map((j, k) => (k === i ? { ...j, ...patch } : j)) : js));
-      set({ phase: "upload" });
+      set(i, { phase: "upload" });
       const ok = await uploadOne(
         files[i]!,
-        (p) => set({ pct: p }),
-        () => set({ phase: "process" }),
+        (p) => set(i, { pct: p }),
+        () => set(i, { phase: "process" }),
       );
-      set({ phase: ok ? "done" : "error", pct: 100 });
+      set(i, { phase: ok ? "done" : "error", pct: 100 });
     }
     onDone();
   }
@@ -89,12 +156,7 @@ export default function Uploader({ onDone, busyLabel }: { onDone: () => void; bu
   }
 
   const overlay = running && mounted && (
-    <motion.div
-      className="up-overlay"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-    >
+    <motion.div className="up-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <motion.div
         className="up-card"
         initial={{ opacity: 0, y: 24, scale: 0.96 }}
@@ -119,9 +181,7 @@ export default function Uploader({ onDone, busyLabel }: { onDone: () => void; bu
           {jobs.map((j, i) => (
             <li key={i} className={`up-item ${j.phase}`}>
               <span className="up-name">{j.name}</span>
-              <span className="up-state">
-                {j.phase === "upload" ? `${j.pct}%` : PHASE_TEXT[j.phase]}
-              </span>
+              <span className="up-state">{j.phase === "upload" ? `${j.pct}%` : PHASE_TEXT[j.phase]}</span>
               <div className="up-mini">
                 <motion.div
                   className="up-mini-fill"
@@ -129,36 +189,51 @@ export default function Uploader({ onDone, busyLabel }: { onDone: () => void; bu
                   transition={{ type: "spring", stiffness: 140, damping: 22 }}
                 />
               </div>
+              {j.degraded && (
+                <span className="up-degraded">
+                  iOS lo ha bajado a ~{j.fps} fps. Súbelo desde <b>Archivos</b> o con el Atajo para el original.
+                </span>
+              )}
+              {j.video && !j.degraded && j.fps != null && (
+                <span className="up-ok">{j.fps} fps · íntegro</span>
+              )}
             </li>
           ))}
         </ul>
 
-        {hasVideo && (
-          <p className="up-hint up-warn">
-            Los vídeos subidos desde el navegador del iPhone pueden perder fps y calidad
-            (iOS los recodifica). Para el original íntegro usa el Atajo — mira Ajustes.
-          </p>
+        {anyDegraded ? (
+          <div className="up-hint up-warn">
+            <b>Vídeo recodificado por iOS.</b> Al elegirlo desde <b>Fototeca</b> en el navegador,
+            iOS baja los fps y el bitrate antes de subirlo. Para el archivo tal cual sale del iPhone:
+            <ol>
+              <li>En <b>Fotos</b>, abre el vídeo → <b>Compartir</b> → <b>Guardar en Archivos</b>.</li>
+              <li>Aquí, pulsa <b>Subir</b> → <b>Explorar</b> → cógelo de <b>Archivos</b>.</li>
+            </ol>
+            O monta el <b>Atajo de iOS</b> (Ajustes) y se sube solo, siempre íntegro.
+          </div>
+        ) : (
+          anyVideo &&
+          !allSettled && (
+            <p className="up-hint">
+              Para vídeo en calidad original: elige <b>Explorar → Archivos</b>, no <b>Fototeca</b>.
+            </p>
+          )
         )}
-        {allSettled && (
+
+        {allSettled ? (
           <button className="btn primary sm" type="button" onClick={() => setJobs(null)}>
             Cerrar
           </button>
+        ) : (
+          <p className="up-hint">No cierres esta ventana hasta que termine.</p>
         )}
-        {!allSettled && <p className="up-hint">No cierres esta ventana hasta que termine.</p>}
       </motion.div>
     </motion.div>
   );
 
   return (
     <>
-      <input
-        ref={input}
-        type="file"
-        accept="image/*,video/*"
-        multiple
-        hidden
-        onChange={onPick}
-      />
+      <input ref={input} type="file" accept="image/*,video/*" multiple hidden onChange={onPick} />
       <motion.button
         className="upload"
         type="button"
@@ -176,7 +251,7 @@ export default function Uploader({ onDone, busyLabel }: { onDone: () => void; bu
         >
           <path d="M12 19V5m0 0-6 6m6-6 6 6" />
         </motion.svg>
-        {running && !allSettled ? (busyLabel ?? "Subiendo…") : "Subir"}
+        {running && !allSettled ? "Subiendo…" : "Subir"}
       </motion.button>
 
       {mounted && createPortal(<AnimatePresence>{overlay}</AnimatePresence>, document.body)}

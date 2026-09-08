@@ -28,12 +28,29 @@ export default async function AjustesPage() {
       </div>
 
       <section className="panel">
+        <h3>Vídeo en calidad original</h3>
+        <p className="panel-lede">
+          Al elegir un vídeo desde <b>Fototeca</b> en el navegador, iOS lo <b>recodifica</b>
+          (60→30 fps, HEVC→H.264, menos bitrate) antes de subirlo. Dos formas de evitarlo:
+        </p>
+        <ol className="steps">
+          <li>
+            <b>Rápido:</b> en <b>Fotos</b>, abre el vídeo → <b>Compartir</b> →{" "}
+            <b>Guardar en Archivos</b>. Luego pulsa <b>Subir</b> → <b>Explorar</b> y cógelo de
+            <b> Archivos</b>. Así se sube byte a byte.
+          </li>
+          <li>
+            <b>Automático:</b> monta el <b>Atajo de iOS</b> (abajo) y sube el original sin pensar,
+            en lote y con automatizaciones.
+          </li>
+        </ol>
+      </section>
+
+      <section className="panel">
         <h3>Token de subida (Atajo de iOS)</h3>
         <p className="panel-lede">
-          <b>Recomendado para vídeo.</b> El botón «Subir» del navegador vale para fotos, pero
-          iOS <b>recodifica los vídeos</b> antes de subirlos (60→30 fps, HEVC→H.264, menos
-          bitrate). El Atajo manda el archivo <b>tal cual sale del iPhone</b>. Crea un token y
-          úsalo como cabecera <code>X-Upload-Token</code>. Endpoint: <code>{endpoint}</code>.
+          Crea un token y úsalo en un Atajo como cabecera <code>X-Upload-Token</code>. El Atajo
+          manda el archivo <b>tal cual sale del iPhone</b>. Endpoint: <code>{endpoint}</code>.
         </p>
         <TokenManager initialTokens={tokens} />
       </section>
