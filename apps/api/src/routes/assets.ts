@@ -94,6 +94,17 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
       const contentType = typeof h["content-type"] === "string" ? h["content-type"] : undefined;
       const capturedHeader = typeof h["x-captured-at"] === "string" ? h["x-captured-at"] : undefined;
 
+      req.log.info(
+        {
+          userId,
+          filename: rawName,
+          contentType,
+          contentLength: h["content-length"] ?? null,
+          via: h["x-upload-token"] ? "token" : "sesion",
+        },
+        "subida: petición recibida",
+      );
+
       let ext = (extFor(filename, contentType).toLowerCase().match(/^\.[a-z0-9]{1,12}$/)?.[0]) ?? ".bin";
       const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const tmpOrig = join(env.TMP_DIR, `${stamp}${ext}`);
@@ -121,9 +132,11 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
         }
         const sha256 = hash.digest("hex");
         const { size } = await stat(tmpOrig);
+        req.log.info({ userId, filename: rawName, contentType, bytesEscritos: size }, "subida: cuerpo recibido");
         if (size === 0) {
           await cleanup();
-          return reply.code(400).send({ error: "archivo vacío" });
+          req.log.warn({ userId, filename: rawName, contentType, contentLength: h["content-length"] ?? null }, "subida: cuerpo vacío (0 bytes)");
+          return reply.code(400).send({ error: "el archivo llegó vacío (0 bytes)" });
         }
 
         const dup = await one<{ id: string }>(
