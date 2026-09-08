@@ -108,7 +108,7 @@ export async function tgPut(key: string, filePath: string): Promise<void> {
   const channel = await getChannel();
   const { size } = await stat(filePath);
   // más "workers" = más trozos en paralelo = subida más rápida en archivos grandes
-  const workers = size > 8 * 1024 * 1024 ? 16 : 4;
+  const workers = size > 8 * 1024 * 1024 ? 20 : 4;
   const msg = await c.sendFile(channel, {
     file: filePath,
     forceDocument: true,

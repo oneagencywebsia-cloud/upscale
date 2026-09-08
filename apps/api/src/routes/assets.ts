@@ -146,29 +146,16 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
         const thumbKey = `copy/${base}/thumb.webp`;
         const mime = mimeFor(ext, contentType);
 
-        // El original se sube YA, en paralelo con la generación de miniaturas.
-        const origUpload = put(originalKey, tmpOrig, mime);
-        origUpload.catch(() => {}); // se maneja en el Promise.all de abajo
+        const posterKey = info.kind === "video" ? `copy/${base}/poster.jpg` : null;
 
-        // Derivados: si algo falla, seguimos con una miniatura de reserva (no perdemos el original).
-        let posterKey: string | null = null;
-        try {
-          if (info.kind === "video") {
-            await extractFrame(tmpOrig, tmpPoster);
-            await sharpThumb(tmpPoster, tmpThumb);
-            posterKey = `copy/${base}/poster.jpg`;
-          } else {
-            await sharpThumb(tmpOrig, tmpThumb);
-          }
-        } catch (e) {
-          req.log.warn(e, "no se pudo generar miniatura, uso reserva");
-          await placeholderThumb(tmpThumb, info.kind).catch(() => {});
-          posterKey = null;
-        }
-
-        const uploads: Promise<unknown>[] = [origUpload, put(thumbKey, tmpThumb, "image/webp")];
-        if (posterKey) uploads.push(put(posterKey, tmpPoster, "image/jpeg"));
-        await Promise.all(uploads);
+        // 1) el original va a Telegram YA (es lo único que no se puede aplazar sin
+        //    arriesgar el archivo). En paralelo, sube una miniatura de reserva mínima
+        //    para que la galería no dé 404 mientras se genera la de verdad.
+        await placeholderThumb(tmpThumb, info.kind).catch(() => {});
+        await Promise.all([
+          put(originalKey, tmpOrig, mime),
+          put(thumbKey, tmpThumb, "image/webp"),
+        ]);
 
         const inserted = await one<{ id: string }>(
           `insert into assets
@@ -180,14 +167,37 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
           [
             userId, info.kind, filename, mime, size, sha256, info.width, info.height, info.durationS, info.fps,
             info.videoBitrate, info.codec, capturedAt, info.cameraMake, info.cameraModel, info.lens,
-            info.lat, info.lon, false, originalKey, thumbKey, posterKey,
+            info.lat, info.lon, false, originalKey, thumbKey, null,
           ],
         );
+        const id = inserted!.id;
 
         query("update upload_tokens set last_used = now() where token = $1", [h["x-upload-token"]]).catch(() => {});
-        await cleanup();
-        req.log.info({ id: inserted!.id, kind: info.kind, size, userId }, "asset guardado");
-        return { status: "saved", id: inserted!.id };
+        req.log.info({ id, kind: info.kind, size, userId }, "asset guardado (miniatura en 2º plano)");
+
+        // 2) miniatura + póster reales en segundo plano — la respuesta ya sale
+        void (async () => {
+          try {
+            if (info.kind === "video") {
+              await extractFrame(tmpOrig, tmpPoster);
+              await sharpThumb(tmpPoster, tmpThumb);
+              await Promise.all([
+                put(thumbKey, tmpThumb, "image/webp"),
+                put(posterKey!, tmpPoster, "image/jpeg"),
+              ]);
+              await query("update assets set poster_key = $1 where id = $2", [posterKey, id]);
+            } else {
+              await sharpThumb(tmpOrig, tmpThumb);
+              await put(thumbKey, tmpThumb, "image/webp");
+            }
+          } catch (e) {
+            req.log.warn(e, "no se pudo generar la miniatura real; se queda la de reserva");
+          } finally {
+            await cleanup();
+          }
+        })();
+
+        return { status: "saved", id };
       } catch (err) {
         await cleanup();
         req.log.error(err, "fallo al subir asset");
