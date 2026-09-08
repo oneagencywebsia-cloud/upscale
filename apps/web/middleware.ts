@@ -26,7 +26,8 @@ export async function middleware(req: NextRequest) {
   } = await supabase.auth.getUser();
 
   const { pathname } = req.nextUrl;
-  if (pathname.startsWith("/app") && !user) {
+  const protectedPath = pathname === "/app" || pathname.startsWith("/app/");
+  if (protectedPath && !user) {
     const url = req.nextUrl.clone();
     url.pathname = "/";
     url.search = "";
@@ -37,5 +38,7 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|icons/|manifest.webmanifest|sw.js).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|favicon-32.png|icons/|icon.svg|icon-maskable.svg|icon-192.png|icon-512.png|apple-icon.png|apple-touch-icon.png|manifest.webmanifest|sw.js).*)",
+  ],
 };
