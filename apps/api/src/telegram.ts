@@ -20,7 +20,7 @@ let clientPromise: Promise<TelegramClient> | null = null;
 let channelEntity: Api.TypeInputPeer | null = null;
 
 /** Descarta el cliente y el canal cacheados: la siguiente llamada reconecta de cero. */
-function resetTelegram(): void {
+export function resetTelegram(): void {
   const dying = clientPromise;
   clientPromise = null;
   channelEntity = null;
@@ -170,12 +170,18 @@ export async function tgInboxNewMedia(sinceId: number, limit = 20): Promise<Inbo
   return out.sort((a, b) => a.id - b.id);
 }
 
-/** Descarga el archivo del mensaje `id` del inbox a `outPath`. */
-export async function tgDownloadInbox(id: number, outPath: string): Promise<void> {
+/** Descarga el archivo del mensaje `id` del inbox a `outPath` (con timeout). */
+export async function tgDownloadInbox(id: number, outPath: string, timeoutMs = 8 * 60_000): Promise<void> {
   const c = await getClient();
   const [msg] = await c.getMessages(env.TELEGRAM_INBOX, { ids: [id] });
   if (!msg || !msg.media) throw new Error(`mensaje ${id} sin media`);
-  await c.downloadMedia(msg, { outputFile: outPath });
+  let timer: NodeJS.Timeout;
+  await Promise.race([
+    c.downloadMedia(msg, { outputFile: outPath }),
+    new Promise((_r, rej) => {
+      timer = setTimeout(() => rej(new Error(`descarga de Telegram > ${Math.round(timeoutMs / 1000)}s (msg ${id})`)), timeoutMs);
+    }),
+  ]).finally(() => clearTimeout(timer!));
 }
 
 /** Borra mensajes del inbox (ya procesados). */

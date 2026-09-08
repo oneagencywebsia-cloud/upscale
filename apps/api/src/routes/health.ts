@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { ping, one } from "../db.js";
 import { env, VERSION } from "../env.js";
-import { ingestState, ingestTickNow } from "../ingest.js";
+import { ingestSnapshot, ingestState, ingestTickNow } from "../ingest.js";
 
 export async function healthRoutes(app: FastifyInstance): Promise<void> {
   app.get("/v1/healthz", async (_req, reply) => {
@@ -24,7 +24,7 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
     return {
       version: VERSION,
       storageDriver: env.STORAGE_DRIVER,
-      ...ingestState,
+      ...ingestSnapshot(),
       inited: !!inited,
       lastId: lastId ? Number(lastId.v) : null,
       ingestUserIdSet: !!env.INGEST_USER_ID,
