@@ -22,8 +22,13 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
   const open = index !== null;
   const a = open ? assets[index] : null;
 
-  const [videoReady, setVideoReady] = useState(false);
-  useEffect(() => setVideoReady(false), [a?.id]);
+  const [videoState, setVideoState] = useState<"loading" | "ready" | "error" | "slow">("loading");
+  useEffect(() => {
+    setVideoState("loading");
+    if (!a || a.kind !== "video") return;
+    const t = setTimeout(() => setVideoState((s) => (s === "loading" ? "slow" : s)), 20000);
+    return () => clearTimeout(t);
+  }, [a?.id, a?.kind]);
 
   const go = useCallback(
     (d: number) => {
@@ -81,16 +86,32 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
                     autoPlay
                     playsInline
                     preload="metadata"
-                    onLoadedData={() => setVideoReady(true)}
-                    onCanPlay={() => setVideoReady(true)}
+                    onLoadedData={() => setVideoState("ready")}
+                    onCanPlay={() => setVideoState("ready")}
+                    onError={() => setVideoState("error")}
                     initial={{ opacity: 0, scale: 0.94 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ type: "spring", stiffness: 260, damping: 26 }}
                   />
-                  {!videoReady && (
+                  {videoState !== "ready" && (
                     <div className="viewer-loading" aria-live="polite">
-                      <span className="viewer-spin" aria-hidden="true" />
-                      <small>Preparando el vídeo…</small>
+                      {videoState === "error" ? (
+                        <>
+                          <small>No se pudo reproducir aquí.</small>
+                          <a className="btn primary sm" href={`/api/dl/${a.id}`}>Descargar</a>
+                        </>
+                      ) : videoState === "slow" ? (
+                        <>
+                          <span className="viewer-spin" aria-hidden="true" />
+                          <small>Está tardando en cargar…</small>
+                          <a className="btn sm" href={`/api/dl/${a.id}`}>Descargar</a>
+                        </>
+                      ) : (
+                        <>
+                          <span className="viewer-spin" aria-hidden="true" />
+                          <small>Preparando el vídeo…</small>
+                        </>
+                      )}
                     </div>
                   )}
                 </>

@@ -141,6 +141,15 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
         const d = new Date(capturedAt);
         const yyyy = d.getUTCFullYear();
         const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+
+        // Si no vino un nombre real (el Atajo no manda X-Filename), fabricamos uno legible.
+        if (!/\.[a-z0-9]{2,5}$/i.test(filename)) {
+          const dd = String(d.getUTCDate()).padStart(2, "0");
+          const hh = String(d.getUTCHours()).padStart(2, "0");
+          const min = String(d.getUTCMinutes()).padStart(2, "0");
+          filename = `${info.kind === "video" ? "VID" : "IMG"}_${yyyy}${mm}${dd}_${hh}${min}${ext}`;
+        }
+
         const base = `${userId}/${yyyy}/${mm}/${sha256}`;
         const originalKey = `orig/${base}${ext}`;
         const thumbKey = `copy/${base}/thumb.webp`;
