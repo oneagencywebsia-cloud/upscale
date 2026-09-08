@@ -57,10 +57,16 @@ async function resolveUser(caption: string | null): Promise<string | null> {
   }
   // 2) configurado a mano
   if (env.INGEST_USER_ID) return env.INGEST_USER_ID;
-  // 3) instancia de un solo usuario: el único que ya tiene biblioteca
-  const distinct = await query<{ user_id: string }>("select distinct user_id from assets limit 2");
-  if (distinct.rows.length === 1) return distinct.rows[0]!.user_id;
-  return null;
+  // 3) el usuario con más biblioteca (ignora cuentas de prueba vacías)
+  const top = await one<{ user_id: string }>(
+    "select user_id from assets where deleted_at is null group by user_id order by count(*) desc limit 1",
+  );
+  if (top) return top.user_id;
+  // 4) si aún no hay assets, el usuario más reciente con token de subida
+  const tk = await one<{ user_id: string }>(
+    "select user_id from upload_tokens order by created_at desc limit 1",
+  );
+  return tk?.user_id ?? null;
 }
 
 async function tick(log: FastifyBaseLoggerLike): Promise<void> {
@@ -89,9 +95,9 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
     for (const it of items) {
       const userId = await resolveUser(it.caption);
       if (!userId) {
-        log.warn({ id: it.id }, "ingesta: sin INGEST_USER_ID ni token en el caption, se ignora");
-        await setLastId(it.id); // no reintentar en bucle
-        continue;
+        ingestState.lastTickError = `msg ${it.id}: no se pudo determinar el usuario (pon INGEST_USER_ID o sube algo primero)`;
+        log.warn({ id: it.id }, "ingesta: sin usuario destino; no se toca el mensaje, se reintenta");
+        continue; // NO avanzamos lastId ni borramos: se reintenta cuando haya usuario
       }
       const tmp = join(env.TMP_DIR, `tg-${it.id}-${randomBytes(4).toString("hex")}${it.filename.match(/\.[a-z0-9]{2,5}$/i)?.[0] ?? ""}`);
       try {
