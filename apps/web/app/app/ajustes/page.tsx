@@ -55,17 +55,27 @@ export default async function AjustesPage() {
         <h3>Vídeo en calidad original</h3>
         <p className="panel-lede">
           Al elegir un vídeo desde <b>Fototeca</b> en el navegador, iOS lo <b>recodifica</b>
-          (60→30 fps, HEVC→H.264, menos bitrate) antes de subirlo. Dos formas de evitarlo:
+          (60→30 fps, HEVC→H.264, menos bitrate) <b>antes</b> de que llegue a Upscale. Ninguna
+          web puede impedirlo. Vías que sí guardan el original:
         </p>
         <ol className="steps">
           <li>
-            <b>Rápido:</b> en <b>Fotos</b>, abre el vídeo → <b>Compartir</b> →{" "}
-            <b>Guardar en Archivos</b>. Luego pulsa <b>Subir</b> → <b>Explorar</b> y cógelo de
-            <b> Archivos</b>. Así se sube byte a byte.
+            <b>Atajo listo (recomendado):</b> descárgalo aquí, ábrelo → <b>Añadir atajo</b>.
+            Luego, en <b>Fotos</b>: selecciona vídeos → <b>Compartir</b> → <b>Upscale (original)</b>.
+            Sube el archivo intacto, en lote.{" "}
+            <a className="btn primary sm" href="/app/shortcut" download="Upscale.shortcut" style={{ marginTop: 8 }}>
+              Descargar Atajo
+            </a>
+            <br />
+            <small>
+              La primera vez: Ajustes de iOS → <b>Atajos</b> → <b>Atajos avanzados</b> →
+              activa <b>«Permitir atajos no fiables»</b> (aparece tras ejecutar cualquier atajo una vez).
+            </small>
           </li>
           <li>
-            <b>Automático:</b> monta el <b>Atajo de iOS</b> (abajo) y sube el original sin pensar,
-            en lote y con automatizaciones.
+            <b>Manual:</b> en <b>Fotos</b>, abre el vídeo → <b>Compartir</b> →{" "}
+            <b>Guardar en Archivos</b>. Luego pulsa <b>Subir</b> → <b>Explorar</b> y cógelo de
+            <b> Archivos</b>. Byte a byte.
           </li>
         </ol>
       </section>
