@@ -108,6 +108,69 @@ export async function ensureTelegram(): Promise<void> {
   await getClient(); // conecta y valida la sesión al arrancar
 }
 
+// ------------------------------- ingesta (inbox) -------------------------------
+
+export interface InboxItem {
+  id: number;
+  filename: string;
+  mime: string;
+  caption: string | null;
+  date: number; // epoch segundos
+  bytes: number;
+}
+
+const MEDIA_EXT = /\.(mov|mp4|m4v|hevc|3gp|avi|mkv|webm|heic|heif|jpg|jpeg|png|webp|gif|tiff|dng|avif)$/i;
+
+/** id del último mensaje del inbox (para arrancar sin procesar el histórico). */
+export async function tgInboxLatestId(): Promise<number> {
+  const c = await getClient();
+  const [m] = await c.getMessages(env.TELEGRAM_INBOX, { limit: 1 });
+  return m && typeof m.id === "number" ? m.id : 0;
+}
+
+/** Mensajes con archivo multimedia del inbox, id > sinceId, del más antiguo al más nuevo. */
+export async function tgInboxNewMedia(sinceId: number, limit = 20): Promise<InboxItem[]> {
+  const c = await getClient();
+  const msgs = await c.getMessages(env.TELEGRAM_INBOX, { limit, minId: sinceId });
+  const out: InboxItem[] = [];
+  for (const m of msgs) {
+    if (!m || typeof m.id !== "number" || m.id <= sinceId) continue;
+    const doc = m.document as Api.Document | undefined;
+    if (!doc) continue; // solo archivos ("enviar como archivo"), no fotos comprimidas
+    const nameAttr = doc.attributes?.find(
+      (a): a is Api.DocumentAttributeFilename => a instanceof Api.DocumentAttributeFilename,
+    );
+    const filename = nameAttr?.fileName || `TG_${m.id}`;
+    const mime = doc.mimeType || "application/octet-stream";
+    // solo fotos/vídeos; cualquier otro documento (PDF, zip…) se ignora y NO se toca
+    if (!mime.startsWith("image/") && !mime.startsWith("video/") && !MEDIA_EXT.test(filename)) continue;
+    out.push({
+      id: m.id,
+      filename,
+      mime,
+      caption: (m.message as string) || null,
+      date: Number(m.date) || Math.floor(Date.now() / 1000),
+      bytes: Number(doc.size) || 0,
+    });
+  }
+  return out.sort((a, b) => a.id - b.id);
+}
+
+/** Descarga el archivo del mensaje `id` del inbox a `outPath`. */
+export async function tgDownloadInbox(id: number, outPath: string): Promise<void> {
+  const c = await getClient();
+  const [msg] = await c.getMessages(env.TELEGRAM_INBOX, { ids: [id] });
+  if (!msg || !msg.media) throw new Error(`mensaje ${id} sin media`);
+  await c.downloadMedia(msg, { outputFile: outPath });
+}
+
+/** Borra mensajes del inbox (ya procesados). */
+export async function tgDeleteInbox(ids: number[]): Promise<void> {
+  if (!ids.length) return;
+  const c = await getClient();
+  await c.deleteMessages(env.TELEGRAM_INBOX, ids, { revoke: true }).catch(() => {});
+}
+
 /** Sube el archivo como documento (bytes exactos) y registra key -> message_id. */
 export async function tgPut(key: string, filePath: string): Promise<void> {
   const channel = await getChannel();

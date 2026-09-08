@@ -26,6 +26,12 @@ const base = z.object({
   TG_CACHE_DIR: z.string().default("./tg-cache"),
   TG_CACHE_MAX_MB: z.coerce.number().default(2048),
 
+  // Ingesta desde Telegram: manda un vídeo "como archivo" a este chat y entra
+  // en la biblioteca sin recomprimir. Por defecto "me" = Mensajes guardados.
+  TELEGRAM_INBOX: z.string().default("me"),
+  INGEST_USER_ID: z.string().optional(), // Supabase user id al que se asignan los archivos
+  INGEST_POLL_SECONDS: z.coerce.number().default(25),
+
   R2_ENDPOINT: z.string().url().optional(),
   R2_BUCKET: z.string().optional(),
   R2_ACCESS_KEY_ID: z.string().optional(),

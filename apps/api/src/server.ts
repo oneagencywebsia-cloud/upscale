@@ -12,6 +12,7 @@ import { tokenRoutes } from "./routes/tokens.js";
 import { activityRoutes } from "./routes/activity.js";
 import { blobRoutes } from "./routes/blob.js";
 import { storageRoutes } from "./routes/storage.js";
+import { startInboxIngest } from "./ingest.js";
 
 const app = Fastify({
   logger: { level: process.env.LOG_LEVEL ?? "info" },
@@ -82,6 +83,7 @@ process.on("SIGINT", () => void close("SIGINT"));
 try {
   await app.listen({ port: env.PORT, host: "0.0.0.0" });
   app.log.info(`Upscale API (${env.STORAGE_DRIVER}) en http://0.0.0.0:${env.PORT}`);
+  startInboxIngest(app.log);
 } catch (err) {
   app.log.error(err);
   process.exit(1);
