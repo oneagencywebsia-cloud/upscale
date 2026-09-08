@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 import { env } from "./env.js";
 import { query, one } from "./db.js";
 import { ingestLocalFile } from "./pipeline.js";
-import { tgInboxNewMedia, tgInboxLatestId, tgDownloadInbox, tgDeleteInbox } from "./telegram.js";
+import { tgInboxNewMedia, tgInboxStartId, tgDownloadInbox, tgDeleteInbox } from "./telegram.js";
 
 /**
  * Vigila el inbox de Telegram (Mensajes guardados por defecto). Cada archivo
@@ -52,11 +52,11 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
     // para NO procesar el histórico de Mensajes guardados, solo lo que llegue nuevo.
     const inited = await one<{ v: string }>("select v from kv where k = 'ingest:inited'");
     if (!inited) {
-      const latest = await tgInboxLatestId();
-      await setLastId(latest);
+      const start = await tgInboxStartId(30);
+      await setLastId(start);
       await query("insert into kv (k, v) values ('ingest:inited', '1') on conflict (k) do nothing");
-      log.info({ lastId: latest }, "ingesta: punto de partida fijado (solo mensajes nuevos)");
-      return;
+      log.info({ lastId: start }, "ingesta: punto de partida fijado (recoge lo de los últimos 30 min)");
+      // no return: seguimos y procesamos ya lo reciente en esta misma vuelta
     }
 
     const lastId = await getLastId();

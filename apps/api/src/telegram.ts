@@ -121,11 +121,25 @@ export interface InboxItem {
 
 const MEDIA_EXT = /\.(mov|mp4|m4v|hevc|3gp|avi|mkv|webm|heic|heif|jpg|jpeg|png|webp|gif|tiff|dng|avif)$/i;
 
-/** id del último mensaje del inbox (para arrancar sin procesar el histórico). */
-export async function tgInboxLatestId(): Promise<number> {
+/**
+ * Punto de partida al arrancar: id anterior al mensaje multimedia más antiguo de
+ * los últimos `withinMinutes` minutos (para recoger lo enviado justo antes de
+ * desplegar), o el último id si no hay nada reciente.
+ */
+export async function tgInboxStartId(withinMinutes = 30): Promise<number> {
   const c = await getClient();
-  const [m] = await c.getMessages(env.TELEGRAM_INBOX, { limit: 1 });
-  return m && typeof m.id === "number" ? m.id : 0;
+  const msgs = await c.getMessages(env.TELEGRAM_INBOX, { limit: 15 });
+  if (!msgs.length) return 0;
+  const cutoff = Math.floor(Date.now() / 1000) - withinMinutes * 60;
+  let latest = 0;
+  let oldestRecentMedia = Number.MAX_SAFE_INTEGER;
+  for (const m of msgs) {
+    if (!m || typeof m.id !== "number") continue;
+    if (m.id > latest) latest = m.id;
+    const doc = m.document as Api.Document | undefined;
+    if (doc && Number(m.date) >= cutoff && m.id < oldestRecentMedia) oldestRecentMedia = m.id;
+  }
+  return oldestRecentMedia !== Number.MAX_SAFE_INTEGER ? oldestRecentMedia - 1 : latest;
 }
 
 /** Mensajes con archivo multimedia del inbox, id > sinceId, del más antiguo al más nuevo. */
