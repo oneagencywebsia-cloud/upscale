@@ -184,6 +184,7 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
             capturedAtHint: new Date(it.date * 1000).toISOString(),
             forwardFromInboxMsgId: it.id,
             deferStore: true, // la fila se crea YA; el original se guarda en el barrido de fondo
+            onStep: (s) => { ingestState.lastStep = `msg ${it.id}: ${s}`; },
             log,
           }),
           4 * 60_000,

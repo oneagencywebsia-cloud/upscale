@@ -62,20 +62,29 @@ export async function ingestLocalFile(opts: {
    *  original SIN guardar en el almacén; lo hace el barrido de fondo. El vídeo
    *  aparece en segundos aunque Telegram esté frenando escrituras. */
   deferStore?: boolean;
+  /** callback para ver el sub-paso en vivo (lo pinta /ingest/status). */
+  onStep?: (s: string) => void;
   log?: { info: (o: unknown, m?: string) => void; warn: (o: unknown, m?: string) => void };
 }): Promise<IngestResult> {
   const { userId, filePath, contentType, capturedAtHint } = opts;
   const log = opts.log ?? { info: () => {}, warn: () => {} };
+  const step = (s: string) => {
+    opts.onStep?.(s);
+    log.info({ paso: s }, "ingesta: paso");
+  };
   let filename = opts.filename || "IMG";
 
+  step("stat");
   const { size } = await stat(filePath);
   if (size === 0) {
     await rm(filePath, { force: true });
     throw Object.assign(new Error("archivo vacío (0 bytes)"), { code: "EMPTY" });
   }
 
+  step("hash");
   const sha256 = await hashFile(filePath);
 
+  step("dedup");
   const dup = await one<{ id: string; kind: "photo" | "video" }>(
     "select id, kind from assets where user_id = $1 and sha256 = $2 and deleted_at is null",
     [userId, sha256],
@@ -85,6 +94,7 @@ export async function ingestLocalFile(opts: {
     return { status: "duplicate", id: dup.id, kind: dup.kind, bytes: size };
   }
 
+  step("probe");
   const info = await probe(filePath, filename, contentType);
 
   let ext = (extFor(filename, contentType).toLowerCase().match(/^\.[a-z0-9]{1,12}$/)?.[0]) ?? ".bin";
@@ -113,16 +123,20 @@ export async function ingestLocalFile(opts: {
   const tmpThumb = join(env.TMP_DIR, `${stamp}.thumb.webp`);
   const tmpPoster = join(env.TMP_DIR, `${stamp}.poster.jpg`);
 
+  step("miniatura-reserva");
   await placeholderThumb(tmpThumb, info.kind).catch(() => {});
 
   // ---------- Ingesta DIFERIDA: fila ya, original y miniatura real después ----------
   if (opts.deferStore && opts.forwardFromInboxMsgId) {
+    step("import-telegram");
     const { tgCachePut } = await import("./telegram.js");
 
     // 1) miniatura de reserva a la caché de disco → /v1/blob ya sirve algo
+    step("cache-thumb");
     await tgCachePut(thumbKey, tmpThumb).catch(() => {});
 
     // 2) fila creada YA (metadatos de ffprobe, que ya corrió arriba con timeout duro)
+    step("insert");
     const insertedD = await one<{ id: string }>(
       `insert into assets
          (user_id, kind, filename, mime, bytes, sha256, width, height, duration_s, fps, video_bitrate,
