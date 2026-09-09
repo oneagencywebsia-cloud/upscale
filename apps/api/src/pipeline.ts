@@ -58,6 +58,10 @@ export async function ingestLocalFile(opts: {
   /** Si el archivo YA está en Telegram (ingesta del inbox): id del mensaje a
    *  reenviar al almacén en vez de re-subir los bytes desde el VPS. */
   forwardFromInboxMsgId?: number;
+  /** Ingesta diferida: crea la fila YA (metadatos + miniatura local) y deja el
+   *  original SIN guardar en el almacén; lo hace el barrido de fondo. El vídeo
+   *  aparece en segundos aunque Telegram esté frenando escrituras. */
+  deferStore?: boolean;
   log?: { info: (o: unknown, m?: string) => void; warn: (o: unknown, m?: string) => void };
 }): Promise<IngestResult> {
   const { userId, filePath, contentType, capturedAtHint } = opts;
@@ -110,6 +114,46 @@ export async function ingestLocalFile(opts: {
   const tmpPoster = join(env.TMP_DIR, `${stamp}.poster.jpg`);
 
   await placeholderThumb(tmpThumb, info.kind).catch(() => {});
+
+  // ---------- Ingesta DIFERIDA: fila ya, original después ----------
+  if (opts.deferStore && opts.forwardFromInboxMsgId) {
+    const { tgCachePut } = await import("./telegram.js");
+    // miniatura + póster reales, en local (sin tocar Telegram)
+    try {
+      if (info.kind === "video") {
+        await extractFrame(filePath, tmpPoster);
+        await sharpThumb(tmpPoster, tmpThumb);
+      } else {
+        await sharpThumb(filePath, tmpThumb);
+      }
+    } catch (e) {
+      log.warn(e, "miniatura real falló; se usa la de reserva");
+    }
+    // deja la miniatura (y el póster) en la caché de disco → /v1/blob las sirve ya
+    await tgCachePut(thumbKey, tmpThumb).catch(() => {});
+    if (posterKey) await tgCachePut(posterKey, tmpPoster).catch(() => {});
+
+    const insertedD = await one<{ id: string }>(
+      `insert into assets
+         (user_id, kind, filename, mime, bytes, sha256, width, height, duration_s, fps, video_bitrate,
+          codec, captured_at, camera_make, camera_model, lens, lat, lon, is_live,
+          original_key, thumb_key, poster_key, stored, src_msg_id)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,false,$23)
+       returning id`,
+      [
+        userId, info.kind, filename, mime, size, sha256, info.width, info.height, info.durationS, info.fps,
+        info.videoBitrate, info.codec, capturedAt, info.cameraMake, info.cameraModel, info.lens,
+        info.lat, info.lon, false, originalKey, thumbKey, posterKey, opts.forwardFromInboxMsgId,
+      ],
+    );
+    await Promise.allSettled([
+      rm(filePath, { force: true }),
+      rm(tmpThumb, { force: true }),
+      rm(tmpPoster, { force: true }),
+    ]);
+    log.info({ id: insertedD!.id, kind: info.kind, size }, "asset creado (original pendiente de guardar)");
+    return { status: "saved", id: insertedD!.id, kind: info.kind, bytes: size };
+  }
 
   // El original: se intenta REENVIAR dentro de Telegram (instantáneo, sin gastar
   // subida del VPS). El forward de un userbot está limitado (FLOOD_WAIT), así que

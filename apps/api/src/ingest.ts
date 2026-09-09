@@ -1,10 +1,21 @@
+import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { env } from "./env.js";
 import { query, one } from "./db.js";
 import { ingestLocalFile } from "./pipeline.js";
-import { tgInboxNewMedia, tgInboxStartId, tgDownloadInbox, tgDeleteInbox, resetTelegram, armInboxListener } from "./telegram.js";
+import {
+  tgInboxNewMedia,
+  tgInboxStartId,
+  tgDownloadInbox,
+  tgDeleteInbox,
+  resetTelegram,
+  armInboxListener,
+  tgPut,
+  tgPutByForward,
+  tgCachePathFor,
+} from "./telegram.js";
 
 /**
  * Vigila el inbox de Telegram (Mensajes guardados por defecto). Cada archivo
@@ -171,21 +182,25 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
             filename: it.filename,
             contentType: it.mime,
             capturedAtHint: new Date(it.date * 1000).toISOString(),
-            forwardFromInboxMsgId: it.id, // reenvía dentro de Telegram en vez de re-subir
+            forwardFromInboxMsgId: it.id,
+            deferStore: true, // la fila se crea YA; el original se guarda en el barrido de fondo
             log,
           }),
-          9 * 60_000,
-          "guardar en el almacén",
+          4 * 60_000,
+          "crear la fila del asset",
         );
         const t2 = Date.now();
         ingestState.lastTimings = { bytes: dl, downloadMs: t1 - t0, processMs: t2 - t1, totalMs: t2 - t0 };
-        log.info({ id: it.id, assetId: res.id, status: res.status, kind: res.kind, bytes: res.bytes, downloadMs: t1 - t0, processMs: t2 - t1 }, "ingesta: guardado");
+        log.info({ id: it.id, assetId: res.id, status: res.status, kind: res.kind, downloadMs: t1 - t0, processMs: t2 - t1 }, "ingesta: fila creada");
         ingestState.lastImported = { id: it.id, assetId: res.id, at: new Date().toISOString() };
         ingestState.totalImported++;
-        ingestState.lastTickError = null; // algo entró bien: limpiamos
+        ingestState.lastTickError = null;
         await clearFails(it.id);
-        await withTimeout(tgDeleteInbox([it.id]), 30_000, "borrar mensaje").catch(() => {});
-        await setLastId(it.id);
+        // si era duplicado no hay fila nueva pendiente: se borra el mensaje ya
+        if (res.status === "duplicate") {
+          await withTimeout(tgDeleteInbox([it.id]), 30_000, "borrar mensaje").catch(() => {});
+        }
+        await setLastId(it.id); // no reprocesar; el mensaje se borra tras guardarse el original
       } catch (e) {
         await rm(tmp, { force: true }).catch(() => {});
         const msg = (e as Error)?.message ?? String(e);
@@ -214,6 +229,9 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
         break; // reintentamos este mismo en la próxima vuelta
       }
     }
+
+    // barrido: guarda en el almacén los originales de las filas ya creadas
+    await storePending(log);
   } catch (e) {
     ingestState.lastTickError = (e as Error)?.message ?? String(e);
     log.error({ err: (e as Error)?.message }, "ingesta: fallo en la vuelta");
@@ -229,6 +247,64 @@ interface FastifyBaseLoggerLike {
   info: (o: unknown, m?: string) => void;
   warn: (o: unknown, m?: string) => void;
   error: (o: unknown, m?: string) => void;
+}
+
+/**
+ * Barrido de fondo: por cada asset con stored=false, guarda el original en el
+ * almacén (reenvío del inbox) y sube miniatura/póster desde la caché. Marca
+ * stored=true y borra el mensaje del inbox. Si Telegram frena (FLOOD_WAIT) lo
+ * deja para la siguiente vuelta — el vídeo ya se ve mientras tanto.
+ */
+async function storePending(log: FastifyBaseLoggerLike): Promise<void> {
+  const pend = await query<{
+    id: string;
+    original_key: string;
+    thumb_key: string;
+    poster_key: string | null;
+    src_msg_id: string | null;
+  }>(
+    "select id, original_key, thumb_key, poster_key, src_msg_id from assets where not stored and deleted_at is null order by uploaded_at asc limit 3",
+  );
+  if (!pend.rows.length) return;
+  ingestState.lastStep = `guardando ${pend.rows.length} original(es) pendiente(s)`;
+
+  for (const a of pend.rows) {
+    if (!a.src_msg_id) {
+      await query("update assets set stored = true where id = $1", [a.id]);
+      continue;
+    }
+    const srcId = Number(a.src_msg_id);
+    try {
+      await withTimeout(tgPutByForward(a.original_key, srcId), 25_000, "reenviar original al almacén");
+
+      const tp = tgCachePathFor(a.thumb_key);
+      if (existsSync(tp)) {
+        await withTimeout(tgPut(a.thumb_key, tp), 60_000, "subir miniatura").catch((e) => log.warn(e, "miniatura no subida"));
+      }
+      if (a.poster_key) {
+        const pp = tgCachePathFor(a.poster_key);
+        if (existsSync(pp)) {
+          await withTimeout(tgPut(a.poster_key, pp), 60_000, "subir póster").catch((e) => log.warn(e, "póster no subido"));
+        }
+      }
+
+      await query("update assets set stored = true, src_msg_id = null where id = $1", [a.id]);
+      await withTimeout(tgDeleteInbox([srcId]), 30_000, "borrar del inbox").catch(() => {});
+      log.info({ id: a.id }, "asset: original guardado en el almacén");
+    } catch (e) {
+      const msg = (e as Error)?.message ?? String(e);
+      log.warn({ id: a.id, err: msg }, "asset: original aún sin guardar; se reintenta la próxima vuelta");
+      const fw = /flood(?:_wait)?[ _]?(\d+)/i.exec(msg);
+      if (fw || /flood/i.test(msg)) {
+        const secs = fw ? Math.min(3600, Number(fw[1]) + 5) : 900;
+        pausedUntil = Date.now() + secs * 1000;
+        ingestState.pausedUntil = new Date(pausedUntil).toISOString();
+        log.warn({ secs }, "ingesta: FLOOD_WAIT en el barrido, pausa");
+      }
+      resetTelegram();
+      break;
+    }
+  }
 }
 
 export function startInboxIngest(log: FastifyBaseLoggerLike): void {

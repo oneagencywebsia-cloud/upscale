@@ -13,6 +13,7 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
   app.get("/v1/ingest/status", async () => {
     const lastId = await one<{ v: string }>("select v from kv where k = 'ingest:last_id'").catch(() => null);
     const inited = await one<{ v: string }>("select v from kv where k = 'ingest:inited'").catch(() => null);
+    const pend = await one<{ n: string }>("select count(*) n from assets where not stored and deleted_at is null").catch(() => null);
     const users = await import("../db.js")
       .then((m) =>
         m.query<{ user_id: string; n: string }>(
@@ -29,6 +30,7 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
       lastId: lastId ? Number(lastId.v) : null,
       ingestUserIdSet: !!env.INGEST_USER_ID,
       pollSeconds: env.INGEST_POLL_SECONDS,
+      pendingStore: pend ? Number(pend.n) : 0,
       usersConBiblioteca: users,
     };
   });

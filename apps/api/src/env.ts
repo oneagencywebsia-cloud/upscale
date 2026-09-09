@@ -67,4 +67,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.8.5-ingest";
+export const VERSION = "0.9.0-ingest";

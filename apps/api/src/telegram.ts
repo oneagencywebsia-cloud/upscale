@@ -384,6 +384,42 @@ async function pipe(rs: NodeJS.ReadableStream, ws: NodeJS.WritableStream): Promi
   await pipeline(rs, ws);
 }
 
+/** Ruta en la caché de disco donde `/v1/blob` sirve una key sin tocar Telegram. */
+export function tgCachePathFor(key: string): string {
+  return cachePath(key);
+}
+
+/** Copia un archivo local a la caché de disco para poder servir la key ya (antes de subirla a Telegram). */
+export async function tgCachePut(key: string, srcPath: string): Promise<void> {
+  await mkdir(env.TG_CACHE_DIR, { recursive: true });
+  const dst = cachePath(key);
+  await pipe(createReadStream(srcPath), createWriteStream(dst)).catch(() => {});
+}
+
+/**
+ * Descarga a `outPath` el documento de un mensaje del inbox (por su id) resuelto
+ * desde blob_refs no — aquí directamente `me`. Reutiliza tgDownloadInbox.
+ * (helper fino para la reproducción de assets aún no guardados)
+ */
+export async function tgInboxDocLocation(
+  msgId: number,
+): Promise<{ loc: Api.InputDocumentFileLocation; total: number; dcId?: number }> {
+  const c = await getClient();
+  const [msg] = await raceTimeout(c.getMessages(env.TELEGRAM_INBOX, { ids: [msgId] }), 30_000, `getMessages ${msgId}`);
+  const doc = msg?.document as Api.Document | undefined;
+  if (!doc) throw new Error(`mensaje ${msgId} del inbox sin documento`);
+  return {
+    loc: new Api.InputDocumentFileLocation({
+      id: doc.id,
+      accessHash: doc.accessHash,
+      fileReference: doc.fileReference,
+      thumbSize: "",
+    }),
+    total: Number(doc.size) || 0,
+    dcId: doc.dcId,
+  };
+}
+
 export async function tgDelete(key: string): Promise<void> {
   const row = await one<{ tg_message_id: string }>("select tg_message_id from blob_refs where key = $1", [key]);
   if (row) {
@@ -398,8 +434,14 @@ export async function tgDelete(key: string): Promise<void> {
 /** Tamaño en bytes registrado para una key (sin tocar Telegram). */
 export async function tgSize(key: string): Promise<number> {
   const row = await one<{ bytes: string }>("select bytes from blob_refs where key = $1", [key]);
-  if (!row) throw new Error("blob no registrado");
-  return Number(row.bytes);
+  if (row) return Number(row.bytes);
+  // asset aún sin guardar en el almacén: el tamaño lo sabe la fila del asset
+  const a = await one<{ bytes: string }>(
+    "select bytes from assets where original_key = $1 and deleted_at is null",
+    [key],
+  );
+  if (a) return Number(a.bytes);
+  throw new Error("blob no registrado");
 }
 
 let downloading: Map<string, Promise<void>> | null = null;
@@ -461,9 +503,21 @@ async function docLocation(
     "select tg_message_id, bytes from blob_refs where key = $1",
     [key],
   );
-  if (!row) throw new Error("blob no registrado");
-  const total = Number(row.bytes);
 
+  // aún sin guardar en el almacén: se reproduce directamente desde el inbox
+  if (!row) {
+    const a = await one<{ src_msg_id: string; bytes: string }>(
+      "select src_msg_id, bytes from assets where original_key = $1 and not stored and deleted_at is null",
+      [key],
+    );
+    if (!a?.src_msg_id) throw new Error("blob no registrado");
+    const r = await tgInboxDocLocation(Number(a.src_msg_id));
+    const t = r.total || Number(a.bytes);
+    docCache.set(key, { loc: r.loc, total: t, dcId: r.dcId, at: Date.now() });
+    return { loc: r.loc, total: t, dcId: r.dcId };
+  }
+
+  const total = Number(row.bytes);
   const c = await getClient();
   const channel = await getChannel();
   const [msg] = await c.getMessages(channel, { ids: [Number(row.tg_message_id)] });
