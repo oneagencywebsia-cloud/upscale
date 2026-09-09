@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { listTokens } from "@/lib/api";
 import TokenManager from "@/components/TokenManager";
+import IngestBind from "@/components/IngestBind";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +61,7 @@ export default async function AjustesPage() {
           añadir nada. Límite 2 GB por archivo (4 GB con Telegram Premium). También vale para
           fotos que quieras 100 % garantizadas (envíalas como archivo).
         </p>
+        <IngestBind />
       </section>
 
       <section className="panel">

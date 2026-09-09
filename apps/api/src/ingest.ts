@@ -106,18 +106,33 @@ async function resolveUser(caption: string | null): Promise<string | null> {
     const row = await one<{ user_id: string }>("select user_id from upload_tokens where token = $1", [tok]);
     if (row) return row.user_id;
   }
-  // 2) configurado a mano
+  // 2) atado a mano desde Ajustes ("recibir aquí los vídeos de Telegram")
+  const bound = await one<{ v: string }>("select v from kv where k = 'ingest:user_id'").catch(() => null);
+  if (bound?.v) return bound.v;
+  // 3) variable de entorno
   if (env.INGEST_USER_ID) return env.INGEST_USER_ID;
-  // 3) el usuario con más biblioteca (ignora cuentas de prueba vacías)
-  const top = await one<{ user_id: string }>(
-    "select user_id from assets where deleted_at is null group by user_id order by count(*) desc limit 1",
-  );
-  if (top) return top.user_id;
-  // 4) si aún no hay assets, el usuario más reciente con token de subida
+  // 4) el usuario más reciente con token de subida (suele ser el que acaba de configurarlo)
   const tk = await one<{ user_id: string }>(
     "select user_id from upload_tokens order by created_at desc limit 1",
   );
-  return tk?.user_id ?? null;
+  if (tk) return tk.user_id;
+  // 5) último recurso: el usuario con más biblioteca
+  const top = await one<{ user_id: string }>(
+    "select user_id from assets where deleted_at is null group by user_id order by count(*) desc limit 1",
+  );
+  return top?.user_id ?? null;
+}
+
+/** Ata la ingesta a un usuario concreto (kv). Lo llama el botón de Ajustes. */
+export async function ingestBindUser(userId: string): Promise<void> {
+  await query(
+    "insert into kv (k, v, updated_at) values ('ingest:user_id', $1, now()) on conflict (k) do update set v = excluded.v, updated_at = now()",
+    [userId],
+  );
+}
+export async function ingestBoundUser(): Promise<string | null> {
+  const r = await one<{ v: string }>("select v from kv where k = 'ingest:user_id'").catch(() => null);
+  return r?.v ?? null;
 }
 
 async function tick(log: FastifyBaseLoggerLike): Promise<void> {
