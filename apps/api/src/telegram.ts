@@ -437,9 +437,11 @@ export async function tgSize(key: string): Promise<number> {
   if (row) return Number(row.bytes);
   // miniatura / póster en BD
   if (key.endsWith("/thumb.webp") || key.endsWith("/poster.jpg")) {
-    const col = key.endsWith("/thumb.webp") ? "thumb_webp" : "poster_jpg";
+    const isThumb = key.endsWith("/thumb.webp");
     const t = await one<{ n: string }>(
-      `select octet_length(${col}) as n from assets where (thumb_key = $1 or poster_key = $1) and deleted_at is null limit 1`,
+      isThumb
+        ? "select octet_length(thumb_webp) as n from assets where thumb_key = $1 and deleted_at is null limit 1"
+        : "select octet_length(poster_jpg) as n from assets where poster_key = $1 and deleted_at is null limit 1",
       [key],
     ).catch(() => null);
     if (t?.n) return Number(t.n);
@@ -684,10 +686,13 @@ export async function tgRead(
 
   // miniatura / póster: viven en la BD (bytes). Nunca dependen de Telegram ni
   // de la caché de disco → jamás 404 mientras exista el asset.
-  if (key.endsWith("/thumb.webp") || key.endsWith("/poster.jpg")) {
-    const col = key.endsWith("/thumb.webp") ? "thumb_webp" : "poster_jpg";
+  const isThumb = key.endsWith("/thumb.webp");
+  const isPoster = key.endsWith("/poster.jpg");
+  if (isThumb || isPoster) {
     const row = await one<{ b: Buffer | null }>(
-      `select ${col} as b from assets where (thumb_key = $1 or poster_key = $1) and deleted_at is null limit 1`,
+      isThumb
+        ? "select thumb_webp as b from assets where thumb_key = $1 and deleted_at is null limit 1"
+        : "select poster_jpg as b from assets where poster_key = $1 and deleted_at is null limit 1",
       [key],
     ).catch(() => null);
     if (row?.b && row.b.length) {

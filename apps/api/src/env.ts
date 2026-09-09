@@ -67,4 +67,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.9.6-robust";
+export const VERSION = "0.9.7-robust";
