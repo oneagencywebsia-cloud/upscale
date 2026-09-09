@@ -54,6 +54,33 @@ async function saveDerivativeBytes(id: string, thumbPath: string, posterPath?: s
 }
 
 /**
+ * Regenera miniatura (y póster, si es vídeo) de un asset a partir de una copia
+ * del original en disco, y las guarda en la BD. Lo usa el barrido de recuperación
+ * cuando un asset se guarda tarde y su miniatura quedó vacía.
+ */
+export async function regenerateDerivatives(
+  id: string,
+  kind: "photo" | "video",
+  filePath: string,
+): Promise<void> {
+  const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const tmpThumb = join(env.TMP_DIR, `${stamp}.rt.webp`);
+  const tmpPoster = join(env.TMP_DIR, `${stamp}.rp.jpg`);
+  try {
+    if (kind === "video") {
+      await extractFrame(filePath, tmpPoster);
+      await sharpThumb(tmpPoster, tmpThumb);
+      await saveDerivativeBytes(id, tmpThumb, tmpPoster);
+    } else {
+      await sharpThumb(filePath, tmpThumb);
+      await saveDerivativeBytes(id, tmpThumb, null);
+    }
+  } finally {
+    await Promise.allSettled([rm(tmpThumb, { force: true }), rm(tmpPoster, { force: true })]);
+  }
+}
+
+/**
  * Mete un archivo YA presente en disco en la biblioteca del usuario:
  * hash + dedup + ffprobe + guardar original en el almacén + miniatura/póster.
  * Lo usan tanto la subida HTTP como la ingesta desde Telegram. Borra `filePath`.

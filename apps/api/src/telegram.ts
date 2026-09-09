@@ -320,10 +320,15 @@ export async function tgPutByForward(key: string, inboxMsgId: number, filePath?:
   }
   if (lastErr || !fwd) throw lastErr ?? new Error("forward al almacén falló");
 
+  const messageId = Number((fwd as Api.Message).id);
+  if (!Number.isFinite(messageId) || messageId <= 0) {
+    // forwardMessages devolvió algo sin id usable → el mensaje de origen no se
+    // pudo reenviar (borrado, o no reenviable). Error claro para el llamante.
+    throw new Error(`el reenvío no produjo un mensaje válido (origen ${inboxMsgId})`);
+  }
   const doc = (fwd as Api.Message).document as Api.Document | undefined;
   let bytes = Number(doc?.size) || 0;
   if (!bytes && filePath) bytes = (await stat(filePath).catch(() => ({ size: 0 }))).size;
-  const messageId = Number((fwd as Api.Message).id);
   await query(
     `insert into blob_refs (key, tg_message_id, bytes) values ($1,$2,$3)
      on conflict (key) do update set tg_message_id = excluded.tg_message_id, bytes = excluded.bytes`,

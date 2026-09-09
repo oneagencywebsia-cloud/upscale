@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { env } from "./env.js";
 import { query, one } from "./db.js";
-import { ingestLocalFile } from "./pipeline.js";
+import { ingestLocalFile, regenerateDerivatives } from "./pipeline.js";
 import {
   tgInboxNewMedia,
   tgInboxStartId,
@@ -12,6 +12,7 @@ import {
   resetTelegram,
   armInboxListener,
   tgPutByForward,
+  tgPut,
 } from "./telegram.js";
 
 /**
@@ -280,38 +281,64 @@ interface FastifyBaseLoggerLike {
  * FLOOD_WAIT → pausa. Los errores se ven en /ingest/status.
  */
 async function storePending(log: FastifyBaseLoggerLike): Promise<void> {
-  const pend = await query<{ id: string; original_key: string; filename: string; src_msg_id: string | null }>(
-    "select id, original_key, filename, src_msg_id from assets where not stored and deleted_at is null order by uploaded_at asc limit 3",
+  const pend = await query<{
+    id: string;
+    kind: "photo" | "video";
+    original_key: string;
+    filename: string;
+    src_msg_id: string | null;
+    thumb_ok: boolean;
+  }>(
+    `select id, kind, original_key, filename, src_msg_id, (thumb_webp is not null) as thumb_ok
+       from assets where not stored and deleted_at is null order by uploaded_at asc limit 3`,
   );
-  if (!pend.rows.length) return;
+  if (!pend.rows.length) {
+    // ya no hay nada pendiente: un error viejo de guardado deja de aplicar
+    if (ingestState.lastTickError?.startsWith("guardar ")) ingestState.lastTickError = null;
+    return;
+  }
   ingestState.lastStep = `guardando ${pend.rows.length} original(es) pendiente(s)`;
 
   for (const a of pend.rows) {
-    if (!a.src_msg_id) {
-      // sin origen y sin guardar: no hay de dónde sacar el binario
-      await retireUnrecoverable(a.id, a.filename, "sin mensaje de origen", log);
+    const fkey = `ingest:store_fail:${a.id}`;
+    const srcId = Number(a.src_msg_id);
+    if (!a.src_msg_id || !Number.isFinite(srcId) || srcId <= 0) {
+      await query("delete from kv where k = $1", [fkey]).catch(() => {});
+      await retireUnrecoverable(a.id, a.filename, "sin mensaje de origen válido", log);
       continue;
     }
-    const srcId = Number(a.src_msg_id);
-    const fkey = `ingest:store_fail:${a.id}`;
+    const n = (await kvNum(fkey)) + 1;
+    let tmp: string | null = null;
     try {
-      await withTimeout(tgPutByForward(a.original_key, srcId), 25_000, "reenviar original al almacén");
+      if (n <= 2) {
+        // rápido: reenvío dentro de Telegram
+        await withTimeout(tgPutByForward(a.original_key, srcId), 20_000, "reenviar original");
+      } else {
+        // el reenvío falla de forma persistente → se recupera de verdad:
+        // descargar el original del inbox y subirlo al almacén.
+        ingestState.lastStep = `recuperando "${a.filename}" (descarga + subida)`;
+        await mkdir(env.TMP_DIR, { recursive: true });
+        tmp = join(env.TMP_DIR, `store-${a.id}-${randomBytes(4).toString("hex")}`);
+        const got = await withTimeout(tgDownloadInbox(srcId, tmp, 8 * 60_000), 9 * 60_000, "descargar del inbox");
+        if (!got) throw new Error("descarga vacía");
+        await withTimeout(tgPut(a.original_key, tmp), 8 * 60_000, "subir original");
+        // si la miniatura quedó vacía (asset de una versión antigua), se regenera
+        if (!a.thumb_ok) {
+          await regenerateDerivatives(a.id, a.kind, tmp).catch((e) =>
+            log.warn({ id: a.id, err: (e as Error)?.message }, "no se pudo regenerar la miniatura"),
+          );
+        }
+      }
       await query("update assets set stored = true, src_msg_id = null where id = $1", [a.id]);
       await query("delete from kv where k = $1", [fkey]).catch(() => {});
       await withTimeout(tgDeleteInbox([srcId]), 30_000, "borrar del inbox").catch(() => {});
       ingestState.lastTickError = null;
-      log.info({ id: a.id }, "asset: original guardado en el almacén");
+      log.info({ id: a.id, via: n <= 2 ? "forward" : "descarga+subida" }, "asset: original guardado");
     } catch (e) {
       const emsg = (e as Error)?.message ?? String(e);
-      const n = Number(
-        (await one<{ v: string }>("select v from kv where k = $1", [fkey]).catch(() => null))?.v ?? 0,
-      ) + 1;
-      await query(
-        "insert into kv (k, v, updated_at) values ($1,$2,now()) on conflict (k) do update set v = excluded.v, updated_at = now()",
-        [fkey, String(n)],
-      );
-      ingestState.lastTickError = `guardar original de "${a.filename}" (intento ${n}): ${emsg}`;
-      log.warn({ id: a.id, intento: n, err: emsg }, "asset: original aún sin guardar");
+      await kvSet(fkey, n);
+      ingestState.lastTickError = `guardar "${a.filename}" (intento ${n}): ${emsg}`;
+      log.warn({ id: a.id, intento: n, err: emsg }, "asset: sigue sin guardarse");
 
       const fw = /flood(?:_wait)?[ _]?(\d+)/i.exec(emsg);
       if (fw || /flood/i.test(emsg)) {
@@ -323,27 +350,44 @@ async function storePending(log: FastifyBaseLoggerLike): Promise<void> {
         break;
       }
 
-      if (n >= 6) {
-        // ¿el mensaje de origen sigue existiendo?
-        const exists = await inboxMsgExists(srcId).catch(() => true);
-        if (!exists) {
-          await query("delete from kv where k = $1", [fkey]).catch(() => {});
-          await retireUnrecoverable(a.id, a.filename, "el mensaje de Telegram ya no existe", log);
-          continue;
+      // ¿el mensaje de origen ya no existe? solo se retira si el inbox
+      // RESPONDE y el mensaje no está (un error de red no cuenta).
+      if (n >= 3) {
+        try {
+          const near = await tgInboxNewMedia(Math.max(0, srcId - 1), 5);
+          if (!near.some((it) => it.id === srcId)) {
+            await query("delete from kv where k = $1", [fkey]).catch(() => {});
+            await retireUnrecoverable(a.id, a.filename, "el mensaje de Telegram ya no existe", log);
+            continue;
+          }
+        } catch {
+          /* inbox no respondió: no retiramos, se reintenta */
         }
-        // existe pero algo va mal de forma persistente: lo dejamos y seguimos
-        log.error({ id: a.id }, "asset: 6 fallos guardando el original, el mensaje existe; se sigue reintentando más lento");
+      }
+      if (n >= 8) {
+        // el mensaje existe pero no hay forma: se retira para no machacar
+        // Telegram indefinidamente. El usuario lo reenvía si lo quiere.
+        await query("delete from kv where k = $1", [fkey]).catch(() => {});
+        await retireUnrecoverable(a.id, a.filename, "no se pudo guardar tras 8 intentos", log);
+        continue;
       }
       resetTelegram();
       break;
+    } finally {
+      if (tmp) await rm(tmp, { force: true }).catch(() => {});
     }
   }
 }
 
-/** ¿Existe aún el mensaje `id` en el inbox de Telegram? */
-async function inboxMsgExists(id: number): Promise<boolean> {
-  const items = await tgInboxNewMedia(id - 1, 3).catch(() => []);
-  return items.some((it) => it.id === id);
+async function kvNum(k: string): Promise<number> {
+  const r = await one<{ v: string }>("select v from kv where k = $1", [k]).catch(() => null);
+  return Number(r?.v) || 0;
+}
+async function kvSet(k: string, v: number): Promise<void> {
+  await query(
+    "insert into kv (k, v, updated_at) values ($1,$2,now()) on conflict (k) do update set v = excluded.v, updated_at = now()",
+    [k, String(v)],
+  ).catch(() => {});
 }
 
 /** El original no se puede recuperar: se retira el asset para no dejar tiles rotas. */
