@@ -115,24 +115,14 @@ export async function ingestLocalFile(opts: {
 
   await placeholderThumb(tmpThumb, info.kind).catch(() => {});
 
-  // ---------- Ingesta DIFERIDA: fila ya, original después ----------
+  // ---------- Ingesta DIFERIDA: fila ya, original y miniatura real después ----------
   if (opts.deferStore && opts.forwardFromInboxMsgId) {
     const { tgCachePut } = await import("./telegram.js");
-    // miniatura + póster reales, en local (sin tocar Telegram)
-    try {
-      if (info.kind === "video") {
-        await extractFrame(filePath, tmpPoster);
-        await sharpThumb(tmpPoster, tmpThumb);
-      } else {
-        await sharpThumb(filePath, tmpThumb);
-      }
-    } catch (e) {
-      log.warn(e, "miniatura real falló; se usa la de reserva");
-    }
-    // deja la miniatura (y el póster) en la caché de disco → /v1/blob las sirve ya
-    await tgCachePut(thumbKey, tmpThumb).catch(() => {});
-    if (posterKey) await tgCachePut(posterKey, tmpPoster).catch(() => {});
 
+    // 1) miniatura de reserva a la caché de disco → /v1/blob ya sirve algo
+    await tgCachePut(thumbKey, tmpThumb).catch(() => {});
+
+    // 2) fila creada YA (metadatos de ffprobe, que ya corrió arriba con timeout duro)
     const insertedD = await one<{ id: string }>(
       `insert into assets
          (user_id, kind, filename, mime, bytes, sha256, width, height, duration_s, fps, video_bitrate,
@@ -146,13 +136,33 @@ export async function ingestLocalFile(opts: {
         info.lat, info.lon, false, originalKey, thumbKey, posterKey, opts.forwardFromInboxMsgId,
       ],
     );
-    await Promise.allSettled([
-      rm(filePath, { force: true }),
-      rm(tmpThumb, { force: true }),
-      rm(tmpPoster, { force: true }),
-    ]);
-    log.info({ id: insertedD!.id, kind: info.kind, size }, "asset creado (original pendiente de guardar)");
-    return { status: "saved", id: insertedD!.id, kind: info.kind, bytes: size };
+    const dId = insertedD!.id;
+    log.info({ id: dId, kind: info.kind, size }, "asset creado (original y miniatura pendientes)");
+
+    // 3) miniatura + póster REALES en 2º plano (no bloquean que el vídeo aparezca)
+    void (async () => {
+      try {
+        if (info.kind === "video") {
+          await extractFrame(filePath, tmpPoster);
+          await sharpThumb(tmpPoster, tmpThumb);
+          await tgCachePut(thumbKey, tmpThumb);
+          if (posterKey) await tgCachePut(posterKey, tmpPoster);
+        } else {
+          await sharpThumb(filePath, tmpThumb);
+          await tgCachePut(thumbKey, tmpThumb);
+        }
+      } catch (e) {
+        log.warn(e, "miniatura real falló; se queda la de reserva");
+      } finally {
+        await Promise.allSettled([
+          rm(filePath, { force: true }),
+          rm(tmpThumb, { force: true }),
+          rm(tmpPoster, { force: true }),
+        ]);
+      }
+    })();
+
+    return { status: "saved", id: dId, kind: info.kind, bytes: size };
   }
 
   // El original: se intenta REENVIAR dentro de Telegram (instantáneo, sin gastar

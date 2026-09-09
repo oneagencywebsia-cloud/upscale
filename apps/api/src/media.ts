@@ -1,12 +1,44 @@
 import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { extname } from "node:path";
 import sharp from "sharp";
 import { env } from "./env.js";
 import type { AssetKind } from "./types.js";
 
-const run = promisify(execFile);
-const RUN_OPTS = { maxBuffer: 8 * 1024 * 1024, timeout: 45_000, killSignal: "SIGKILL" as const };
+const RUN_OPTS = { maxBuffer: 8 * 1024 * 1024, timeout: 25_000 };
+
+/**
+ * Ejecuta un binario y GARANTIZA que la promesa se resuelve como muy tarde a los
+ * `timeout` ms: al vencer, mata el hijo (SIGKILL) y rechaza YA, sin esperar a que
+ * cierre sus pipes. `execFile` de Node con `timeout` puede quedarse colgado si el
+ * hijo no cierra stdio tras el kill (pasa con ffprobe/ffmpeg en vídeos 4K/HEVC
+ * pesados) — esto lo evita.
+ */
+function run(
+  file: string,
+  args: string[],
+  opts: { maxBuffer: number; timeout: number },
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const child = execFile(file, args, { maxBuffer: opts.maxBuffer }, (err, stdout, stderr) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (err) reject(err);
+      else resolve({ stdout: String(stdout), stderr: String(stderr) });
+    });
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* ya muerto */
+      }
+      reject(new Error(`${file}: timeout ${opts.timeout}ms`));
+    }, opts.timeout);
+  });
+}
 
 const VIDEO_EXT = new Set([".mov", ".mp4", ".m4v", ".hevc", ".avci", ".3gp", ".avi", ".mkv", ".webm"]);
 const IMAGE_EXT = new Set([".heic", ".heif", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".tiff", ".dng", ".avif"]);
