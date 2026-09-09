@@ -309,48 +309,71 @@ export async function tgDeleteInbox(ids: number[]): Promise<void> {
  */
 export async function tgPutByForward(key: string, inboxMsgId: number, filePath?: string): Promise<void> {
   const channel = await getChannel();
-  let fwd: Api.Message | undefined;
+  let newMsgId = 0;
+  let bytes = 0;
   let lastErr: unknown;
+
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const c = await getClient();
-      const res = await raceTimeout(
-        c.forwardMessages(channel, { messages: [inboxMsgId], fromPeer: env.TELEGRAM_INBOX }),
-        12_000,
+      const fromPeer = await c.getInputEntity(env.TELEGRAM_INBOX);
+      // invoke crudo con randomId explícito: el wrapper c.forwardMessages() de
+      // esta versión de GramJS no lo pone y para canales no devuelve el mensaje.
+      const randomId = bigInt(randomBytes(8).readBigUInt64BE().toString());
+      const res = (await raceTimeout(
+        c.invoke(
+          new Api.messages.ForwardMessages({
+            fromPeer,
+            toPeer: channel,
+            id: [inboxMsgId],
+            randomId: [randomId],
+          }),
+        ),
+        15_000,
         `forward ${inboxMsgId}`,
-      );
-      fwd = (Array.isArray(res) ? res[0] : (res as unknown)) as Api.Message | undefined;
-      if (!fwd) throw new Error("forwardMessages no devolvió mensaje");
-      lastErr = null;
-      break;
+      )) as { updates?: unknown[] };
+
+      for (const u of res.updates ?? []) {
+        const m = (u as { message?: Api.Message }).message;
+        if (!m || typeof m.id !== "number") continue;
+        const doc = (m as Api.Message).document as Api.Document | undefined;
+        if (doc) {
+          newMsgId = m.id;
+          bytes = Number(doc.size) || 0;
+          break;
+        }
+        if (!newMsgId) newMsgId = m.id;
+      }
+      if (newMsgId) {
+        lastErr = null;
+        break;
+      }
+      throw new Error("forward: sin mensaje nuevo en la respuesta");
     } catch (e) {
       lastErr = e;
-      // FLOOD_WAIT en forwards: no insistir, que el llamante suba el archivo
       if (/flood/i.test((e as Error)?.message ?? "")) break;
       resetTelegram();
       await new Promise((r) => setTimeout(r, 1500 * attempt));
     }
   }
-  if (lastErr || !fwd) throw lastErr ?? new Error("forward al almacén falló");
 
-  const messageId = Number((fwd as Api.Message).id);
-  if (!Number.isFinite(messageId) || messageId <= 0) {
-    // forwardMessages devolvió algo sin id usable → el mensaje de origen no se
-    // pudo reenviar (borrado, o no reenviable). Error claro para el llamante.
-    throw new Error(`el reenvío no produjo un mensaje válido (origen ${inboxMsgId})`);
+  if (!newMsgId) {
+    throw lastErr instanceof Error && /flood/i.test(lastErr.message)
+      ? lastErr
+      : new Error(`el reenvío no produjo un mensaje válido (origen ${inboxMsgId})`);
   }
-  const doc = (fwd as Api.Message).document as Api.Document | undefined;
-  let bytes = Number(doc?.size) || 0;
+
   if (!bytes && filePath) bytes = (await stat(filePath).catch(() => ({ size: 0 }))).size;
   await query(
     `insert into blob_refs (key, tg_message_id, bytes) values ($1,$2,$3)
      on conflict (key) do update set tg_message_id = excluded.tg_message_id, bytes = excluded.bytes`,
-    [key, messageId, bytes],
+    [key, newMsgId, bytes],
   );
 
   if (filePath && bytes && bytes <= CACHE_INLINE_LIMIT) {
-    await mkdir(env.TG_CACHE_DIR, { recursive: true });
-    await pipe(createReadStream(filePath), createWriteStream(cachePath(key))).catch(() => {});
+    const dst = cachePath(key);
+    await mkdir(dirname(dst), { recursive: true });
+    await pipe(createReadStream(filePath), createWriteStream(dst)).catch(() => {});
   }
 }
 

@@ -283,6 +283,14 @@ interface FastifyBaseLoggerLike {
  * FLOOD_WAIT → pausa. Los errores se ven en /ingest/status.
  */
 async function storePending(log: FastifyBaseLoggerLike): Promise<void> {
+  // total pendiente (para el diagnóstico) y lote a procesar ESTA vuelta.
+  // 1 por vuelta: recuperar = descargar+subir un vídeo, es caro; en lote
+  // machacaría Telegram y dispararía FLOOD_WAIT.
+  const tot = await one<{ n: string }>(
+    "select count(*) n from assets where not stored and deleted_at is null",
+  ).catch(() => null);
+  ingestState.pending = tot ? Number(tot.n) : 0;
+
   const pend = await query<{
     id: string;
     kind: "photo" | "video";
@@ -292,15 +300,13 @@ async function storePending(log: FastifyBaseLoggerLike): Promise<void> {
     thumb_ok: boolean;
   }>(
     `select id, kind, original_key, filename, src_msg_id, (thumb_webp is not null) as thumb_ok
-       from assets where not stored and deleted_at is null order by uploaded_at asc limit 3`,
+       from assets where not stored and deleted_at is null order by uploaded_at asc limit 4`,
   );
-  ingestState.pending = pend.rows.length;
   if (!pend.rows.length) {
-    // ya no hay nada pendiente: un error viejo de guardado deja de aplicar
     if (ingestState.lastTickError?.startsWith("guardar ")) ingestState.lastTickError = null;
     return;
   }
-  ingestState.lastStep = `guardando ${pend.rows.length} original(es) pendiente(s)`;
+  ingestState.lastStep = `guardando originales pendientes (${ingestState.pending})`;
 
   for (const a of pend.rows) {
     const fkey = `ingest:store_fail:${a.id}`;
@@ -312,20 +318,20 @@ async function storePending(log: FastifyBaseLoggerLike): Promise<void> {
     }
     const n = (await kvNum(fkey)) + 1;
     let tmp: string | null = null;
+    let heavy = false;
     try {
+      // 1º el reenvío (instantáneo, server-side). Si falla, se recupera de
+      // verdad: descargar el original del inbox y subirlo al almacén.
       if (n <= 2) {
-        // rápido: reenvío dentro de Telegram
-        await withTimeout(tgPutByForward(a.original_key, srcId), 20_000, "reenviar original");
+        await withTimeout(tgPutByForward(a.original_key, srcId), 18_000, "reenviar original");
       } else {
-        // el reenvío falla de forma persistente → se recupera de verdad:
-        // descargar el original del inbox y subirlo al almacén.
+        heavy = true;
         ingestState.lastStep = `recuperando "${a.filename}" (descarga + subida)`;
         await mkdir(env.TMP_DIR, { recursive: true });
         tmp = join(env.TMP_DIR, `store-${a.id}-${randomBytes(4).toString("hex")}`);
         const got = await withTimeout(tgDownloadInbox(srcId, tmp, 8 * 60_000), 9 * 60_000, "descargar del inbox");
         if (!got) throw new Error("descarga vacía");
         await withTimeout(tgPut(a.original_key, tmp), 8 * 60_000, "subir original");
-        // si la miniatura quedó vacía (asset de una versión antigua), se regenera
         if (!a.thumb_ok) {
           await regenerateDerivatives(a.id, a.kind, tmp).catch((e) =>
             log.warn({ id: a.id, err: (e as Error)?.message }, "no se pudo regenerar la miniatura"),
@@ -336,7 +342,9 @@ async function storePending(log: FastifyBaseLoggerLike): Promise<void> {
       await query("delete from kv where k = $1", [fkey]).catch(() => {});
       await withTimeout(tgDeleteInbox([srcId]), 30_000, "borrar del inbox").catch(() => {});
       ingestState.lastTickError = null;
-      log.info({ id: a.id, via: n <= 2 ? "forward" : "descarga+subida" }, "asset: original guardado");
+      log.info({ id: a.id, via: heavy ? "descarga+subida" : "forward" }, "asset: original guardado");
+      // una recuperación pesada por vuelta: no encadenar descargas grandes
+      if (heavy) break;
     } catch (e) {
       const emsg = (e as Error)?.message ?? String(e);
       await kvSet(fkey, n);
