@@ -18,7 +18,24 @@ import { tgInboxNewMedia, tgInboxStartId, tgDownloadInbox, tgDeleteInbox, resetT
 const KEY = "ingest:last_id";
 let running = false;
 let runningSince = 0;
-const attempts = new Map<number, number>(); // id -> nº de intentos fallidos
+let pausedUntil = 0; // epoch ms: si Telegram nos mete FLOOD_WAIT, paramos hasta aquí
+
+/** Intentos fallidos por mensaje, persistidos en kv (sobreviven a reinicios). */
+async function getFails(id: number): Promise<number> {
+  const r = await one<{ v: string }>("select v from kv where k = $1", [`ingest:fail:${id}`]);
+  return r ? Number(r.v) || 0 : 0;
+}
+async function bumpFails(id: number): Promise<number> {
+  const n = (await getFails(id)) + 1;
+  await query(
+    "insert into kv (k, v, updated_at) values ($1,$2,now()) on conflict (k) do update set v = excluded.v, updated_at = now()",
+    [`ingest:fail:${id}`, String(n)],
+  );
+  return n;
+}
+async function clearFails(id: number): Promise<void> {
+  await query("delete from kv where k = $1", [`ingest:fail:${id}`]).catch(() => {});
+}
 
 /** Estado observable para diagnóstico (GET /v1/ingest/status). */
 export const ingestState: {
@@ -34,6 +51,7 @@ export const ingestState: {
   totalImported: number;
   /** Cuánto tardó cada fase del último archivo (ms) — para ver dónde se va el tiempo. */
   lastTimings: { bytes: number; downloadMs: number; processMs: number; totalMs: number } | null;
+  pausedUntil: string | null;
 } = {
   started: false,
   inbox: env.TELEGRAM_INBOX,
@@ -46,6 +64,7 @@ export const ingestState: {
   lastImported: null,
   totalImported: 0,
   lastTimings: null,
+  pausedUntil: null,
 };
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
@@ -98,11 +117,16 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
     resetTelegram();
   }
   if (running) return;
+  if (Date.now() < pausedUntil) {
+    ingestState.lastStep = `en pausa por FLOOD_WAIT hasta ${new Date(pausedUntil).toISOString()}`;
+    return;
+  }
   running = true;
   runningSince = Date.now();
   ingestState.running = true;
   ingestState.lastTickAt = new Date().toISOString();
-  ingestState.lastTickError = null;
+  // OJO: no borramos lastTickError aquí — así queda visible por qué falló el último;
+  // se limpia solo cuando algo se importa bien.
   ingestState.lastStep = "arrancando";
   try {
     // primer arranque: fijamos el punto de partida en el último mensaje actual
@@ -158,19 +182,32 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
         log.info({ id: it.id, assetId: res.id, status: res.status, kind: res.kind, bytes: res.bytes, downloadMs: t1 - t0, processMs: t2 - t1 }, "ingesta: guardado");
         ingestState.lastImported = { id: it.id, assetId: res.id, at: new Date().toISOString() };
         ingestState.totalImported++;
-        attempts.delete(it.id);
+        ingestState.lastTickError = null; // algo entró bien: limpiamos
+        await clearFails(it.id);
         await withTimeout(tgDeleteInbox([it.id]), 30_000, "borrar mensaje").catch(() => {});
         await setLastId(it.id);
       } catch (e) {
         await rm(tmp, { force: true }).catch(() => {});
-        const n = (attempts.get(it.id) ?? 0) + 1;
-        attempts.set(it.id, n);
-        ingestState.lastTickError = `msg ${it.id} (intento ${n}): ${(e as Error)?.message}`;
-        log.error({ id: it.id, intento: n, err: (e as Error)?.message }, "ingesta: fallo con un mensaje");
+        const msg = (e as Error)?.message ?? String(e);
+        const n = await bumpFails(it.id);
+        ingestState.lastTickError = `msg ${it.id} (intento ${n}): ${msg}`;
+        log.error({ id: it.id, intento: n, err: msg }, "ingesta: fallo con un mensaje");
+
+        // FLOOD_WAIT: Telegram nos frena. Pausamos el poller el tiempo que pida
+        // (o 15 min por defecto) en vez de seguir machacando.
+        const fw = /flood(?:_wait)?[ _]?(\d+)/i.exec(msg);
+        if (fw || /flood/i.test(msg)) {
+          const secs = fw ? Math.min(3600, Number(fw[1]) + 5) : 900;
+          pausedUntil = Date.now() + secs * 1000;
+          ingestState.pausedUntil = new Date(pausedUntil).toISOString();
+          log.warn({ secs }, "ingesta: FLOOD_WAIT, poller en pausa");
+          break;
+        }
+
         resetTelegram(); // por si la conexión está medio muerta
         if (n >= 3) {
-          log.error({ id: it.id }, "ingesta: 3 fallos, se descarta este mensaje (bórralo de Mensajes guardados)");
-          attempts.delete(it.id);
+          log.error({ id: it.id }, "ingesta: 3 fallos, se salta este mensaje");
+          await clearFails(it.id);
           await setLastId(it.id); // pasamos al siguiente
           continue;
         }
@@ -208,6 +245,37 @@ export function startInboxIngest(log: FastifyBaseLoggerLike): void {
 /** Fuerza una vuelta de ingesta ahora (para el endpoint de diagnóstico). */
 export async function ingestTickNow(log: FastifyBaseLoggerLike): Promise<void> {
   await tick(log);
+}
+
+/**
+ * Salta TODO lo que hay ahora en el inbox: pone el puntero por delante del
+ * último mensaje. Limpia contadores de fallo y la pausa por FLOOD_WAIT.
+ * Se usa cuando un mensaje se atasca; luego reenvías lo que quieras.
+ */
+export async function ingestSkipPending(log: FastifyBaseLoggerLike): Promise<{ newLastId: number; skipped: number }> {
+  pausedUntil = 0;
+  ingestState.pausedUntil = null;
+  const before = await getLastId();
+  let maxId = before;
+  try {
+    const items = await withTimeout(tgInboxNewMedia(0, 100), 60_000, "listar inbox (skip)");
+    for (const it of items) {
+      if (it.id > maxId) maxId = it.id;
+      await clearFails(it.id);
+    }
+  } catch (e) {
+    log.warn({ err: (e as Error)?.message }, "skip: no se pudo listar el inbox; solo limpio pausa");
+  }
+  if (maxId > before) await setLastId(maxId);
+  ingestState.lastTickError = null;
+  log.info({ before, newLastId: maxId }, "ingesta: saltados los pendientes");
+  return { newLastId: maxId, skipped: Math.max(0, maxId - before) };
+}
+
+/** Quita la pausa por FLOOD_WAIT (para reintentar ya). */
+export function ingestResume(): void {
+  pausedUntil = 0;
+  ingestState.pausedUntil = null;
 }
 
 export function ingestSnapshot() {

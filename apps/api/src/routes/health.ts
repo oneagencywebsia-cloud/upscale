@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { ping, one } from "../db.js";
 import { env, VERSION } from "../env.js";
-import { ingestSnapshot, ingestState, ingestTickNow } from "../ingest.js";
+import { ingestSnapshot, ingestState, ingestTickNow, ingestSkipPending, ingestResume } from "../ingest.js";
 
 export async function healthRoutes(app: FastifyInstance): Promise<void> {
   app.get("/v1/healthz", async (_req, reply) => {
@@ -43,5 +43,18 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
       lastTickError: ingestState.lastTickError,
       totalImported: ingestState.totalImported,
     };
+  });
+
+  // salta lo que hay atascado ahora en el inbox (luego reenvías lo que quieras)
+  app.post("/v1/ingest/skip", async () => {
+    const r = await ingestSkipPending(app.log);
+    return { ok: true, ...r };
+  });
+
+  // quita la pausa por FLOOD_WAIT y hace una vuelta ya
+  app.post("/v1/ingest/resume", async () => {
+    ingestResume();
+    await ingestTickNow(app.log);
+    return { ok: true, lastTickError: ingestState.lastTickError, totalImported: ingestState.totalImported };
   });
 }
