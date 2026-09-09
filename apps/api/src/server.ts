@@ -80,6 +80,15 @@ const close = async (sig: string) => {
 process.on("SIGTERM", () => void close("SIGTERM"));
 process.on("SIGINT", () => void close("SIGINT"));
 
+// El bucle de updates de GramJS y algún stream de Telegram pueden lanzar rechazos
+// sueltos ("TIMEOUT", etc.). Se registran y se ignoran: no deben tumbar la API.
+process.on("unhandledRejection", (reason) => {
+  app.log.warn({ reason: reason instanceof Error ? reason.message : String(reason) }, "unhandledRejection (ignorado)");
+});
+process.on("uncaughtException", (err) => {
+  app.log.error({ err: err?.message, stack: err?.stack }, "uncaughtException (la API sigue)");
+});
+
 try {
   await app.listen({ port: env.PORT, host: "0.0.0.0" });
   app.log.info(`Upscale API (${env.STORAGE_DRIVER}) en http://0.0.0.0:${env.PORT}`);

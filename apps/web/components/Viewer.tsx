@@ -23,8 +23,10 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
   const a = open ? assets[index] : null;
 
   const [videoState, setVideoState] = useState<"loading" | "ready" | "error" | "slow">("loading");
+  const [buffering, setBuffering] = useState(false);
   useEffect(() => {
     setVideoState("loading");
+    setBuffering(false);
     if (!a || a.kind !== "video") return;
     const t = setTimeout(() => setVideoState((s) => (s === "loading" ? "slow" : s)), 20000);
     return () => clearTimeout(t);
@@ -85,14 +87,22 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
                     controls
                     autoPlay
                     playsInline
-                    preload="metadata"
+                    preload="auto"
                     onLoadedData={() => setVideoState("ready")}
-                    onCanPlay={() => setVideoState("ready")}
+                    onCanPlay={() => { setVideoState("ready"); setBuffering(false); }}
+                    onPlaying={() => { setVideoState("ready"); setBuffering(false); }}
+                    onWaiting={() => setBuffering(true)}
+                    onStalled={() => setBuffering(true)}
                     onError={() => setVideoState("error")}
                     initial={{ opacity: 0, scale: 0.94 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ type: "spring", stiffness: 260, damping: 26 }}
                   />
+                  {videoState === "ready" && buffering && (
+                    <div className="viewer-buffering" aria-hidden="true">
+                      <span className="viewer-spin" />
+                    </div>
+                  )}
                   {videoState !== "ready" && (
                     <div className="viewer-loading" aria-live="polite">
                       {videoState === "error" ? (

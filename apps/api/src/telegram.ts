@@ -446,6 +446,26 @@ export async function tgSize(key: string): Promise<number> {
 
 let downloading: Map<string, Promise<void>> | null = null;
 
+/** Resuelve el mensaje (canal-almacén o inbox) que respalda una key. */
+async function messageForKey(key: string): Promise<Api.Message> {
+  const c = await getClient();
+  const row = await one<{ tg_message_id: string }>("select tg_message_id from blob_refs where key = $1", [key]);
+  if (row) {
+    const channel = await getChannel();
+    const [m] = await c.getMessages(channel, { ids: [Number(row.tg_message_id)] });
+    if (m?.media) return m;
+    throw new Error("mensaje no encontrado en Telegram");
+  }
+  const a = await one<{ src_msg_id: string }>(
+    "select src_msg_id from assets where original_key = $1 and not stored and deleted_at is null",
+    [key],
+  );
+  if (!a?.src_msg_id) throw new Error("blob no registrado");
+  const [m] = await c.getMessages(env.TELEGRAM_INBOX, { ids: [Number(a.src_msg_id)] });
+  if (m?.media) return m;
+  throw new Error("mensaje del inbox no encontrado");
+}
+
 /** Descarga la key entera a la caché de disco (una sola vez aunque llamen en paralelo). */
 async function ensureCached(key: string): Promise<string> {
   const cp = cachePath(key);
@@ -457,21 +477,19 @@ async function ensureCached(key: string): Promise<string> {
   let job = downloading.get(key);
   if (!job) {
     job = (async () => {
-      const row = await one<{ tg_message_id: string }>(
-        "select tg_message_id from blob_refs where key = $1",
-        [key],
-      );
-      if (!row) throw new Error("blob no registrado");
       const c = await getClient();
-      const channel = await getChannel();
-      const [msg] = await c.getMessages(channel, { ids: [Number(row.tg_message_id)] });
-      if (!msg || !msg.media) throw new Error("mensaje no encontrado en Telegram");
+      const msg = await messageForKey(key);
       await mkdir(env.TG_CACHE_DIR, { recursive: true });
       const tmp = `${cp}.${randomBytes(6).toString("hex")}.dl`;
-      await c.downloadMedia(msg, { outputFile: tmp });
-      await rm(cp, { force: true }).catch(() => {});
-      await rename(tmp, cp);
-      pruneCache();
+      try {
+        await c.downloadMedia(msg, { outputFile: tmp });
+        await rm(cp, { force: true }).catch(() => {});
+        await rename(tmp, cp);
+        pruneCache();
+      } catch (e) {
+        await rm(tmp, { force: true }).catch(() => {});
+        throw e;
+      }
     })();
     downloading.set(key, job);
   }
@@ -483,6 +501,28 @@ async function ensureCached(key: string): Promise<string> {
   return cp;
 }
 
+const warming = new Set<string>();
+
+/**
+ * Precarga la key entera al disco en 2º plano (sin bloquear). Tras la primera
+ * reproducción, todos los rangos (seeks, final del vídeo, revisionados) se sirven
+ * del disco al instante → cero tirones.
+ */
+export function warmCache(key: string, totalBytes: number): void {
+  if (warming.has(key)) return;
+  if (existsSync(cachePath(key))) return;
+  // no merece la pena para archivos pequeños ni para uno mayor que toda la caché
+  if (totalBytes < 3 * 1024 * 1024) return;
+  if (totalBytes > env.TG_CACHE_MAX_MB * 1024 * 1024) return;
+  warming.add(key);
+  // pequeño respiro para no competir con el arranque de la reproducción
+  setTimeout(() => {
+    void ensureCached(key)
+      .catch((e) => console.error("[tg] warmCache falló:", (e as Error).message))
+      .finally(() => warming.delete(key));
+  }, 2000);
+}
+
 /**
  * Descarga SOLO el rango pedido directamente de Telegram (sin bajar el archivo
  * entero). Así un vídeo empieza a reproducirse en cuanto llega el primer trozo.
@@ -491,6 +531,7 @@ async function ensureCached(key: string): Promise<string> {
 // vídeo el navegador pide decenas de rangos; sin esto haríamos un getMessages
 // (ida y vuelta a Telegram) por cada rango.
 const docCache = new Map<string, { loc: Api.InputDocumentFileLocation; total: number; dcId?: number; at: number }>();
+const docInflight = new Map<string, Promise<{ loc: Api.InputDocumentFileLocation; total: number; dcId?: number }>>();
 const DOC_TTL = 90_000; // el fileReference caduca; 90 s va sobrado para un vídeo
 
 async function docLocation(
@@ -498,6 +539,18 @@ async function docLocation(
 ): Promise<{ loc: Api.InputDocumentFileLocation; total: number; dcId?: number }> {
   const hit = docCache.get(key);
   if (hit && Date.now() - hit.at < DOC_TTL) return { loc: hit.loc, total: hit.total, dcId: hit.dcId };
+
+  // varios rangos en paralelo al abrir un vídeo → una sola resolución
+  const flying = docInflight.get(key);
+  if (flying) return flying;
+  const job = docLocationFresh(key).finally(() => docInflight.delete(key));
+  docInflight.set(key, job);
+  return job;
+}
+
+async function docLocationFresh(
+  key: string,
+): Promise<{ loc: Api.InputDocumentFileLocation; total: number; dcId?: number }> {
 
   const row = await one<{ tg_message_id: string; bytes: string }>(
     "select tg_message_id, bytes from blob_refs where key = $1",
@@ -536,43 +589,63 @@ async function docLocation(
   return { loc, total, dcId };
 }
 
+const CHUNK = 512 * 1024; // requestSize: múltiplo de 4096, máx 512 KB
+
 async function tgReadRangeLive(
   key: string,
   start: number,
   end: number,
 ): Promise<{ stream: Readable; totalSize: number }> {
-  const c = await getClient();
-  const { loc: location, total, dcId } = await docLocation(key);
-
-  const CHUNK = 512 * 1024; // requestSize: múltiplo de 4096, máx 512 KB
-  const alignedStart = Math.floor(start / CHUNK) * CHUNK;
-  const skip = start - alignedStart;
+  const { total } = await docLocation(key);
   const wantLen = end - start + 1;
 
-  const iter = c.iterDownload({
-    file: location,
-    dcId, // evita un round-trip FILE_MIGRATE si el almacén está en otro DC
-    offset: bigInt(alignedStart),
-    limit: wantLen + skip,
-    requestSize: CHUNK,
-  });
-
+  // Generador resiliente: si Telegram corta a media descarga (fileReference
+  // caducado, error de DC transitorio…) reanuda desde donde se quedó con una
+  // localización fresca, hasta 3 intentos. Esto mata los tirones a mitad y el
+  // "pillado" al final del vídeo.
   async function* gen(): AsyncGenerator<Buffer> {
-    let dropped = 0;
     let emitted = 0;
-    for await (const chunk of iter) {
-      let buf = Buffer.from(chunk as Uint8Array);
-      if (dropped < skip) {
-        const d = Math.min(skip - dropped, buf.length);
-        dropped += d;
-        buf = buf.subarray(d);
+    let stalls = 0; // veces seguidas SIN avanzar ni un byte
+    while (emitted < wantLen) {
+      const before = emitted;
+      const from = start + emitted;
+      const alignedStart = Math.floor(from / CHUNK) * CHUNK;
+      const skip = from - alignedStart;
+      const need = wantLen - emitted;
+      const limit = Math.min(total - alignedStart, Math.ceil((need + skip) / CHUNK) * CHUNK);
+      try {
+        const c = await getClient();
+        const { loc, dcId } = await docLocation(key);
+        const iter = c.iterDownload({ file: loc, dcId, offset: bigInt(alignedStart), limit, requestSize: CHUNK });
+        let dropped = 0;
+        for await (const chunk of iter) {
+          let buf = Buffer.from(chunk as Uint8Array);
+          if (dropped < skip) {
+            const d = Math.min(skip - dropped, buf.length);
+            dropped += d;
+            buf = buf.subarray(d);
+          }
+          if (!buf.length) continue;
+          const remaining = wantLen - emitted;
+          if (buf.length > remaining) buf = buf.subarray(0, remaining);
+          emitted += buf.length;
+          yield buf;
+          if (emitted >= wantLen) return;
+        }
+      } catch (e) {
+        docCache.delete(key); // fuerza fileReference fresco
+        if (emitted === before && ++stalls >= 4) throw e;
+        await new Promise((r) => setTimeout(r, 200 * stalls));
+        continue;
       }
-      if (!buf.length) continue;
-      const remaining = wantLen - emitted;
-      if (buf.length > remaining) buf = buf.subarray(0, remaining);
-      emitted += buf.length;
-      yield buf;
-      if (emitted >= wantLen) return;
+      // iterador agotado limpio: si no avanzó nada, cuenta como stall
+      if (emitted === before) {
+        docCache.delete(key);
+        if (++stalls >= 4) throw new Error(`rango incompleto ${emitted}/${wantLen} (${key})`);
+        await new Promise((r) => setTimeout(r, 200 * stalls));
+      } else {
+        stalls = 0;
+      }
     }
   }
 
@@ -601,9 +674,12 @@ export async function tgRead(
   }
 
   // rango + no cacheado: streaming en directo desde Telegram (arranca al instante)
+  // y, en paralelo, precarga el archivo entero al disco → el resto de la
+  // reproducción (y los seeks) sale del disco sin tirones.
   if (range) {
     try {
       const { stream, totalSize } = await tgReadRangeLive(key, range.start, range.end);
+      warmCache(key, totalSize);
       return { stream, size: range.end - range.start + 1, totalSize };
     } catch (e) {
       docCache.delete(key); // por si el fileReference caducó

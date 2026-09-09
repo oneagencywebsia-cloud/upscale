@@ -45,9 +45,11 @@ export async function blobRoutes(app: FastifyInstance): Promise<void> {
           reply.code(416).header("Content-Range", `bytes */${total}`);
           return reply.send();
         }
-        // Limitamos cada respuesta a 8 MB: el reproductor pedirá el siguiente trozo.
-        // Así cada descarga en directo desde Telegram es acotada y el vídeo arranca ya.
-        const MAX_SLICE = 8 * 1024 * 1024;
+        // Limitamos cada respuesta: el reproductor pedirá el siguiente trozo.
+        // 16 MB = menos "costuras" entre trozos que 8 (menos micro-tirones) sin
+        // descargar de más si el usuario hace seek. Cuando el archivo ya está en
+        // caché de disco esto ni se aplica (se sirve el rango completo).
+        const MAX_SLICE = 16 * 1024 * 1024;
         if (end - start + 1 > MAX_SLICE) end = start + MAX_SLICE - 1;
         const { stream } = await readBlob(key, { start, end });
         reply.code(206);

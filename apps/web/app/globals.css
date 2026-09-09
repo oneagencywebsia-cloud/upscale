@@ -1660,6 +1660,31 @@ footer.status .dot {
   border-top-color: #fff;
   animation: viewer-spin 0.8s linear infinite;
 }
+.viewer-buffering {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+  animation: viewer-fade 0.15s ease;
+}
+.viewer-buffering .viewer-spin {
+  width: 18px;
+  height: 18px;
+  border-width: 2px;
+}
+@keyframes viewer-fade {
+  from {
+    opacity: 0;
+  }
+}
 @keyframes viewer-spin {
   to {
     transform: rotate(360deg);
