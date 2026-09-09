@@ -27,6 +27,16 @@ export function resetTelegram(): void {
   dying?.then((c) => c.disconnect().catch(() => {})).catch(() => {});
 }
 
+function raceTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let t: NodeJS.Timeout;
+  return Promise.race([
+    p,
+    new Promise<T>((_r, rej) => {
+      t = setTimeout(() => rej(new Error(`timeout ${Math.round(ms / 1000)}s: ${label}`)), ms);
+    }),
+  ]).finally(() => clearTimeout(t!)) as Promise<T>;
+}
+
 async function getClient(): Promise<TelegramClient> {
   if (!clientPromise) {
     clientPromise = (async () => {
@@ -35,10 +45,16 @@ async function getClient(): Promise<TelegramClient> {
           new StringSession(env.TELEGRAM_SESSION!),
           env.TELEGRAM_API_ID!,
           env.TELEGRAM_API_HASH!,
-          { connectionRetries: 5, autoReconnect: true },
+          {
+            connectionRetries: 3,
+            requestRetries: 3,
+            timeout: 20, // seg. por respuesta
+            floodSleepThreshold: 60,
+            autoReconnect: true,
+          },
         );
         c.setLogLevel("error" as never);
-        await c.connect();
+        await raceTimeout(c.connect(), 25_000, "connect");
         return c;
       } catch (e) {
         clientPromise = null; // no dejar cacheado un cliente muerto: el próximo intento reconecta
@@ -47,7 +63,7 @@ async function getClient(): Promise<TelegramClient> {
     })();
   }
   try {
-    const c = await clientPromise;
+    const c = await raceTimeout(clientPromise, 30_000, "obtener cliente");
     if (c.connected === false) {
       clientPromise = null;
       channelEntity = null;
@@ -170,18 +186,62 @@ export async function tgInboxNewMedia(sinceId: number, limit = 20): Promise<Inbo
   return out.sort((a, b) => a.id - b.id);
 }
 
-/** Descarga el archivo del mensaje `id` del inbox a `outPath` (con timeout). */
-export async function tgDownloadInbox(id: number, outPath: string, timeoutMs = 8 * 60_000): Promise<void> {
+/**
+ * Descarga el archivo del mensaje `id` del inbox a `outPath` por trozos
+ * (iterDownload → control total, deadline global y detección de estancamiento).
+ * Si iterDownload falla de entrada, cae a downloadMedia. Devuelve bytes escritos.
+ */
+export async function tgDownloadInbox(id: number, outPath: string, deadlineMs = 10 * 60_000): Promise<number> {
   const c = await getClient();
-  const [msg] = await c.getMessages(env.TELEGRAM_INBOX, { ids: [id] });
-  if (!msg || !msg.media) throw new Error(`mensaje ${id} sin media`);
-  let timer: NodeJS.Timeout;
-  await Promise.race([
-    c.downloadMedia(msg, { outputFile: outPath }),
-    new Promise((_r, rej) => {
-      timer = setTimeout(() => rej(new Error(`descarga de Telegram > ${Math.round(timeoutMs / 1000)}s (msg ${id})`)), timeoutMs);
-    }),
-  ]).finally(() => clearTimeout(timer!));
+  const [msg] = await raceTimeout(c.getMessages(env.TELEGRAM_INBOX, { ids: [id] }), 30_000, `getMessages ${id}`);
+  const doc = msg?.document as Api.Document | undefined;
+  if (!doc || !msg?.media) throw new Error(`mensaje ${id} sin documento (¿enviado como vídeo y no como archivo?)`);
+
+  const total = Number(doc.size) || 0;
+  const deadline = Date.now() + deadlineMs;
+
+  // 1) intento por trozos (abort limpio)
+  try {
+    const location = new Api.InputDocumentFileLocation({
+      id: doc.id,
+      accessHash: doc.accessHash,
+      fileReference: doc.fileReference,
+      thumbSize: "",
+    });
+    const ws = createWriteStream(outPath);
+    let written = 0;
+    let lastAt = Date.now();
+    try {
+      const iterOpts: Parameters<typeof c.iterDownload>[0] = { file: location, dcId: doc.dcId, requestSize: 512 * 1024 };
+      if (total) iterOpts.fileSize = bigInt(total);
+      for await (const chunk of c.iterDownload(iterOpts)) {
+        const now = Date.now();
+        if (now > deadline) throw new Error(`descarga > ${Math.round(deadlineMs / 1000)}s (msg ${id})`);
+        if (now - lastAt > 120_000) throw new Error(`sin datos de Telegram 120s (msg ${id})`);
+        lastAt = now;
+        const buf = Buffer.from(chunk as Uint8Array);
+        await new Promise<void>((res, rej) => ws.write(buf, (e) => (e ? rej(e) : res())));
+        written += buf.length;
+      }
+    } finally {
+      await new Promise<void>((res) => ws.end(() => res()));
+    }
+    if (written > 0 && (!total || written >= total)) return written;
+    throw new Error(`iterDownload incompleto: ${written}/${total}`);
+  } catch (e) {
+    console.error("[tg] iterDownload falló, pruebo downloadMedia:", (e as Error).message);
+  }
+
+  // 2) fallback: downloadMedia con timeout
+  await rm(outPath, { force: true }).catch(() => {});
+  await raceTimeout(
+    c.downloadMedia(msg, { outputFile: outPath }) as Promise<unknown>,
+    Math.max(30_000, deadline - Date.now()),
+    `downloadMedia ${id}`,
+  );
+  const { size } = await stat(outPath);
+  if (total && size < total) throw new Error(`descarga incompleta: ${size}/${total} bytes (msg ${id})`);
+  return size;
 }
 
 /** Borra mensajes del inbox (ya procesados). */

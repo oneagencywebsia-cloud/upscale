@@ -132,7 +132,8 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
       try {
         ingestState.lastStep = `descargando msg ${it.id} (${Math.round(it.bytes / 1e6)} MB)`;
         log.info({ id: it.id, filename: it.filename, bytes: it.bytes, userId }, "ingesta: descargando de Telegram");
-        await tgDownloadInbox(it.id, tmp);
+        const dl = await withTimeout(tgDownloadInbox(it.id, tmp), 11 * 60_000, "descargar de Telegram");
+        log.info({ id: it.id, bytes: dl }, "ingesta: descargado, procesando");
         ingestState.lastStep = `procesando msg ${it.id}`;
         const res = await withTimeout(
           ingestLocalFile({
@@ -149,7 +150,8 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
         log.info({ id: it.id, assetId: res.id, status: res.status, kind: res.kind, bytes: res.bytes }, "ingesta: guardado");
         ingestState.lastImported = { id: it.id, assetId: res.id, at: new Date().toISOString() };
         ingestState.totalImported++;
-        await tgDeleteInbox([it.id]).catch(() => {});
+        attempts.delete(it.id);
+        await withTimeout(tgDeleteInbox([it.id]), 30_000, "borrar mensaje").catch(() => {});
         await setLastId(it.id);
       } catch (e) {
         await rm(tmp, { force: true }).catch(() => {});

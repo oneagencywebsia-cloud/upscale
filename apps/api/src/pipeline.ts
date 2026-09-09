@@ -12,6 +12,16 @@ import { env } from "./env.js";
 const VIDEO_EXTS = [".mov", ".mp4", ".m4v", ".webm", ".mkv", ".avi"];
 const IMAGE_EXTS = [".heic", ".heif", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".tiff", ".dng", ".avif"];
 
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let t: NodeJS.Timeout;
+  return Promise.race([
+    p,
+    new Promise<T>((_r, rej) => {
+      t = setTimeout(() => rej(new Error(`timeout ${Math.round(ms / 1000)}s: ${label}`)), ms);
+    }),
+  ]).finally(() => clearTimeout(t!)) as Promise<T>;
+}
+
 export interface IngestResult {
   status: "saved" | "duplicate";
   id: string;
@@ -97,7 +107,11 @@ export async function ingestLocalFile(opts: {
   const tmpPoster = join(env.TMP_DIR, `${stamp}.poster.jpg`);
 
   await placeholderThumb(tmpThumb, info.kind).catch(() => {});
-  await Promise.all([put(originalKey, filePath, mime), put(thumbKey, tmpThumb, "image/webp")]);
+  await withTimeout(
+    Promise.all([put(originalKey, filePath, mime), put(thumbKey, tmpThumb, "image/webp")]),
+    8 * 60_000,
+    "subir original al almacén",
+  );
 
   const inserted = await one<{ id: string }>(
     `insert into assets
@@ -118,15 +132,21 @@ export async function ingestLocalFile(opts: {
   // miniatura + póster reales en 2º plano; luego se borra el archivo de disco
   void (async () => {
     try {
-      if (info.kind === "video") {
-        await extractFrame(filePath, tmpPoster);
-        await sharpThumb(tmpPoster, tmpThumb);
-        await Promise.all([put(thumbKey, tmpThumb, "image/webp"), put(posterKey!, tmpPoster, "image/jpeg")]);
-        await query("update assets set poster_key = $1 where id = $2", [posterKey, id]);
-      } else {
-        await sharpThumb(filePath, tmpThumb);
-        await put(thumbKey, tmpThumb, "image/webp");
-      }
+      await withTimeout(
+        (async () => {
+          if (info.kind === "video") {
+            await extractFrame(filePath, tmpPoster);
+            await sharpThumb(tmpPoster, tmpThumb);
+            await Promise.all([put(thumbKey, tmpThumb, "image/webp"), put(posterKey!, tmpPoster, "image/jpeg")]);
+            await query("update assets set poster_key = $1 where id = $2", [posterKey, id]);
+          } else {
+            await sharpThumb(filePath, tmpThumb);
+            await put(thumbKey, tmpThumb, "image/webp");
+          }
+        })(),
+        6 * 60_000,
+        "miniatura en 2º plano",
+      );
     } catch (e) {
       log.warn(e, "no se pudo generar la miniatura real; se queda la de reserva");
     } finally {
