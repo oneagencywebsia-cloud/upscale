@@ -32,6 +32,8 @@ export const ingestState: {
   lastSeen: number;
   lastImported: { id: number; assetId: string; at: string } | null;
   totalImported: number;
+  /** Cuánto tardó cada fase del último archivo (ms) — para ver dónde se va el tiempo. */
+  lastTimings: { bytes: number; downloadMs: number; processMs: number; totalMs: number } | null;
 } = {
   started: false,
   inbox: env.TELEGRAM_INBOX,
@@ -43,6 +45,7 @@ export const ingestState: {
   lastSeen: 0,
   lastImported: null,
   totalImported: 0,
+  lastTimings: null,
 };
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
@@ -130,10 +133,12 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
       }
       const tmp = join(env.TMP_DIR, `tg-${it.id}-${randomBytes(4).toString("hex")}${it.filename.match(/\.[a-z0-9]{2,5}$/i)?.[0] ?? ""}`);
       try {
+        const t0 = Date.now();
         ingestState.lastStep = `descargando msg ${it.id} (${Math.round(it.bytes / 1e6)} MB)`;
         log.info({ id: it.id, filename: it.filename, bytes: it.bytes, userId }, "ingesta: descargando de Telegram");
         const dl = await withTimeout(tgDownloadInbox(it.id, tmp), 11 * 60_000, "descargar de Telegram");
-        log.info({ id: it.id, bytes: dl }, "ingesta: descargado, procesando");
+        const t1 = Date.now();
+        log.info({ id: it.id, bytes: dl, downloadMs: t1 - t0 }, "ingesta: descargado, procesando");
         ingestState.lastStep = `procesando msg ${it.id}`;
         const res = await withTimeout(
           ingestLocalFile({
@@ -148,7 +153,9 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
           9 * 60_000,
           "guardar en el almacén",
         );
-        log.info({ id: it.id, assetId: res.id, status: res.status, kind: res.kind, bytes: res.bytes }, "ingesta: guardado");
+        const t2 = Date.now();
+        ingestState.lastTimings = { bytes: dl, downloadMs: t1 - t0, processMs: t2 - t1, totalMs: t2 - t0 };
+        log.info({ id: it.id, assetId: res.id, status: res.status, kind: res.kind, bytes: res.bytes, downloadMs: t1 - t0, processMs: t2 - t1 }, "ingesta: guardado");
         ingestState.lastImported = { id: it.id, assetId: res.id, at: new Date().toISOString() };
         ingestState.totalImported++;
         attempts.delete(it.id);

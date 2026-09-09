@@ -443,14 +443,14 @@ async function ensureCached(key: string): Promise<string> {
 // Cache corta de la localización del documento: durante la reproducción de un
 // vídeo el navegador pide decenas de rangos; sin esto haríamos un getMessages
 // (ida y vuelta a Telegram) por cada rango.
-const docCache = new Map<string, { loc: Api.InputDocumentFileLocation; total: number; at: number }>();
+const docCache = new Map<string, { loc: Api.InputDocumentFileLocation; total: number; dcId?: number; at: number }>();
 const DOC_TTL = 90_000; // el fileReference caduca; 90 s va sobrado para un vídeo
 
 async function docLocation(
   key: string,
-): Promise<{ loc: Api.InputDocumentFileLocation; total: number }> {
+): Promise<{ loc: Api.InputDocumentFileLocation; total: number; dcId?: number }> {
   const hit = docCache.get(key);
-  if (hit && Date.now() - hit.at < DOC_TTL) return { loc: hit.loc, total: hit.total };
+  if (hit && Date.now() - hit.at < DOC_TTL) return { loc: hit.loc, total: hit.total, dcId: hit.dcId };
 
   const row = await one<{ tg_message_id: string; bytes: string }>(
     "select tg_message_id, bytes from blob_refs where key = $1",
@@ -471,9 +471,10 @@ async function docLocation(
     fileReference: doc.fileReference,
     thumbSize: "",
   });
-  docCache.set(key, { loc, total, at: Date.now() });
+  const dcId = doc.dcId;
+  docCache.set(key, { loc, total, dcId, at: Date.now() });
   if (docCache.size > 50) docCache.delete(docCache.keys().next().value!);
-  return { loc, total };
+  return { loc, total, dcId };
 }
 
 async function tgReadRangeLive(
@@ -482,7 +483,7 @@ async function tgReadRangeLive(
   end: number,
 ): Promise<{ stream: Readable; totalSize: number }> {
   const c = await getClient();
-  const { loc: location, total } = await docLocation(key);
+  const { loc: location, total, dcId } = await docLocation(key);
 
   const CHUNK = 512 * 1024; // requestSize: múltiplo de 4096, máx 512 KB
   const alignedStart = Math.floor(start / CHUNK) * CHUNK;
@@ -491,6 +492,7 @@ async function tgReadRangeLive(
 
   const iter = c.iterDownload({
     file: location,
+    dcId, // evita un round-trip FILE_MIGRATE si el almacén está en otro DC
     offset: bigInt(alignedStart),
     limit: wantLen + skip,
     requestSize: CHUNK,
