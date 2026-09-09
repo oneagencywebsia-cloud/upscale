@@ -111,17 +111,21 @@ export async function ingestLocalFile(opts: {
 
   await placeholderThumb(tmpThumb, info.kind).catch(() => {});
 
-  // El original: si viene del inbox de Telegram, se REENVÍA dentro de Telegram
-  // (instantáneo, sin gastar subida del VPS ni tocar un byte). Si el forward
-  // falla, se sube el archivo como plan B.
+  // El original: se intenta REENVIAR dentro de Telegram (instantáneo, sin gastar
+  // subida del VPS). El forward de un userbot está limitado (FLOOD_WAIT), así que
+  // se le da un margen corto: si no sale ya, se sube el archivo como plan B.
   const storeOriginal = (async () => {
     if (opts.forwardFromInboxMsgId) {
       try {
         const { putOriginalByForward } = await import("./storage.js");
-        await putOriginalByForward(originalKey, opts.forwardFromInboxMsgId, filePath);
+        await withTimeout(
+          putOriginalByForward(originalKey, opts.forwardFromInboxMsgId, filePath),
+          15_000,
+          "reenviar al almacén",
+        );
         return;
       } catch (e) {
-        log.warn(e, "forward al almacén falló; subo el archivo desde el VPS");
+        log.warn({ err: (e as Error)?.message }, "forward al almacén no salió; subo el archivo");
       }
     }
     await put(originalKey, filePath, mime);

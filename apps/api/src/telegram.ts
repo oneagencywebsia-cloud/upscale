@@ -82,9 +82,11 @@ async function getClient(): Promise<TelegramClient> {
           env.TELEGRAM_API_HASH!,
           {
             connectionRetries: 3,
-            requestRetries: 3,
+            requestRetries: 2,
             timeout: 20, // seg. por respuesta
-            floodSleepThreshold: 60,
+            // si Telegram pide esperar > 20s (FLOOD_WAIT), que lance error en vez
+            // de dormir en silencio minutos; lo gestionamos nosotros (plan B: subir)
+            floodSleepThreshold: 20,
             autoReconnect: true,
           },
         );
@@ -296,12 +298,12 @@ export async function tgPutByForward(key: string, inboxMsgId: number, filePath?:
   const channel = await getChannel();
   let fwd: Api.Message | undefined;
   let lastErr: unknown;
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const c = await getClient();
       const res = await raceTimeout(
         c.forwardMessages(channel, { messages: [inboxMsgId], fromPeer: env.TELEGRAM_INBOX }),
-        60_000,
+        12_000,
         `forward ${inboxMsgId}`,
       );
       fwd = (Array.isArray(res) ? res[0] : (res as unknown)) as Api.Message | undefined;
@@ -310,6 +312,8 @@ export async function tgPutByForward(key: string, inboxMsgId: number, filePath?:
       break;
     } catch (e) {
       lastErr = e;
+      // FLOOD_WAIT en forwards: no insistir, que el llamante suba el archivo
+      if (/flood/i.test((e as Error)?.message ?? "")) break;
       resetTelegram();
       await new Promise((r) => setTimeout(r, 1500 * attempt));
     }
@@ -336,8 +340,9 @@ export async function tgPutByForward(key: string, inboxMsgId: number, filePath?:
 export async function tgPut(key: string, filePath: string): Promise<void> {
   const channel = await getChannel();
   const { size } = await stat(filePath);
-  // más "workers" = más trozos en paralelo = subida más rápida en archivos grandes
-  const workers = size > 8 * 1024 * 1024 ? 16 : 4;
+  // pocos "workers": 16 conexiones en paralelo disparaban FLOOD_WAIT y colgaban
+  // la subida minutos. 4 sube a ritmo decente sin que Telegram frene.
+  const workers = size > 8 * 1024 * 1024 ? 4 : 1;
 
   let msg: unknown;
   let lastErr: unknown;
