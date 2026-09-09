@@ -251,19 +251,69 @@ export async function tgDeleteInbox(ids: number[]): Promise<void> {
   await c.deleteMessages(env.TELEGRAM_INBOX, ids, { revoke: true }).catch(() => {});
 }
 
+/**
+ * Guarda el original SIN re-subirlo: reenvía (forward) el mensaje del inbox al
+ * canal-almacén. Es instantáneo y server-side — el binario nunca sale de Telegram,
+ * así que el 4K/60/HEVC llega intacto y sin gastar subida del VPS.
+ * `filePath` (opcional) solo se usa para dejar el archivo pequeño ya en caché.
+ */
+export async function tgPutByForward(key: string, inboxMsgId: number, filePath?: string): Promise<void> {
+  const channel = await getChannel();
+  let fwd: Api.Message | undefined;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const c = await getClient();
+      const res = await raceTimeout(
+        c.forwardMessages(channel, { messages: [inboxMsgId], fromPeer: env.TELEGRAM_INBOX }),
+        60_000,
+        `forward ${inboxMsgId}`,
+      );
+      fwd = (Array.isArray(res) ? res[0] : (res as unknown)) as Api.Message | undefined;
+      if (!fwd) throw new Error("forwardMessages no devolvió mensaje");
+      lastErr = null;
+      break;
+    } catch (e) {
+      lastErr = e;
+      resetTelegram();
+      await new Promise((r) => setTimeout(r, 1500 * attempt));
+    }
+  }
+  if (lastErr || !fwd) throw lastErr ?? new Error("forward al almacén falló");
+
+  const doc = (fwd as Api.Message).document as Api.Document | undefined;
+  let bytes = Number(doc?.size) || 0;
+  if (!bytes && filePath) bytes = (await stat(filePath).catch(() => ({ size: 0 }))).size;
+  const messageId = Number((fwd as Api.Message).id);
+  await query(
+    `insert into blob_refs (key, tg_message_id, bytes) values ($1,$2,$3)
+     on conflict (key) do update set tg_message_id = excluded.tg_message_id, bytes = excluded.bytes`,
+    [key, messageId, bytes],
+  );
+
+  if (filePath && bytes && bytes <= CACHE_INLINE_LIMIT) {
+    await mkdir(env.TG_CACHE_DIR, { recursive: true });
+    await pipe(createReadStream(filePath), createWriteStream(cachePath(key))).catch(() => {});
+  }
+}
+
 /** Sube el archivo como documento (bytes exactos) y registra key -> message_id. */
 export async function tgPut(key: string, filePath: string): Promise<void> {
   const channel = await getChannel();
   const { size } = await stat(filePath);
   // más "workers" = más trozos en paralelo = subida más rápida en archivos grandes
-  const workers = size > 8 * 1024 * 1024 ? 20 : 4;
+  const workers = size > 8 * 1024 * 1024 ? 16 : 4;
 
   let msg: unknown;
   let lastErr: unknown;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const c = await getClient();
-      msg = await c.sendFile(channel, { file: filePath, forceDocument: true, caption: key, workers });
+      msg = await raceTimeout(
+        c.sendFile(channel, { file: filePath, forceDocument: true, caption: key, workers }),
+        Math.max(90_000, Math.round((size / (150 * 1024)) * 1000)), // ~150 KB/s mínimo por intento
+        `sendFile ${key} (intento ${attempt})`,
+      );
       lastErr = null;
       break;
     } catch (e) {

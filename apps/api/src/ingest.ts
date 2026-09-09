@@ -142,6 +142,7 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
             filename: it.filename,
             contentType: it.mime,
             capturedAtHint: new Date(it.date * 1000).toISOString(),
+            forwardFromInboxMsgId: it.id, // reenvía dentro de Telegram en vez de re-subir
             log,
           }),
           9 * 60_000,

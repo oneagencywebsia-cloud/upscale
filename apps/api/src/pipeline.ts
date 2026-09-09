@@ -55,6 +55,9 @@ export async function ingestLocalFile(opts: {
   filename: string;
   contentType?: string;
   capturedAtHint?: string;
+  /** Si el archivo YA está en Telegram (ingesta del inbox): id del mensaje a
+   *  reenviar al almacén en vez de re-subir los bytes desde el VPS. */
+  forwardFromInboxMsgId?: number;
   log?: { info: (o: unknown, m?: string) => void; warn: (o: unknown, m?: string) => void };
 }): Promise<IngestResult> {
   const { userId, filePath, contentType, capturedAtHint } = opts;
@@ -107,10 +110,27 @@ export async function ingestLocalFile(opts: {
   const tmpPoster = join(env.TMP_DIR, `${stamp}.poster.jpg`);
 
   await placeholderThumb(tmpThumb, info.kind).catch(() => {});
+
+  // El original: si viene del inbox de Telegram, se REENVÍA dentro de Telegram
+  // (instantáneo, sin gastar subida del VPS ni tocar un byte). Si el forward
+  // falla, se sube el archivo como plan B.
+  const storeOriginal = (async () => {
+    if (opts.forwardFromInboxMsgId) {
+      try {
+        const { putOriginalByForward } = await import("./storage.js");
+        await putOriginalByForward(originalKey, opts.forwardFromInboxMsgId, filePath);
+        return;
+      } catch (e) {
+        log.warn(e, "forward al almacén falló; subo el archivo desde el VPS");
+      }
+    }
+    await put(originalKey, filePath, mime);
+  })();
+
   await withTimeout(
-    Promise.all([put(originalKey, filePath, mime), put(thumbKey, tmpThumb, "image/webp")]),
-    8 * 60_000,
-    "subir original al almacén",
+    Promise.all([storeOriginal, put(thumbKey, tmpThumb, "image/webp")]),
+    12 * 60_000,
+    "guardar original en el almacén",
   );
 
   const inserted = await one<{ id: string }>(

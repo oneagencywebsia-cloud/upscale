@@ -71,6 +71,17 @@ export async function put(key: string, filePath: string, contentType: string): P
   return putLocal(key, filePath);
 }
 
+/**
+ * Guarda el original reenviándolo dentro de Telegram (sin re-subir bytes).
+ * Solo válido con STORAGE_DRIVER=telegram y un archivo que YA está en Telegram
+ * (ingesta desde el inbox). Si falla, el llamante cae a `put()` normal.
+ */
+export async function putOriginalByForward(key: string, inboxMsgId: number, filePath: string): Promise<void> {
+  if (env.STORAGE_DRIVER !== "telegram") throw new Error("forward solo aplica a STORAGE_DRIVER=telegram");
+  const { tgPutByForward } = await import("./telegram.js");
+  return tgPutByForward(key, inboxMsgId, filePath);
+}
+
 /** URL temporal de lectura para un objeto. */
 export async function signedUrl(key: string, opts: SignOpts = {}): Promise<string> {
   if (env.STORAGE_DRIVER === "r2") {
