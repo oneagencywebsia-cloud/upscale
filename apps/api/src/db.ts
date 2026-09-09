@@ -7,8 +7,10 @@ export const pool = new pg.Pool({
   ssl: env.DATABASE_URL.includes("localhost") || env.DATABASE_URL.includes("127.0.0.1")
     ? undefined
     : { rejectUnauthorized: false },
-  max: 8,
+  max: 20,
   idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 8_000, // en vez de esperar indefinidamente si el pool está lleno
+  statement_timeout: 20_000, // una consulta lenta no bloquea una conexión para siempre
 });
 
 pool.on("error", (err) => {

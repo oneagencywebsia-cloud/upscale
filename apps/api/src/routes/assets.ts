@@ -65,11 +65,15 @@ function toAsset(r: Row): Asset {
   };
 }
 
+// miniatura/póster: URL estable ~3 semanas → el navegador la cachea de verdad
+// entre sesiones (la key ya lleva el sha256, el contenido no cambia).
+const DERIV_TTL = 21 * 24 * 3600;
+
 async function withUrls(r: Row): Promise<AssetListItem> {
   return {
     ...toAsset(r),
-    thumbUrl: await signedUrl(r.thumb_key, { expiresIn: 3600 }),
-    posterUrl: r.poster_key ? await signedUrl(r.poster_key, { expiresIn: 3600 }) : null,
+    thumbUrl: await signedUrl(r.thumb_key, { expiresIn: DERIV_TTL }),
+    posterUrl: r.poster_key ? await signedUrl(r.poster_key, { expiresIn: DERIV_TTL }) : null,
     liveVideoUrl: r.live_video_key
       ? await signedUrl(r.live_video_key, { expiresIn: 3600, downloadName: r.filename.replace(/\.[^.]+$/, "") + ".mov" })
       : null,
@@ -216,7 +220,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
   app.get("/v1/assets", { preHandler: requireUser }, async (req) => {
     const { userId } = principalOf(req);
     const q = req.query as { limit?: string; cursor?: string; kind?: string; fav?: string };
-    const limit = Math.min(Math.max(Number(q.limit) || 80, 1), 200);
+    const limit = Math.min(Math.max(Number(q.limit) || 80, 1), 500);
     const params: unknown[] = [userId];
     let sql = `select ${A} from assets a where a.user_id = $1 and a.deleted_at is null`;
 

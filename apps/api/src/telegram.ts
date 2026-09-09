@@ -1,6 +1,6 @@
 import { createReadStream, existsSync, createWriteStream } from "node:fs";
-import { mkdir, stat, rm, readdir, utimes, rename } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, stat, rm, readdir, utimes, rename, writeFile } from "node:fs/promises";
+import { join, dirname } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import { Readable } from "node:stream";
 import bigInt from "big-integer";
@@ -124,34 +124,47 @@ async function getChannel(): Promise<Api.TypeInputPeer> {
 
 const CACHE_INLINE_LIMIT = 50 * 1024 * 1024; // solo cacheamos archivos pequeños
 
+// Las miniaturas/pósters van a un subdirectorio propio con su LRU independiente:
+// así el churn de vídeos grandes NUNCA expulsa las miniaturas (que son lo que el
+// usuario ve todo el rato y muy caras de re-servir).
+const THUMB_DIR = () => join(env.TG_CACHE_DIR, "thumbs");
+const isDerivative = (key: string) => key.endsWith("/thumb.webp") || key.endsWith("/poster.jpg");
+
 function cachePath(key: string): string {
-  return join(env.TG_CACHE_DIR, createHash("sha1").update(key).digest("hex"));
+  const hash = createHash("sha1").update(key).digest("hex");
+  return isDerivative(key) ? join(THUMB_DIR(), hash) : join(env.TG_CACHE_DIR, hash);
 }
 
-async function pruneCache(): Promise<void> {
+async function pruneDir(dir: string, maxBytes: number): Promise<void> {
   try {
-    const dir = env.TG_CACHE_DIR;
     const files = await readdir(dir);
     const stats = await Promise.all(
       files.map(async (f) => {
         const p = join(dir, f);
         const s = await stat(p).catch(() => null);
-        return s ? { p, size: s.size, at: s.mtimeMs } : null;
+        return s && s.isFile() ? { p, size: s.size, at: s.mtimeMs } : null;
       }),
     );
     const list = stats.filter(Boolean) as { p: string; size: number; at: number }[];
     let total = list.reduce((n, x) => n + x.size, 0);
-    const max = env.TG_CACHE_MAX_MB * 1024 * 1024;
-    if (total <= max) return;
-    list.sort((a, b) => a.at - b.at); // más antiguos primero
+    if (total <= maxBytes) return;
+    list.sort((a, b) => a.at - b.at);
     for (const x of list) {
-      if (total <= max) break;
+      if (total <= maxBytes) break;
       await rm(x.p, { force: true });
       total -= x.size;
     }
   } catch {
     /* ignore */
   }
+}
+
+let lastPrune = 0;
+async function pruneCache(): Promise<void> {
+  if (Date.now() - lastPrune < 60_000) return; // no en cada request
+  lastPrune = Date.now();
+  await pruneDir(env.TG_CACHE_DIR, env.TG_CACHE_MAX_MB * 1024 * 1024);
+  await pruneDir(THUMB_DIR(), 400 * 1024 * 1024); // ~20k miniaturas
 }
 
 // ------------------------------- API pública -------------------------------
@@ -396,8 +409,8 @@ export function tgCachePathFor(key: string): string {
 
 /** Copia un archivo local a la caché de disco para poder servir la key ya (antes de subirla a Telegram). */
 export async function tgCachePut(key: string, srcPath: string): Promise<void> {
-  await mkdir(env.TG_CACHE_DIR, { recursive: true });
   const dst = cachePath(key);
+  await mkdir(dirname(dst), { recursive: true });
   await pipe(createReadStream(srcPath), createWriteStream(dst)).catch(() => {});
 }
 
@@ -703,6 +716,18 @@ export async function tgRead(
     if (row?.b && row.b.length) {
       const buf = row.b;
       const total = buf.length;
+      // write-back a disco: la PRÓXIMA petición de esta miniatura sale del disco,
+      // no vuelve a la BD. Convierte el coste de BD en una sola vez por miniatura.
+      void (async () => {
+        try {
+          await mkdir(dirname(cp), { recursive: true });
+          const tmp = `${cp}.${randomBytes(4).toString("hex")}`;
+          await writeFile(tmp, buf);
+          await rename(tmp, cp);
+        } catch {
+          /* si falla, se sirve desde BD otra vez, sin más */
+        }
+      })();
       const slice = range ? buf.subarray(range.start, Math.min(range.end + 1, total)) : buf;
       return { stream: Readable.from([slice]), size: slice.length, totalSize: total };
     }

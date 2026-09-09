@@ -106,9 +106,17 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
     );
   }
 
+  // índices O(1) — con cientos de fotos el findIndex/some/find por celda era O(n²)
+  const byId = useMemo(() => new Map(assets.map((a) => [a.id, a] as const)), [assets]);
+  const idxById = useMemo(() => {
+    const m = new Map<string, number>();
+    assets.forEach((a, i) => m.set(a.id, i));
+    return m;
+  }, [assets]);
+
   // reagrupa los assets vivos por su día original
   const liveGroups = groups
-    .map((g) => ({ ...g, items: g.items.filter((it) => assets.some((a) => a.id === it.id)).map((it) => assets.find((a) => a.id === it.id)!) }))
+    .map((g) => ({ ...g, items: g.items.map((it) => byId.get(it.id)).filter(Boolean) as AssetListItem[] }))
     .filter((g) => g.items.length);
 
   return (
@@ -135,24 +143,17 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
             style={{ ["--tile" as string]: `${TILE[density]}px` }}
           >
             {g.items.map((a) => {
-              const idx = assets.findIndex((x) => x.id === a.id);
               const selected = sel.has(a.id);
               return (
-                <motion.button
+                <button
                   key={a.id}
-                  className="frame tilt"
+                  className="frame tilt tile-in"
                   role="listitem"
                   aria-label={a.filename}
                   aria-current={selected}
-                  initial={{ opacity: 0, y: 22, rotateX: 16, scale: 0.94 }}
-                  whileInView={{ opacity: 1, y: 0, rotateX: 0, scale: 1 }}
-                  viewport={{ once: true, margin: "120px" }}
-                  transition={{ duration: 0.42, ease: [0.2, 0.7, 0.2, 1] }}
-                  whileHover={{ y: -4, scale: 1.02, transition: { duration: 0.15 } }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={() => (selecting ? toggleSel(a.id) : openAt(idx))}
+                  onClick={() => (selecting ? toggleSel(a.id) : openAt(idxById.get(a.id) ?? 0))}
                 >
-                  <motion.img layoutId={`ph-${a.id}`} src={a.thumbUrl} alt={a.filename} loading="lazy" />
+                  <img src={a.thumbUrl} alt={a.filename} loading="lazy" decoding="async" />
                   {a.isFavorite && <span className="badge fav" aria-hidden="true">★</span>}
                   {a.kind === "video" && (
                     <span className="badge vid">
@@ -162,7 +163,7 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
                   )}
                   {a.isLive && <span className="badge live">LIVE</span>}
                   {selecting && <span className={`selmark ${selected ? "on" : ""}`} aria-hidden="true" />}
-                </motion.button>
+                </button>
               );
             })}
           </div>

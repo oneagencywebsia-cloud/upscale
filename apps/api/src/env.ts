@@ -67,4 +67,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.9.8-recover";
+export const VERSION = "0.10.0-perf";

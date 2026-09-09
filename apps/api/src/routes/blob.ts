@@ -27,6 +27,12 @@ export async function blobRoutes(app: FastifyInstance): Promise<void> {
 
     const ext = key.slice(key.lastIndexOf(".")).toLowerCase();
     const contentType = MIME[ext] ?? "application/octet-stream";
+    // miniatura/póster: contenido inmutable (la key lleva el sha256) → el
+    // navegador puede guardarlo semanas y no re-pedirlo en cada sesión.
+    const derivative = key.endsWith("/thumb.webp") || key.endsWith("/poster.jpg");
+    const cacheHdr = derivative
+      ? "private, max-age=1209600, immutable"
+      : "private, max-age=86400, immutable";
     const disposition = q.dl
       ? `attachment; filename="${q.dl.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "")}"; filename*=UTF-8''${encodeURIComponent(q.dl)}`
       : null;
@@ -58,7 +64,7 @@ export async function blobRoutes(app: FastifyInstance): Promise<void> {
         reply.header("Accept-Ranges", "bytes");
         reply.header("Content-Range", `bytes ${start}-${end}/${total}`);
         reply.header("Content-Length", end - start + 1);
-        reply.header("Cache-Control", "private, max-age=86400");
+        reply.header("Cache-Control", cacheHdr);
         if (disposition) reply.header("Content-Disposition", disposition);
         return reply.send(stream);
       }
@@ -68,7 +74,7 @@ export async function blobRoutes(app: FastifyInstance): Promise<void> {
       reply.header("X-Content-Type-Options", "nosniff");
       reply.header("Accept-Ranges", "bytes");
       reply.header("Content-Length", file.size);
-      reply.header("Cache-Control", "private, max-age=86400, immutable");
+      reply.header("Cache-Control", cacheHdr);
       if (disposition) reply.header("Content-Disposition", disposition);
       return reply.send(file.stream);
     } catch {

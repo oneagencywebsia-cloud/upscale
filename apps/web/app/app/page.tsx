@@ -17,7 +17,7 @@ export default async function GalleryPage({
   let items: Awaited<ReturnType<typeof listAssets>>["items"] = [];
   let error: string | null = null;
   try {
-    const data = await listAssets({ limit: 200, kind: filter, fav: onlyFav });
+    const data = await listAssets({ limit: 400, kind: filter, fav: onlyFav });
     items = data.items;
   } catch {
     error = "No se pudo conectar con el servidor de Upscale.";

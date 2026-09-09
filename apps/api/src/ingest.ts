@@ -61,6 +61,7 @@ export const ingestState: {
   /** Cuánto tardó cada fase del último archivo (ms) — para ver dónde se va el tiempo. */
   lastTimings: { bytes: number; downloadMs: number; processMs: number; totalMs: number } | null;
   pausedUntil: string | null;
+  pending: number;
 } = {
   started: false,
   inbox: env.TELEGRAM_INBOX,
@@ -74,6 +75,7 @@ export const ingestState: {
   totalImported: 0,
   lastTimings: null,
   pausedUntil: null,
+  pending: 0,
 };
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
@@ -292,6 +294,7 @@ async function storePending(log: FastifyBaseLoggerLike): Promise<void> {
     `select id, kind, original_key, filename, src_msg_id, (thumb_webp is not null) as thumb_ok
        from assets where not stored and deleted_at is null order by uploaded_at asc limit 3`,
   );
+  ingestState.pending = pend.rows.length;
   if (!pend.rows.length) {
     // ya no hay nada pendiente: un error viejo de guardado deja de aplicar
     if (ingestState.lastTickError?.startsWith("guardar ")) ingestState.lastTickError = null;
@@ -404,11 +407,21 @@ async function retireUnrecoverable(
 
 export function startInboxIngest(log: FastifyBaseLoggerLike): void {
   if (env.STORAGE_DRIVER !== "telegram") return;
-  const secs = Math.max(10, env.INGEST_POLL_SECONDS);
+  const fast = Math.max(8, env.INGEST_POLL_SECONDS); // hay actividad reciente
+  const slow = Math.max(fast, 45); // inbox vacío: no machacar la cuenta de Telegram
   ingestState.started = true;
-  log.info({ inbox: env.TELEGRAM_INBOX, everySeconds: secs, user: env.INGEST_USER_ID ? "fijo" : "por token/caption" }, "ingesta de Telegram activa");
-  setTimeout(() => void tick(log), 3000);
-  setInterval(() => void tick(log), secs * 1000);
+  log.info({ inbox: env.TELEGRAM_INBOX, fast, slow, user: env.INGEST_USER_ID ? "fijo" : "por token/caption" }, "ingesta de Telegram activa");
+
+  let idle = 0;
+  const loop = async () => {
+    await tick(log).catch(() => {});
+    // reduce la frecuencia cuando no llega nada nuevo ni hay pendientes de guardar
+    const quiet = ingestState.lastSeen === 0 && ingestState.pending === 0;
+    idle = quiet ? Math.min(idle + 1, 4) : 0;
+    const next = idle >= 3 ? slow : fast;
+    setTimeout(() => void loop(), next * 1000);
+  };
+  setTimeout(() => void loop(), 3000);
   // disparo instantáneo cuando llega algo al inbox (el sondeo queda de respaldo)
   void armInboxListener(() => void tick(log)).catch(() => {});
 }
