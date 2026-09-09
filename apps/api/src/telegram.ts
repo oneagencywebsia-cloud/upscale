@@ -553,6 +553,11 @@ async function ensureCached(key: string): Promise<string> {
   return cp;
 }
 
+/** Ruta local del archivo entero (lo descarga del almacén si hace falta). Para el ZIP. */
+export async function tgEnsureLocal(key: string): Promise<string> {
+  return ensureCached(key);
+}
+
 const warming = new Set<string>();
 
 /**

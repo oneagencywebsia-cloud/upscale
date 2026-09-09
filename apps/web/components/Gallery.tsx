@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import type { AssetListItem } from "@upscale/shared";
@@ -15,7 +15,6 @@ interface DayGroup {
 }
 
 // px mínimos por celda: 0 = fotos grandes (menos columnas) … 2 = pequeñas (más columnas).
-// En un móvil de ~360px dan 2 / 3 / 4 columnas. CSS lo escala x1.4 en desktop.
 const TILE = [172, 108, 78];
 
 export default function Gallery({ groups, error }: { groups: DayGroup[]; error: string | null }) {
@@ -26,12 +25,11 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
   const [selecting, setSelecting] = useState(false);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [density, setDensity] = useState(1);
+  const [menuOpen, setMenuOpen] = useState(false);
 
-  // sincroniza si el server manda datos nuevos
   useEffect(() => setAssets(flat), [flat]);
 
-  // índices O(1) — con cientos de fotos el findIndex/some/find por celda era O(n²).
-  // OJO: los hooks van SIEMPRE aquí arriba, antes de cualquier return condicional.
+  // índices O(1). TODOS los hooks van aquí arriba, antes de cualquier return.
   const byId = useMemo(() => new Map(assets.map((a) => [a.id, a] as const)), [assets]);
   const idxById = useMemo(() => {
     const m = new Map<string, number>();
@@ -39,22 +37,101 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
     return m;
   }, [assets]);
 
-  function openAt(idx: number) {
-    const a = assets[idx];
-    // pide ya el primer trozo del vídeo para que empiece a reproducirse al instante
-    if (a?.kind === "video") {
-      fetch(`/api/media/${a.id}`, { headers: { range: "bytes=0-1048575" } }).catch(() => {});
-    }
-    setOpenIdx(idx);
-  }
+  // ---- arrastrar para seleccionar (mantener pulsado y deslizar) ----
+  const drag = useRef({ armed: false, active: false, startId: "", didDrag: false, x: 0, y: 0, timer: 0 as number });
 
-  function toggleSel(id: string) {
+  const endDrag = useCallback(() => {
+    if (drag.current.timer) window.clearTimeout(drag.current.timer);
+    drag.current.timer = 0;
+    drag.current.armed = false;
+    drag.current.active = false;
+    document.body.style.overflow = "";
+    window.removeEventListener("pointerup", endDrag);
+    window.removeEventListener("pointercancel", endDrag);
+  }, []);
+
+  const paintAt = useCallback((clientX: number, clientY: number) => {
+    const el = document.elementFromPoint(clientX, clientY);
+    const id = (el?.closest?.("[data-tile-id]") as HTMLElement | null)?.dataset.tileId;
+    if (!id) return;
+    setSel((s) => (s.has(id) ? s : new Set(s).add(id)));
+  }, []);
+
+  const onTilePointerDown = useCallback(
+    (e: React.PointerEvent, id: string) => {
+      if (!selecting || e.pointerType === "mouse") return;
+      drag.current.armed = true;
+      drag.current.active = false;
+      drag.current.didDrag = false;
+      drag.current.startId = id;
+      drag.current.x = e.clientX;
+      drag.current.y = e.clientY;
+      window.addEventListener("pointerup", endDrag);
+      window.addEventListener("pointercancel", endDrag);
+      if (drag.current.timer) window.clearTimeout(drag.current.timer);
+      drag.current.timer = window.setTimeout(() => {
+        if (!drag.current.armed) return;
+        drag.current.active = true;
+        drag.current.didDrag = true;
+        document.body.style.overflow = "hidden"; // bloquea el scroll mientras se pinta
+        setSel((s) => (s.has(id) ? s : new Set(s).add(id)));
+      }, 240);
+    },
+    [selecting, endDrag],
+  );
+
+  const onGridPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!drag.current.armed) return;
+      const dx = Math.abs(e.clientX - drag.current.x);
+      const dy = Math.abs(e.clientY - drag.current.y);
+      if (!drag.current.active) {
+        // se movió antes de activarse el mantener-pulsado → es un scroll normal
+        if (dx > 12 || dy > 12) endDrag();
+        return;
+      }
+      e.preventDefault();
+      paintAt(e.clientX, e.clientY);
+    },
+    [endDrag, paintAt],
+  );
+
+  useEffect(() => {
+    if (!selecting) endDrag();
+  }, [selecting, endDrag]);
+  useEffect(() => () => endDrag(), [endDrag]);
+
+  // cerrar el menú de tres puntos al tocar fuera / Escape
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = () => setMenuOpen(false);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMenuOpen(false);
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
+
+  const openAt = useCallback(
+    (idx: number) => {
+      const a = assets[idx];
+      if (a?.kind === "video") {
+        fetch(`/api/media/${a.id}`, { headers: { range: "bytes=0-1048575" } }).catch(() => {});
+      }
+      setOpenIdx(idx);
+    },
+    [assets],
+  );
+
+  const toggleSel = useCallback((id: string) => {
     setSel((s) => {
       const n = new Set(s);
       n.has(id) ? n.delete(id) : n.add(id);
       return n;
     });
-  }
+  }, []);
 
   async function favorite(id: string, value: boolean) {
     setAssets((as) => as.map((a) => (a.id === id ? { ...a, isFavorite: value } : a)));
@@ -63,10 +140,7 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ value }),
     }).catch(() => null);
-    if (!r || !r.ok) {
-      // revierte el cambio optimista si el servidor no lo aceptó
-      setAssets((as) => as.map((a) => (a.id === id ? { ...a, isFavorite: !value } : a)));
-    }
+    if (!r || !r.ok) setAssets((as) => as.map((a) => (a.id === id ? { ...a, isFavorite: !value } : a)));
   }
 
   async function del(id: string) {
@@ -76,16 +150,10 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
     router.refresh();
   }
 
-  async function bulkDownload() {
-    for (const id of sel) {
-      const el = document.createElement("a");
-      el.href = `/api/dl/${id}`;
-      el.download = "";
-      document.body.appendChild(el);
-      el.click();
-      el.remove();
-      await new Promise((r) => setTimeout(r, 400));
-    }
+  function downloadZip(ids?: string[]) {
+    const qs = ids && ids.length ? `?ids=${ids.join(",")}` : "";
+    // navegación directa: el navegador guarda el .zip (una carpeta con todo al descomprimir)
+    window.location.href = `/api/dl-all${qs}`;
   }
 
   async function bulkDelete() {
@@ -115,7 +183,6 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
     );
   }
 
-  // reagrupa los assets vivos por su día original
   const liveGroups = groups
     .map((g) => ({ ...g, items: g.items.map((it) => byId.get(it.id)).filter(Boolean) as AssetListItem[] }))
     .filter((g) => g.items.length);
@@ -124,41 +191,97 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
     <>
       <div className="gallery-toolbar">
         <DensityControl value={density} onChange={setDensity} />
-        <button
-          className="btn ghost sm"
-          onClick={() => {
-            setSelecting((v) => !v);
-            setSel(new Set());
-          }}
-        >
-          {selecting ? "Cancelar" : "Seleccionar"}
-        </button>
+        <div className="gt-actions">
+          <button
+            className="btn ghost sm"
+            onClick={() => {
+              setSelecting((v) => !v);
+              setSel(new Set());
+            }}
+          >
+            {selecting ? "Cancelar" : "Seleccionar"}
+          </button>
+          <div className="gt-menu" onPointerDown={(e) => e.stopPropagation()}>
+            <button
+              className="btn ghost sm iconpad"
+              aria-label="Más opciones"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((v) => !v)}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" />
+              </svg>
+            </button>
+            {menuOpen && (
+              <div className="gt-dropdown" role="menu">
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    downloadZip();
+                  }}
+                >
+                  Descargar todo ({assets.length})
+                </button>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setSelecting(true);
+                    setSel(new Set(assets.map((a) => a.id)));
+                  }}
+                >
+                  Seleccionar todo
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {liveGroups.map((g) => (
         <section className="daygroup" key={g.key}>
-          <h3><b>{g.label}</b></h3>
+          <h3>
+            <b>{g.label}</b>
+          </h3>
           <div
             className="grid"
             role="list"
-            style={{ ["--tile" as string]: `${TILE[density]}px` }}
+            style={{ ["--tile" as string]: `${TILE[density]}px`, touchAction: selecting ? "pan-y" : undefined }}
+            onPointerMove={onGridPointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
           >
             {g.items.map((a) => {
               const selected = sel.has(a.id);
               return (
                 <button
                   key={a.id}
+                  data-tile-id={a.id}
                   className="frame tilt tile-in"
                   role="listitem"
                   aria-label={a.filename}
                   aria-current={selected}
-                  onClick={() => (selecting ? toggleSel(a.id) : openAt(idxById.get(a.id) ?? 0))}
+                  onPointerDown={(e) => onTilePointerDown(e, a.id)}
+                  onClick={() => {
+                    if (drag.current.didDrag) {
+                      drag.current.didDrag = false;
+                      return;
+                    }
+                    selecting ? toggleSel(a.id) : openAt(idxById.get(a.id) ?? 0);
+                  }}
                 >
                   <img src={a.thumbUrl} alt={a.filename} loading="lazy" decoding="async" />
-                  {a.isFavorite && <span className="badge fav" aria-hidden="true">★</span>}
+                  {a.isFavorite && (
+                    <span className="badge fav" aria-hidden="true">
+                      ★
+                    </span>
+                  )}
                   {a.kind === "video" && (
                     <span className="badge vid">
-                      <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M8 5v14l11-7z" />
+                      </svg>
                       {durationHuman(a.durationS)}
                     </span>
                   )}
@@ -174,8 +297,12 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
       {selecting && sel.size > 0 && (
         <motion.div className="selbar" initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }}>
           <span>{sel.size} seleccionados</span>
-          <button className="btn sm" onClick={bulkDownload}>Descargar</button>
-          <button className="btn ghost sm" onClick={bulkDelete}>Borrar</button>
+          <button className="btn sm" onClick={() => downloadZip([...sel])}>
+            Descargar
+          </button>
+          <button className="btn ghost sm" onClick={bulkDelete}>
+            Borrar
+          </button>
         </motion.div>
       )}
 

@@ -26,7 +26,8 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Asset, AssetListItem, AssetKind } from "../types.js";
 import { env } from "../env.js";
 import { query, one } from "../db.js";
-import { put, signedUrl, remove } from "../storage.js";
+import archiver from "archiver";
+import { put, signedUrl, remove, blobToLocalFile } from "../storage.js";
 import { ingestLocalFile } from "../pipeline.js";
 import { requireUser, requireUploadToken, principalOf } from "../auth.js";
 
@@ -214,6 +215,90 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     );
     if (!r) return reply.code(404).send({ error: "no existe" });
     return { isFavorite: r.is_favorite };
+  });
+
+  // ---------- descargar TODO (o una selección) en un ZIP ----------
+  // El nombre del ZIP lleva el rango de fechas: "Recuerdos del 2026-07-01 al 2026-09-08.zip".
+  // Al descomprimir queda esa carpeta con todos los originales dentro.
+  app.get("/v1/assets/zip", { preHandler: requireUser }, async (req, reply) => {
+    const { userId } = principalOf(req);
+    const q = req.query as { ids?: string };
+    const idList = q.ids
+      ? q.ids.split(",").map((s) => s.trim()).filter((s) => /^[0-9a-f-]{36}$/i.test(s)).slice(0, 20000)
+      : null;
+
+    const params: unknown[] = [userId];
+    let sql = `select a.id, a.kind, a.filename, a.captured_at, a.original_key
+                 from assets a where a.user_id = $1 and a.deleted_at is null`;
+    if (idList) {
+      params.push(idList);
+      sql += ` and a.id = any($2::uuid[])`;
+    }
+    sql += " order by a.captured_at asc, a.id asc";
+    const rows = (await query<{ id: string; kind: string; filename: string; captured_at: Date; original_key: string }>(sql, params)).rows;
+    if (!rows.length) return reply.code(404).send({ error: "nada que descargar" });
+
+    const ymd = (d: Date) => new Date(d).toISOString().slice(0, 10);
+    const d1 = ymd(rows[0]!.captured_at);
+    const d2 = ymd(rows[rows.length - 1]!.captured_at);
+    const name = (d1 === d2 ? `Recuerdos ${d1}` : `Recuerdos del ${d1} al ${d2}`).replace(/[^\w .\-]/g, "");
+
+    reply.hijack(); // tomamos el socket: escribimos el ZIP a mano en reply.raw
+    reply.raw.setHeader("Content-Type", "application/zip");
+    reply.raw.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${name}.zip"; filename*=UTF-8''${encodeURIComponent(name)}.zip`,
+    );
+    reply.raw.setHeader("Cache-Control", "no-store");
+
+    const archive = archiver("zip", { store: true, forceZip64: true });
+    archive.on("warning", (e) => req.log.warn({ err: e.message }, "zip: warning"));
+    archive.on("error", (e) => {
+      req.log.error({ err: e.message }, "zip: error");
+      reply.raw.destroy();
+    });
+    archive.pipe(reply.raw);
+
+    const used = new Set<string>();
+    let added = 0;
+    let failed = 0;
+    // SECUENCIAL: se descarga un archivo, se mete en el zip, y solo entonces se
+    // baja el siguiente. Así no se abren 500 descargas de Telegram a la vez.
+    for (const r of rows) {
+      if (reply.raw.destroyed) break;
+      let local: string;
+      try {
+        local = await blobToLocalFile(r.original_key);
+      } catch (e) {
+        failed++;
+        req.log.warn({ id: r.id, err: (e as Error)?.message }, "zip: archivo omitido");
+        continue;
+      }
+      let nm = r.filename || `${r.kind}_${r.id}`;
+      if (!/\.[a-z0-9]{2,5}$/i.test(nm)) nm += r.kind === "video" ? ".mov" : ".jpg";
+      if (used.has(nm)) {
+        const dot = nm.lastIndexOf(".");
+        const stem = dot > 0 ? nm.slice(0, dot) : nm;
+        const ext = dot > 0 ? nm.slice(dot) : "";
+        let k = 2;
+        while (used.has(`${stem}_${k}${ext}`)) k++;
+        nm = `${stem}_${k}${ext}`;
+      }
+      used.add(nm);
+      await new Promise<void>((resolve) => {
+        const done = () => {
+          clearTimeout(t);
+          archive.off("entry", done);
+          resolve();
+        };
+        const t = setTimeout(done, 120_000); // no colgar el zip por un archivo raro
+        archive.once("entry", done);
+        archive.file(local, { name: nm, date: new Date(r.captured_at) });
+      });
+      added++;
+    }
+    req.log.info({ userId, added, failed }, "zip: finalizando");
+    await archive.finalize();
   });
 
   // ---------- listar ----------

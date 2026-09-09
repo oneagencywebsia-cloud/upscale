@@ -122,6 +122,16 @@ export interface ByteRange {
   end: number; // inclusivo
 }
 
+/** Ruta a un archivo local con el contenido entero (descarga del almacén si hace falta). Para el ZIP de "descargar todo". */
+export async function blobToLocalFile(key: string): Promise<string> {
+  if (env.STORAGE_DRIVER === "telegram") {
+    const { tgEnsureLocal } = await import("./telegram.js");
+    return tgEnsureLocal(key);
+  }
+  if (env.STORAGE_DRIVER === "local") return safeLocalPath(key);
+  throw new Error("descarga masiva no soportada con este almacenamiento");
+}
+
 /**
  * Stream de lectura (motores "local" y "telegram"). Lo usa GET /v1/blob.
  * Si se pasa `range`, devuelve solo esos bytes (para <video> y descargas con reanudación).

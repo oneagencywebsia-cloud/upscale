@@ -67,4 +67,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.10.3-perf";
+export const VERSION = "0.11.0-download";
