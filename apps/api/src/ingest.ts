@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 import { env } from "./env.js";
 import { query, one } from "./db.js";
 import { ingestLocalFile } from "./pipeline.js";
-import { tgInboxNewMedia, tgInboxStartId, tgDownloadInbox, tgDeleteInbox, resetTelegram } from "./telegram.js";
+import { tgInboxNewMedia, tgInboxStartId, tgDownloadInbox, tgDeleteInbox, resetTelegram, armInboxListener } from "./telegram.js";
 
 /**
  * Vigila el inbox de Telegram (Mensajes guardados por defecto). Cada archivo
@@ -177,6 +177,7 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
     running = false;
     ingestState.running = false;
     ingestState.lastStep = "en reposo";
+    void armInboxListener().catch(() => {}); // re-arma el disparo instantáneo si hubo reconexión
   }
 }
 
@@ -191,8 +192,10 @@ export function startInboxIngest(log: FastifyBaseLoggerLike): void {
   const secs = Math.max(10, env.INGEST_POLL_SECONDS);
   ingestState.started = true;
   log.info({ inbox: env.TELEGRAM_INBOX, everySeconds: secs, user: env.INGEST_USER_ID ? "fijo" : "por token/caption" }, "ingesta de Telegram activa");
-  setTimeout(() => void tick(log), 5000);
+  setTimeout(() => void tick(log), 3000);
   setInterval(() => void tick(log), secs * 1000);
+  // disparo instantáneo cuando llega algo al inbox (el sondeo queda de respaldo)
+  void armInboxListener(() => void tick(log)).catch(() => {});
 }
 
 /** Fuerza una vuelta de ingesta ahora (para el endpoint de diagnóstico). */

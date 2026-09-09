@@ -18,13 +18,48 @@ import { query, one } from "./db.js";
 
 let clientPromise: Promise<TelegramClient> | null = null;
 let channelEntity: Api.TypeInputPeer | null = null;
+let inboxCb: (() => void) | null = null;
+let armedOn: TelegramClient | null = null;
 
 /** Descarta el cliente y el canal cacheados: la siguiente llamada reconecta de cero. */
 export function resetTelegram(): void {
   const dying = clientPromise;
   clientPromise = null;
   channelEntity = null;
+  armedOn = null; // el listener del inbox se re-arma al reconectar
   dying?.then((c) => c.disconnect().catch(() => {})).catch(() => {});
+}
+
+/**
+ * Dispara `cb` en cuanto llega un archivo al inbox (sin esperar al sondeo).
+ * Idempotente y se re-arma solo tras cada reconexión. Si falla, no pasa nada:
+ * el sondeo de respaldo lo recoge igual.
+ */
+export async function armInboxListener(cb?: () => void): Promise<void> {
+  if (cb) inboxCb = cb;
+  if (!inboxCb) return;
+  const c = await getClient();
+  if (armedOn === c) return;
+  try {
+    const { NewMessage } = await import("telegram/events/index.js");
+    // sin filtro de chat ("me" no siempre resuelve en el filtro): despertamos ante
+    // cualquier mensaje con documento y que tick() decida si es del inbox. El
+    // rebote de 1,5 s + el guard de tick hacen que una llamada de más sea barata.
+    let kick: NodeJS.Timeout | null = null;
+    c.addEventHandler(
+      (ev: { message?: { document?: unknown } }) => {
+        if (!ev?.message?.document || kick) return;
+        kick = setTimeout(() => {
+          kick = null;
+          inboxCb?.();
+        }, 1500);
+      },
+      new NewMessage({}),
+    );
+    armedOn = c;
+  } catch {
+    /* sin eventos: queda el sondeo */
+  }
 }
 
 function raceTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
@@ -188,19 +223,18 @@ export async function tgInboxNewMedia(sinceId: number, limit = 20): Promise<Inbo
 
 /**
  * Descarga el archivo del mensaje `id` del inbox a `outPath` por trozos
- * (iterDownload → control total, deadline global y detección de estancamiento).
- * Si iterDownload falla de entrada, cae a downloadMedia. Devuelve bytes escritos.
+ * (iterDownload → deadline global + corte si Telegram deja de enviar).
+ * Si falla, cae a downloadMedia. Devuelve bytes escritos.
  */
-export async function tgDownloadInbox(id: number, outPath: string, deadlineMs = 10 * 60_000): Promise<number> {
+export async function tgDownloadInbox(id: number, outPath: string, deadlineMs = 8 * 60_000): Promise<number> {
   const c = await getClient();
   const [msg] = await raceTimeout(c.getMessages(env.TELEGRAM_INBOX, { ids: [id] }), 30_000, `getMessages ${id}`);
   const doc = msg?.document as Api.Document | undefined;
   if (!doc || !msg?.media) throw new Error(`mensaje ${id} sin documento (¿enviado como vídeo y no como archivo?)`);
-
   const total = Number(doc.size) || 0;
   const deadline = Date.now() + deadlineMs;
 
-  // 1) intento por trozos (abort limpio)
+  // 1) por trozos, con abort limpio
   try {
     const location = new Api.InputDocumentFileLocation({
       id: doc.id,
@@ -208,6 +242,7 @@ export async function tgDownloadInbox(id: number, outPath: string, deadlineMs = 
       fileReference: doc.fileReference,
       thumbSize: "",
     });
+    await rm(outPath, { force: true }).catch(() => {});
     const ws = createWriteStream(outPath);
     let written = 0;
     let lastAt = Date.now();
@@ -220,7 +255,7 @@ export async function tgDownloadInbox(id: number, outPath: string, deadlineMs = 
         if (now - lastAt > 120_000) throw new Error(`sin datos de Telegram 120s (msg ${id})`);
         lastAt = now;
         const buf = Buffer.from(chunk as Uint8Array);
-        await new Promise<void>((res, rej) => ws.write(buf, (e) => (e ? rej(e) : res())));
+        await new Promise<void>((res, rej) => ws.write(buf, (er) => (er ? rej(er) : res())));
         written += buf.length;
       }
     } finally {
@@ -232,7 +267,7 @@ export async function tgDownloadInbox(id: number, outPath: string, deadlineMs = 
     console.error("[tg] iterDownload falló, pruebo downloadMedia:", (e as Error).message);
   }
 
-  // 2) fallback: downloadMedia con timeout
+  // 2) respaldo: downloadMedia con timeout
   await rm(outPath, { force: true }).catch(() => {});
   await raceTimeout(
     c.downloadMedia(msg, { outputFile: outPath }) as Promise<unknown>,

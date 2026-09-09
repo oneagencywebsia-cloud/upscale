@@ -30,7 +30,7 @@ const base = z.object({
   // en la biblioteca sin recomprimir. Por defecto "me" = Mensajes guardados.
   TELEGRAM_INBOX: z.string().default("me"),
   INGEST_USER_ID: z.string().optional(), // Supabase user id al que se asignan los archivos
-  INGEST_POLL_SECONDS: z.coerce.number().default(25),
+  INGEST_POLL_SECONDS: z.coerce.number().default(10),
 
   R2_ENDPOINT: z.string().url().optional(),
   R2_BUCKET: z.string().optional(),
@@ -67,4 +67,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.8.1-ingest";
+export const VERSION = "0.8.2-ingest";
