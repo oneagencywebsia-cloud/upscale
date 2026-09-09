@@ -30,6 +30,15 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
   // sincroniza si el server manda datos nuevos
   useEffect(() => setAssets(flat), [flat]);
 
+  // índices O(1) — con cientos de fotos el findIndex/some/find por celda era O(n²).
+  // OJO: los hooks van SIEMPRE aquí arriba, antes de cualquier return condicional.
+  const byId = useMemo(() => new Map(assets.map((a) => [a.id, a] as const)), [assets]);
+  const idxById = useMemo(() => {
+    const m = new Map<string, number>();
+    assets.forEach((a, i) => m.set(a.id, i));
+    return m;
+  }, [assets]);
+
   function openAt(idx: number) {
     const a = assets[idx];
     // pide ya el primer trozo del vídeo para que empiece a reproducirse al instante
@@ -105,14 +114,6 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
       </div>
     );
   }
-
-  // índices O(1) — con cientos de fotos el findIndex/some/find por celda era O(n²)
-  const byId = useMemo(() => new Map(assets.map((a) => [a.id, a] as const)), [assets]);
-  const idxById = useMemo(() => {
-    const m = new Map<string, number>();
-    assets.forEach((a, i) => m.set(a.id, i));
-    return m;
-  }, [assets]);
 
   // reagrupa los assets vivos por su día original
   const liveGroups = groups
