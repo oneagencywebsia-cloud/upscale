@@ -1,7 +1,5 @@
 import { createReadStream } from "node:fs";
 import { rm, stat } from "node:fs/promises";
-import { pipeline } from "node:stream/promises";
-import { Transform } from "node:stream";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { query, one } from "./db.js";
@@ -29,18 +27,12 @@ export interface IngestResult {
   bytes: number;
 }
 
-/** SHA-256 de un archivo del disco. */
+/** SHA-256 de un archivo del disco. Bucle simple: no puede bloquearse por backpressure. */
 async function hashFile(p: string): Promise<string> {
   const h = createHash("sha256");
-  await pipeline(
-    createReadStream(p),
-    new Transform({
-      transform(c, _e, cb) {
-        h.update(c);
-        cb(null, c);
-      },
-    }),
-  );
+  for await (const chunk of createReadStream(p, { highWaterMark: 1024 * 1024 })) {
+    h.update(chunk as Buffer);
+  }
   return h.digest("hex");
 }
 

@@ -173,7 +173,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
           return reply.code(400).send({ error: "vídeo vacío" });
         }
         const sha = createHash("sha256");
-        await pipeline(createReadStream(tmp), new Transform({ transform(c, _e, cb) { sha.update(c); cb(null, c); } }));
+        for await (const chunk of createReadStream(tmp, { highWaterMark: 1024 * 1024 })) sha.update(chunk as Buffer);
         const key = `live/${r.user_id}/${sha.digest("hex")}.mov`;
 
         await put(key, tmp, "video/quicktime");
