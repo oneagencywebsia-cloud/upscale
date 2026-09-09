@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { rm, stat } from "node:fs/promises";
+import { rm, stat, readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { query, one } from "./db.js";
@@ -34,6 +34,23 @@ async function hashFile(p: string): Promise<string> {
     h.update(chunk as Buffer);
   }
   return h.digest("hex");
+}
+
+/**
+ * Guarda miniatura (y póster) EN LA BASE DE DATOS. Son pequeños y así el usuario
+ * siempre los ve, pase lo que pase con Telegram o con la caché de disco efímera.
+ */
+async function saveDerivativeBytes(id: string, thumbPath: string, posterPath?: string | null): Promise<void> {
+  const thumb = await readFile(thumbPath).catch(() => null);
+  const poster = posterPath ? await readFile(posterPath).catch(() => null) : null;
+  if (!thumb && !poster) return;
+  if (thumb && poster) {
+    await query("update assets set thumb_webp = $1, poster_jpg = $2 where id = $3", [thumb, poster, id]);
+  } else if (thumb) {
+    await query("update assets set thumb_webp = $1 where id = $2", [thumb, id]);
+  } else if (poster) {
+    await query("update assets set poster_jpg = $1 where id = $2", [poster, id]);
+  }
 }
 
 /**
@@ -143,7 +160,9 @@ export async function ingestLocalFile(opts: {
       ],
     );
     const dId = insertedD!.id;
-    log.info({ id: dId, kind: info.kind, size }, "asset creado (original y miniatura pendientes)");
+    // miniatura de reserva ya en BD → nunca 404, aunque no haya nada más
+    await saveDerivativeBytes(dId, tmpThumb, null).catch(() => {});
+    log.info({ id: dId, kind: info.kind, size }, "asset creado (original y miniatura real pendientes)");
 
     // 3) miniatura + póster REALES en 2º plano (no bloquean que el vídeo aparezca)
     void (async () => {
@@ -151,12 +170,12 @@ export async function ingestLocalFile(opts: {
         if (info.kind === "video") {
           await extractFrame(filePath, tmpPoster);
           await sharpThumb(tmpPoster, tmpThumb);
-          await tgCachePut(thumbKey, tmpThumb);
-          if (posterKey) await tgCachePut(posterKey, tmpPoster);
         } else {
           await sharpThumb(filePath, tmpThumb);
-          await tgCachePut(thumbKey, tmpThumb);
         }
+        await saveDerivativeBytes(dId, tmpThumb, info.kind === "video" ? tmpPoster : null);
+        await tgCachePut(thumbKey, tmpThumb).catch(() => {});
+        if (posterKey) await tgCachePut(posterKey, tmpPoster).catch(() => {});
       } catch (e) {
         log.warn(e, "miniatura real falló; se queda la de reserva");
       } finally {
@@ -191,11 +210,8 @@ export async function ingestLocalFile(opts: {
     await put(originalKey, filePath, mime);
   })();
 
-  await withTimeout(
-    Promise.all([storeOriginal, put(thumbKey, tmpThumb, "image/webp")]),
-    12 * 60_000,
-    "guardar original en el almacén",
-  );
+  // la miniatura va a la BD (más abajo); aquí solo el original
+  await withTimeout(storeOriginal, 12 * 60_000, "guardar original en el almacén");
 
   const inserted = await one<{ id: string }>(
     `insert into assets
@@ -211,7 +227,8 @@ export async function ingestLocalFile(opts: {
     ],
   );
   const id = inserted!.id;
-  log.info({ id, kind: info.kind, size, userId }, "asset guardado (miniatura en 2º plano)");
+  await saveDerivativeBytes(id, tmpThumb, null).catch(() => {}); // reserva en BD ya
+  log.info({ id, kind: info.kind, size, userId }, "asset guardado (miniatura real en 2º plano)");
 
   // miniatura + póster reales en 2º plano; luego se borra el archivo de disco
   void (async () => {
@@ -221,11 +238,11 @@ export async function ingestLocalFile(opts: {
           if (info.kind === "video") {
             await extractFrame(filePath, tmpPoster);
             await sharpThumb(tmpPoster, tmpThumb);
-            await Promise.all([put(thumbKey, tmpThumb, "image/webp"), put(posterKey!, tmpPoster, "image/jpeg")]);
+            await saveDerivativeBytes(id, tmpThumb, tmpPoster);
             await query("update assets set poster_key = $1 where id = $2", [posterKey, id]);
           } else {
             await sharpThumb(filePath, tmpThumb);
-            await put(thumbKey, tmpThumb, "image/webp");
+            await saveDerivativeBytes(id, tmpThumb, null);
           }
         })(),
         6 * 60_000,

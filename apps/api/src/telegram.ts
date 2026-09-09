@@ -435,6 +435,15 @@ export async function tgDelete(key: string): Promise<void> {
 export async function tgSize(key: string): Promise<number> {
   const row = await one<{ bytes: string }>("select bytes from blob_refs where key = $1", [key]);
   if (row) return Number(row.bytes);
+  // miniatura / póster en BD
+  if (key.endsWith("/thumb.webp") || key.endsWith("/poster.jpg")) {
+    const col = key.endsWith("/thumb.webp") ? "thumb_webp" : "poster_jpg";
+    const t = await one<{ n: string }>(
+      `select octet_length(${col}) as n from assets where (thumb_key = $1 or poster_key = $1) and deleted_at is null limit 1`,
+      [key],
+    ).catch(() => null);
+    if (t?.n) return Number(t.n);
+  }
   // asset aún sin guardar en el almacén: el tamaño lo sabe la fila del asset
   const a = await one<{ bytes: string }>(
     "select bytes from assets where original_key = $1 and deleted_at is null",
@@ -671,6 +680,22 @@ export async function tgRead(
       };
     }
     return { stream: createReadStream(cp), size, totalSize: size };
+  }
+
+  // miniatura / póster: viven en la BD (bytes). Nunca dependen de Telegram ni
+  // de la caché de disco → jamás 404 mientras exista el asset.
+  if (key.endsWith("/thumb.webp") || key.endsWith("/poster.jpg")) {
+    const col = key.endsWith("/thumb.webp") ? "thumb_webp" : "poster_jpg";
+    const row = await one<{ b: Buffer | null }>(
+      `select ${col} as b from assets where (thumb_key = $1 or poster_key = $1) and deleted_at is null limit 1`,
+      [key],
+    ).catch(() => null);
+    if (row?.b && row.b.length) {
+      const buf = row.b;
+      const total = buf.length;
+      const slice = range ? buf.subarray(range.start, Math.min(range.end + 1, total)) : buf;
+      return { stream: Readable.from([slice]), size: slice.length, totalSize: total };
+    }
   }
 
   // rango + no cacheado: streaming en directo desde Telegram (arranca al instante)

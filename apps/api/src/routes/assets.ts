@@ -41,6 +41,14 @@ interface Row {
   is_favorite: boolean;
 }
 
+// Todas las columnas de assets MENOS los blobs pesados (thumb_webp/poster_jpg),
+// que se sirven por /v1/blob y no deben viajar en cada consulta.
+const A =
+  "a.id, a.user_id, a.kind, a.filename, a.mime, a.bytes, a.sha256, a.width, a.height, " +
+  "a.duration_s, a.fps, a.video_bitrate, a.codec, a.captured_at, a.uploaded_at, a.camera_make, " +
+  "a.camera_model, a.lens, a.lat, a.lon, a.is_live, a.original_key, a.thumb_key, a.poster_key, " +
+  "a.live_video_key, a.live_video_bytes, a.is_favorite, a.deleted_at";
+
 function toAsset(r: Row): Asset {
   return {
     id: r.id, kind: r.kind, filename: r.filename, mime: r.mime, bytes: Number(r.bytes),
@@ -150,7 +158,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
       const { userId } = principalOf(req);
       const { id } = req.params as { id: string };
       const r = await one<Row>(
-        "select a.* from assets a where a.id = $1 and a.user_id = $2 and a.deleted_at is null",
+        `select ${A} from assets a where a.id = $1 and a.user_id = $2 and a.deleted_at is null`,
         [id, userId],
       );
       if (!r) return reply.code(404).send({ error: "no existe" });
@@ -210,7 +218,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     const q = req.query as { limit?: string; cursor?: string; kind?: string; fav?: string };
     const limit = Math.min(Math.max(Number(q.limit) || 80, 1), 200);
     const params: unknown[] = [userId];
-    let sql = "select a.* from assets a where a.user_id = $1 and a.deleted_at is null";
+    let sql = `select ${A} from assets a where a.user_id = $1 and a.deleted_at is null`;
 
     if (q.kind === "photo" || q.kind === "video") {
       params.push(q.kind);
@@ -243,7 +251,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
   app.get("/v1/assets/:id", { preHandler: requireUser }, async (req, reply) => {
     const { userId } = principalOf(req);
     const { id } = req.params as { id: string };
-    const r = await one<Row>("select a.* from assets a where a.id = $1 and a.user_id = $2 and a.deleted_at is null", [id, userId]);
+    const r = await one<Row>(`select ${A} from assets a where a.id = $1 and a.user_id = $2 and a.deleted_at is null`, [id, userId]);
     if (!r) return reply.code(404).send({ error: "no existe" });
     logAccess(userId, id, "view", req.headers["user-agent"]);
     return {
@@ -257,7 +265,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     const { userId } = principalOf(req);
     const { id } = req.params as { id: string };
     const r = await one<Row>(
-      "select a.* from assets a where a.id = $1 and a.user_id = $2 and a.deleted_at is null",
+      `select ${A} from assets a where a.id = $1 and a.user_id = $2 and a.deleted_at is null`,
       [id, userId],
     );
     if (!r) return reply.code(404).send({ error: "no existe" });
@@ -268,7 +276,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
   app.get("/v1/assets/:id/original", { preHandler: requireUser }, async (req, reply) => {
     const { userId } = principalOf(req);
     const { id } = req.params as { id: string };
-    const r = await one<Row>("select a.* from assets a where a.id = $1 and a.user_id = $2 and a.deleted_at is null", [id, userId]);
+    const r = await one<Row>(`select ${A} from assets a where a.id = $1 and a.user_id = $2 and a.deleted_at is null`, [id, userId]);
     if (!r) return reply.code(404).send({ error: "no existe" });
     logAccess(userId, id, "download", req.headers["user-agent"]);
     return reply.redirect(await signedUrl(r.original_key, { expiresIn: 600, downloadName: r.filename }), 302);
@@ -278,7 +286,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
   app.get("/v1/assets/:id/poster", { preHandler: requireUser }, async (req, reply) => {
     const { userId } = principalOf(req);
     const { id } = req.params as { id: string };
-    const r = await one<Row>("select a.* from assets a where a.id = $1 and a.user_id = $2 and a.deleted_at is null", [id, userId]);
+    const r = await one<Row>(`select ${A} from assets a where a.id = $1 and a.user_id = $2 and a.deleted_at is null`, [id, userId]);
     if (!r) return reply.code(404).send({ error: "no existe" });
     return reply.redirect(await signedUrl(r.poster_key ?? r.thumb_key, { expiresIn: 3600 }), 302);
   });
@@ -287,7 +295,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
   app.delete("/v1/assets/:id", { preHandler: requireUser }, async (req, reply) => {
     const { userId } = principalOf(req);
     const { id } = req.params as { id: string };
-    const r = await one<Row>("select a.* from assets a where a.id = $1 and a.user_id = $2 and a.deleted_at is null", [id, userId]);
+    const r = await one<Row>(`select ${A} from assets a where a.id = $1 and a.user_id = $2 and a.deleted_at is null`, [id, userId]);
     if (!r) return reply.code(404).send({ error: "no existe" });
 
     await query("update assets set deleted_at = now() where id = $1", [id]);

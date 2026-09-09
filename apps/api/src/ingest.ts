@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -12,9 +11,7 @@ import {
   tgDeleteInbox,
   resetTelegram,
   armInboxListener,
-  tgPut,
   tgPutByForward,
-  tgCachePathFor,
 } from "./telegram.js";
 
 /**
@@ -171,7 +168,14 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
     ingestState.lastStep = "listando inbox";
     const items = await withTimeout(tgInboxNewMedia(lastId), 60_000, "listar inbox");
     ingestState.lastSeen = items.length;
-    if (!items.length) return;
+
+    // el barrido de guardado corre SIEMPRE (aunque no haya mensajes nuevos):
+    // así los originales pendientes acaban en el almacén sin depender de que
+    // llegue algo al inbox.
+    if (!items.length) {
+      await storePending(log);
+      return;
+    }
 
     await mkdir(env.TMP_DIR, { recursive: true });
     for (const it of items) {
@@ -266,61 +270,92 @@ interface FastifyBaseLoggerLike {
 }
 
 /**
- * Barrido de fondo: por cada asset con stored=false, guarda el original en el
- * almacén (reenvío del inbox) y sube miniatura/póster desde la caché. Marca
- * stored=true y borra el mensaje del inbox. Si Telegram frena (FLOOD_WAIT) lo
- * deja para la siguiente vuelta — el vídeo ya se ve mientras tanto.
+ * Barrido de fondo: por cada asset con stored=false, guarda el ORIGINAL en el
+ * almacén (reenvío del mensaje del inbox) y marca stored=true. Miniatura/póster
+ * ya están en la BD, no hace falta tocarlos aquí.
+ *
+ * Robustez: contador de fallos persistido. Si tras 6 intentos el mensaje de
+ * origen ya no existe (el usuario lo borró de "Mensajes guardados"), el original
+ * es irrecuperable → se borra el asset (evita miniaturas rotas eternas).
+ * FLOOD_WAIT → pausa. Los errores se ven en /ingest/status.
  */
 async function storePending(log: FastifyBaseLoggerLike): Promise<void> {
-  const pend = await query<{
-    id: string;
-    original_key: string;
-    thumb_key: string;
-    poster_key: string | null;
-    src_msg_id: string | null;
-  }>(
-    "select id, original_key, thumb_key, poster_key, src_msg_id from assets where not stored and deleted_at is null order by uploaded_at asc limit 3",
+  const pend = await query<{ id: string; original_key: string; filename: string; src_msg_id: string | null }>(
+    "select id, original_key, filename, src_msg_id from assets where not stored and deleted_at is null order by uploaded_at asc limit 3",
   );
   if (!pend.rows.length) return;
   ingestState.lastStep = `guardando ${pend.rows.length} original(es) pendiente(s)`;
 
   for (const a of pend.rows) {
     if (!a.src_msg_id) {
-      await query("update assets set stored = true where id = $1", [a.id]);
+      // sin origen y sin guardar: no hay de dónde sacar el binario
+      await retireUnrecoverable(a.id, a.filename, "sin mensaje de origen", log);
       continue;
     }
     const srcId = Number(a.src_msg_id);
+    const fkey = `ingest:store_fail:${a.id}`;
     try {
       await withTimeout(tgPutByForward(a.original_key, srcId), 25_000, "reenviar original al almacén");
-
-      const tp = tgCachePathFor(a.thumb_key);
-      if (existsSync(tp)) {
-        await withTimeout(tgPut(a.thumb_key, tp), 60_000, "subir miniatura").catch((e) => log.warn(e, "miniatura no subida"));
-      }
-      if (a.poster_key) {
-        const pp = tgCachePathFor(a.poster_key);
-        if (existsSync(pp)) {
-          await withTimeout(tgPut(a.poster_key, pp), 60_000, "subir póster").catch((e) => log.warn(e, "póster no subido"));
-        }
-      }
-
       await query("update assets set stored = true, src_msg_id = null where id = $1", [a.id]);
+      await query("delete from kv where k = $1", [fkey]).catch(() => {});
       await withTimeout(tgDeleteInbox([srcId]), 30_000, "borrar del inbox").catch(() => {});
+      ingestState.lastTickError = null;
       log.info({ id: a.id }, "asset: original guardado en el almacén");
     } catch (e) {
-      const msg = (e as Error)?.message ?? String(e);
-      log.warn({ id: a.id, err: msg }, "asset: original aún sin guardar; se reintenta la próxima vuelta");
-      const fw = /flood(?:_wait)?[ _]?(\d+)/i.exec(msg);
-      if (fw || /flood/i.test(msg)) {
+      const emsg = (e as Error)?.message ?? String(e);
+      const n = Number(
+        (await one<{ v: string }>("select v from kv where k = $1", [fkey]).catch(() => null))?.v ?? 0,
+      ) + 1;
+      await query(
+        "insert into kv (k, v, updated_at) values ($1,$2,now()) on conflict (k) do update set v = excluded.v, updated_at = now()",
+        [fkey, String(n)],
+      );
+      ingestState.lastTickError = `guardar original de "${a.filename}" (intento ${n}): ${emsg}`;
+      log.warn({ id: a.id, intento: n, err: emsg }, "asset: original aún sin guardar");
+
+      const fw = /flood(?:_wait)?[ _]?(\d+)/i.exec(emsg);
+      if (fw || /flood/i.test(emsg)) {
         const secs = fw ? Math.min(3600, Number(fw[1]) + 5) : 900;
         pausedUntil = Date.now() + secs * 1000;
         ingestState.pausedUntil = new Date(pausedUntil).toISOString();
         log.warn({ secs }, "ingesta: FLOOD_WAIT en el barrido, pausa");
+        resetTelegram();
+        break;
+      }
+
+      if (n >= 6) {
+        // ¿el mensaje de origen sigue existiendo?
+        const exists = await inboxMsgExists(srcId).catch(() => true);
+        if (!exists) {
+          await query("delete from kv where k = $1", [fkey]).catch(() => {});
+          await retireUnrecoverable(a.id, a.filename, "el mensaje de Telegram ya no existe", log);
+          continue;
+        }
+        // existe pero algo va mal de forma persistente: lo dejamos y seguimos
+        log.error({ id: a.id }, "asset: 6 fallos guardando el original, el mensaje existe; se sigue reintentando más lento");
       }
       resetTelegram();
       break;
     }
   }
+}
+
+/** ¿Existe aún el mensaje `id` en el inbox de Telegram? */
+async function inboxMsgExists(id: number): Promise<boolean> {
+  const items = await tgInboxNewMedia(id - 1, 3).catch(() => []);
+  return items.some((it) => it.id === id);
+}
+
+/** El original no se puede recuperar: se retira el asset para no dejar tiles rotas. */
+async function retireUnrecoverable(
+  id: string,
+  filename: string,
+  motivo: string,
+  log: FastifyBaseLoggerLike,
+): Promise<void> {
+  await query("update assets set deleted_at = now() where id = $1 and deleted_at is null", [id]);
+  ingestState.lastTickError = `"${filename}" retirado: original irrecuperable (${motivo}). Reenvíalo si lo quieres.`;
+  log.error({ id, filename, motivo }, "asset retirado: original irrecuperable");
 }
 
 export function startInboxIngest(log: FastifyBaseLoggerLike): void {
