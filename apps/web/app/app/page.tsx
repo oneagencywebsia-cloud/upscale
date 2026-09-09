@@ -2,6 +2,7 @@ import { listAssets } from "@/lib/api";
 import { groupByDay, bytesHuman } from "@/lib/format";
 import Gallery from "@/components/Gallery";
 import PrismMount from "@/components/PrismMount";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +38,16 @@ export default async function GalleryPage({
         </div>
         <PrismMount />
       </div>
-      <Gallery groups={groups} error={error} />
+      <ErrorBoundary
+        fallback={
+          <div className="empty">
+            <h3>No se pudo mostrar la galería</h3>
+            <p>Recarga la página.</p>
+          </div>
+        }
+      >
+        <Gallery groups={groups} error={error} />
+      </ErrorBoundary>
     </div>
   );
 }

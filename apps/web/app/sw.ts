@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import { defaultCache } from "@serwist/next/worker";
-import { Serwist, NetworkOnly, type PrecacheEntry, type SerwistGlobalConfig } from "serwist";
+import { Serwist, NetworkOnly, NetworkFirst, type PrecacheEntry, type SerwistGlobalConfig } from "serwist";
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -20,6 +20,13 @@ const serwist = new Serwist({
     {
       matcher: ({ url }) => url.pathname.startsWith("/api") || url.pathname.startsWith("/_api"),
       handler: new NetworkOnly(),
+    },
+    // Navegaciones (documentos HTML/RSC): red primero. Así un despliegue nuevo
+    // se coge siempre estando online y no se sirve un HTML viejo que apunta a
+    // bundles que ya no existen (era lo que reventaba la app tras cada deploy).
+    {
+      matcher: ({ request }) => request.mode === "navigate",
+      handler: new NetworkFirst({ cacheName: "pages", networkTimeoutSeconds: 4 }),
     },
     ...defaultCache,
   ],

@@ -201,7 +201,9 @@ export async function ingestLocalFile(opts: {
           await sharpThumb(filePath, tmpThumb);
         }
         await saveDerivativeBytes(dId, tmpThumb, info.kind === "video" ? tmpPoster : null);
-        await tgCachePut(thumbKey, tmpThumb).catch(() => {});
+        // la miniatura también a Telegram (blob_refs) → durable y se sirve por la
+        // vía normal con caché de disco, sin consultar la BD en cada carga de galería
+        await put(thumbKey, tmpThumb, "image/webp").catch((e) => log.warn(e, "miniatura no subida a TG"));
         if (posterKey) await tgCachePut(posterKey, tmpPoster).catch(() => {});
       } catch (e) {
         log.warn(e, "miniatura real falló; se queda la de reserva");
@@ -271,6 +273,7 @@ export async function ingestLocalFile(opts: {
             await sharpThumb(filePath, tmpThumb);
             await saveDerivativeBytes(id, tmpThumb, null);
           }
+          await put(thumbKey, tmpThumb, "image/webp").catch(() => {}); // durable + caché de disco
         })(),
         6 * 60_000,
         "miniatura en 2º plano",

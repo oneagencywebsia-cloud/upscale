@@ -725,17 +725,22 @@ export async function tgRead(
     return { stream: createReadStream(cp), size, totalSize: size };
   }
 
-  // miniatura / póster: viven en la BD (bytes). Nunca dependen de Telegram ni
-  // de la caché de disco → jamás 404 mientras exista el asset.
+  // miniatura / póster: si NO están en Telegram (blob_refs), se sirven de la BD
+  // (bytes) con write-back a disco → jamás 404 y no se consulta la BD en cada
+  // carga de galería. Si SÍ están en blob_refs, cae al camino normal (Telegram
+  // → caché de disco), que es lo habitual una vez subida la miniatura.
   const isThumb = key.endsWith("/thumb.webp");
   const isPoster = key.endsWith("/poster.jpg");
   if (isThumb || isPoster) {
-    const row = await one<{ b: Buffer | null }>(
-      isThumb
-        ? "select thumb_webp as b from assets where thumb_key = $1 and deleted_at is null limit 1"
-        : "select poster_jpg as b from assets where poster_key = $1 and deleted_at is null limit 1",
-      [key],
-    ).catch(() => null);
+    const inTg = await one<{ x: number }>("select 1 x from blob_refs where key = $1", [key]).catch(() => null);
+    const row = inTg
+      ? null
+      : await one<{ b: Buffer | null }>(
+          isThumb
+            ? "select thumb_webp as b from assets where thumb_key = $1 and deleted_at is null limit 1"
+            : "select poster_jpg as b from assets where poster_key = $1 and deleted_at is null limit 1",
+          [key],
+        ).catch(() => null);
     if (row?.b && row.b.length) {
       const buf = row.b;
       const total = buf.length;

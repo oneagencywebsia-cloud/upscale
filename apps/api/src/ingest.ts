@@ -166,19 +166,17 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
       // no return: seguimos y procesamos ya lo reciente en esta misma vuelta
     }
 
+    // el barrido de guardado corre SIEMPRE y ANTES de ingerir nuevos: así el
+    // backlog de originales pendientes drena aunque el usuario esté subiendo en
+    // bloque (los reenvíos son instantáneos).
+    await storePending(log).catch((e) => log.warn(e, "barrido de guardado"));
+
     ingestState.lastStep = "getLastId";
     const lastId = await getLastId();
     ingestState.lastStep = "listando inbox";
     const items = await withTimeout(tgInboxNewMedia(lastId), 60_000, "listar inbox");
     ingestState.lastSeen = items.length;
-
-    // el barrido de guardado corre SIEMPRE (aunque no haya mensajes nuevos):
-    // así los originales pendientes acaban en el almacén sin depender de que
-    // llegue algo al inbox.
-    if (!items.length) {
-      await storePending(log);
-      return;
-    }
+    if (!items.length) return;
 
     await mkdir(env.TMP_DIR, { recursive: true });
     for (const it of items) {
