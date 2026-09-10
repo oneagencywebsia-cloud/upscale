@@ -294,6 +294,51 @@ export async function tgDownloadInbox(id: number, outPath: string, deadlineMs = 
   return size;
 }
 
+/**
+ * Descarga SOLO los primeros `maxBytes` del archivo del inbox (para sondear
+ * metadatos y sacar el póster sin bajarse el vídeo entero — que a ~1 MB/s son
+ * minutos). El original íntegro se guarda aparte por reenvío server-side.
+ * Devuelve los bytes escritos (≤ maxBytes, o el tamaño real si es más pequeño).
+ */
+export async function tgDownloadInboxHead(id: number, outPath: string, maxBytes: number): Promise<number> {
+  const c = await getClient();
+  const [msg] = await raceTimeout(c.getMessages(env.TELEGRAM_INBOX, { ids: [id] }), 30_000, `getMessages ${id}`);
+  const doc = msg?.document as Api.Document | undefined;
+  if (!doc || !msg?.media) throw new Error(`mensaje ${id} sin documento`);
+  const total = Number(doc.size) || 0;
+  const want = total ? Math.min(maxBytes, total) : maxBytes;
+
+  const location = new Api.InputDocumentFileLocation({
+    id: doc.id,
+    accessHash: doc.accessHash,
+    fileReference: doc.fileReference,
+    thumbSize: "",
+  });
+  await rm(outPath, { force: true }).catch(() => {});
+  const ws = createWriteStream(outPath);
+  let written = 0;
+  try {
+    // sin `limit` (un límite no alineado a 4 KB da LIMIT_INVALID): iteramos en
+    // trozos y cortamos el iterador en cuanto tenemos la cabecera que queríamos.
+    const iterOpts: Parameters<typeof c.iterDownload>[0] = {
+      file: location,
+      dcId: doc.dcId,
+      requestSize: 512 * 1024,
+    };
+    if (total) iterOpts.fileSize = bigInt(total);
+    for await (const chunk of c.iterDownload(iterOpts)) {
+      const buf = Buffer.from(chunk as Uint8Array);
+      await new Promise<void>((res, rej) => ws.write(buf, (er) => (er ? rej(er) : res())));
+      written += buf.length;
+      if (written >= want) break;
+    }
+  } finally {
+    await new Promise<void>((res) => ws.end(() => res()));
+  }
+  if (written <= 0) throw new Error(`cabecera vacía (msg ${id})`);
+  return written;
+}
+
 /** Borra mensajes del inbox (ya procesados). */
 export async function tgDeleteInbox(ids: number[]): Promise<void> {
   if (!ids.length) return;

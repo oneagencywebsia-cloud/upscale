@@ -8,6 +8,7 @@ import {
   tgInboxNewMedia,
   tgInboxStartId,
   tgDownloadInbox,
+  tgDownloadInboxHead,
   tgDeleteInbox,
   resetTelegram,
   armInboxListener,
@@ -15,6 +16,13 @@ import {
   tgPut,
   tgEnsureLocal,
 } from "./telegram.js";
+
+/** Vídeos/archivos por encima de esto: se ingiere solo la cabecera (rápido) y el
+ *  original entero se guarda por reenvío server-side. Debajo, descarga completa
+ *  (es rápida y así el hash real y las dimensiones entran a la primera). */
+const HEAD_INGEST_OVER_BYTES = 16 * 1024 * 1024;
+/** Cuánta cabecera basta para el póster + (casi siempre) los metadatos. */
+const HEAD_BYTES = 12 * 1024 * 1024;
 
 /**
  * Vigila el inbox de Telegram (Mensajes guardados por defecto). Cada archivo
@@ -190,11 +198,25 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
       const tmp = join(env.TMP_DIR, `tg-${it.id}-${randomBytes(4).toString("hex")}${it.filename.match(/\.[a-z0-9]{2,5}$/i)?.[0] ?? ""}`);
       try {
         const t0 = Date.now();
-        ingestState.lastStep = `descargando msg ${it.id} (${Math.round(it.bytes / 1e6)} MB)`;
-        log.info({ id: it.id, filename: it.filename, bytes: it.bytes, userId }, "ingesta: descargando de Telegram");
-        const dl = await withTimeout(tgDownloadInbox(it.id, tmp), 11 * 60_000, "descargar de Telegram");
+        // VÍDEOS grandes: solo la cabecera (segundos), no el vídeo entero
+        // (minutos a ~1 MB/s). El original íntegro lo guarda storePending por
+        // reenvío; las dimensiones que falten las completa backfillDerivatives.
+        // Las fotos (incluida ProRAW/DNG, que sí necesita el archivo entero para
+        // el revelado) van siempre completas.
+        const isVideo = it.mime.startsWith("video/") || /\.(mov|mp4|m4v|hevc|avi|mkv|webm)$/i.test(it.filename);
+        const headOnly = isVideo && it.bytes > HEAD_INGEST_OVER_BYTES;
+        let dl: number;
+        if (headOnly) {
+          ingestState.lastStep = `leyendo cabecera de msg ${it.id} (${Math.round(it.bytes / 1e6)} MB)`;
+          log.info({ id: it.id, filename: it.filename, bytes: it.bytes, userId }, "ingesta: cabecera (archivo grande)");
+          dl = await withTimeout(tgDownloadInboxHead(it.id, tmp, HEAD_BYTES), 90_000, "leer cabecera de Telegram");
+        } else {
+          ingestState.lastStep = `descargando msg ${it.id} (${Math.round(it.bytes / 1e6)} MB)`;
+          log.info({ id: it.id, filename: it.filename, bytes: it.bytes, userId }, "ingesta: descargando de Telegram");
+          dl = await withTimeout(tgDownloadInbox(it.id, tmp), 11 * 60_000, "descargar de Telegram");
+        }
         const t1 = Date.now();
-        log.info({ id: it.id, bytes: dl, downloadMs: t1 - t0 }, "ingesta: descargado, procesando");
+        log.info({ id: it.id, bytes: dl, downloadMs: t1 - t0, headOnly }, "ingesta: descargado, procesando");
         ingestState.lastStep = `procesando msg ${it.id}`;
         const res = await withTimeout(
           ingestLocalFile({
@@ -205,6 +227,8 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
             capturedAtHint: new Date(it.date * 1000).toISOString(),
             forwardFromInboxMsgId: it.id,
             deferStore: true, // la fila se crea YA; el original se guarda en el barrido de fondo
+            headOnly,
+            knownBytes: it.bytes,
             onStep: (s) => { ingestState.lastStep = `msg ${it.id}: ${s}`; },
             log,
           }),
@@ -404,10 +428,17 @@ async function kvNum(k: string): Promise<number> {
  */
 async function backfillDerivatives(log: FastifyBaseLoggerLike): Promise<void> {
   type BF = { id: string; kind: "photo" | "video"; original_key: string; filename: string };
+  // (a) sin póster (carrete HEIC viejo) o (b) vídeo ingerido por cabecera al que
+  // ffprobe no pudo sacarle dimensiones/duración → se completa con el original.
   const rows = (
     await query<BF>(
       `select id, kind, original_key, filename from assets
-         where poster_jpg is null and deleted_at is null and stored = true
+         where deleted_at is null and stored = true
+           and (
+             poster_jpg is null
+             or (kind = 'video' and (width is null or duration_s is null)
+                 and octet_length(coalesce(poster_jpg, ''::bytea)) > 4)
+           )
          order by uploaded_at desc limit 3`,
     ).catch(() => ({ rows: [] as BF[] }))
   ).rows;
@@ -416,7 +447,9 @@ async function backfillDerivatives(log: FastifyBaseLoggerLike): Promise<void> {
   for (const a of rows) {
     const fk = `ingest:bf:${a.id}`;
     const n = (await kvNum(fk)) + 1;
-    ingestState.lastStep = `regenerando miniatura de un archivo antiguo`;
+    await kvSet(fk, n); // cuenta el intento YA: si regen no lanza pero tampoco
+                        // arregla nada, igual se abandona tras 3 (no bucle infinito)
+    ingestState.lastStep = `completando metadatos de un archivo`;
     let tmp: string | null = null;
     try {
       const m = a.original_key.match(/^orig\/(.+)\.[a-z0-9]+$/i);
@@ -429,20 +462,51 @@ async function backfillDerivatives(log: FastifyBaseLoggerLike): Promise<void> {
       }
       tmp = await tgEnsureLocal(a.original_key, 4);
       await regenerateDerivatives(a.id, a.kind, tmp, a.filename);
-      await query("delete from kv where k = $1", [fk]).catch(() => {});
-      log.info({ id: a.id }, "backfill: miniatura regenerada");
+
+      // ¿resuelto? foto: basta con tener póster. vídeo: además, dimensiones.
+      const now = await one<{ pj: boolean; w: number | null; d: number | null }>(
+        "select (octet_length(coalesce(poster_jpg,''::bytea)) > 4) as pj, width as w, duration_s as d from assets where id = $1",
+        [a.id],
+      );
+      const fixed = !!now?.pj && (a.kind !== "video" || (now?.w != null && now?.d != null));
+      if (fixed || n >= 3) {
+        if (!fixed) await giveUpBackfill(a.id, !!now?.pj);
+        await query("delete from kv where k = $1", [fk]).catch(() => {});
+      }
+      log.info({ id: a.id, fixed, intento: n }, "backfill: procesado");
     } catch (e) {
-      await kvSet(fk, n);
       log.warn({ id: a.id, intento: n, err: (e as Error)?.message }, "backfill: falló");
       if (n >= 3) {
-        // dejar de intentarlo: poster_jpg vacío (no null) para que no vuelva a salir
-        await query("update assets set poster_jpg = decode('', 'hex') where id = $1", [a.id]).catch(() => {});
+        const has = await one<{ pj: boolean }>(
+          "select (octet_length(coalesce(poster_jpg,''::bytea)) > 4) as pj from assets where id = $1",
+          [a.id],
+        );
+        await giveUpBackfill(a.id, !!has?.pj);
         await query("delete from kv where k = $1", [fk]).catch(() => {});
       }
       break; // no encadenar si algo va mal
     }
   }
 }
+/**
+ * Se abandona el backfill de un asset tras 3 intentos. Para que no vuelva a
+ * salir en el barrido:
+ *  - si NO tiene póster (HEIC viejo ilegible): póster vacío (no null) como antes.
+ *  - si SÍ tiene póster pero le faltan dimensiones (vídeo por cabecera cuyo
+ *    original no se pudo bajar): 0 como centinela — la UI lo pinta "—" igual que
+ *    null, pero deja de seleccionarse.
+ */
+async function giveUpBackfill(id: string, hasPoster: boolean): Promise<void> {
+  if (!hasPoster) {
+    await query("update assets set poster_jpg = decode('', 'hex') where id = $1", [id]).catch(() => {});
+  } else {
+    await query(
+      "update assets set width = coalesce(width, 0), height = coalesce(height, 0), duration_s = coalesce(duration_s, 0) where id = $1",
+      [id],
+    ).catch(() => {});
+  }
+}
+
 async function kvSet(k: string, v: number): Promise<void> {
   await query(
     "insert into kv (k, v, updated_at) values ($1,$2,now()) on conflict (k) do update set v = excluded.v, updated_at = now()",

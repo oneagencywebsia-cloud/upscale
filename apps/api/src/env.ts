@@ -67,4 +67,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.13.1-heic";
+export const VERSION = "0.13.2-fastvideo";

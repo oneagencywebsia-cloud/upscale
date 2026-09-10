@@ -169,6 +169,14 @@ export async function ingestLocalFile(opts: {
    *  original SIN guardar en el almacén; lo hace el barrido de fondo. El vídeo
    *  aparece en segundos aunque Telegram esté frenando escrituras. */
   deferStore?: boolean;
+  /** `filePath` es SOLO la cabecera del archivo (primeros MB), no el archivo
+   *  entero: se usa para sondear metadatos y sacar el póster sin bajarse el
+   *  vídeo completo. El tamaño real va en `knownBytes` y el hash se hace sobre
+   *  la cabecera + el tamaño (determinista → el dedup sigue funcionando). Las
+   *  dimensiones que ffprobe no saque de la cabecera las rellena el barrido. */
+  headOnly?: boolean;
+  /** Tamaño real del archivo completo (obligatorio con `headOnly`). */
+  knownBytes?: number;
   /** callback para ver el sub-paso en vivo (lo pinta /ingest/status). */
   onStep?: (s: string) => void;
   log?: { info: (o: unknown, m?: string) => void; warn: (o: unknown, m?: string) => void };
@@ -181,15 +189,28 @@ export async function ingestLocalFile(opts: {
   };
   let filename = opts.filename || "IMG";
 
+  // headOnly SOLO tiene sentido en la ruta diferida (el original se guarda por
+  // reenvío). Sin deferStore acabaríamos subiendo la cabecera como "original".
+  if (opts.headOnly && !(opts.deferStore && opts.forwardFromInboxMsgId)) {
+    throw new Error("headOnly requiere deferStore + forwardFromInboxMsgId");
+  }
+
   step("stat");
-  const { size } = await stat(filePath);
-  if (size === 0) {
+  const { size: onDiskSize } = await stat(filePath);
+  if (onDiskSize === 0) {
     await rm(filePath, { force: true });
     throw Object.assign(new Error("archivo vacío (0 bytes)"), { code: "EMPTY" });
   }
+  // con headOnly, `filePath` es solo la cabecera → el tamaño real lo da Telegram
+  const size = opts.headOnly ? opts.knownBytes || onDiskSize : onDiskSize;
 
   step("hash");
-  const sha256 = await hashFile(filePath);
+  // headOnly: hash de (cabecera + tamaño real). Es determinista, así que reenviar
+  // el mismo archivo da el mismo sha y el dedup lo pilla igual; y dos archivos
+  // distintos casi nunca comparten los primeros MB Y el tamaño exacto.
+  const sha256 = opts.headOnly
+    ? createHash("sha256").update(await readFile(filePath)).update(`|${size}`).digest("hex")
+    : await hashFile(filePath);
 
   step("dedup");
   const dup = await one<{ id: string; kind: "photo" | "video" }>(
