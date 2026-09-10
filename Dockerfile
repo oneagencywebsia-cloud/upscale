@@ -9,7 +9,7 @@ FROM node:20-bookworm-slim AS base
 # ffmpeg: vídeo. libheif-examples (heif-convert) + libvips-tools (vips): leer HEIC/HEIF
 # del carrete del iPhone, que ni sharp ni el ffmpeg de bookworm saben decodificar.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ffmpeg ca-certificates libheif-examples libvips-tools \
+      ffmpeg ca-certificates libheif-examples libheif1 libvips-tools imagemagick \
   && rm -rf /var/lib/apt/lists/*
 ENV PNPM_HOME=/pnpm
 ENV PATH=/pnpm:$PATH

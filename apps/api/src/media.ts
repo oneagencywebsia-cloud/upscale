@@ -152,27 +152,34 @@ export async function probe(path: string, filename: string, contentType?: string
     (fmt.tags?.creation_time as string | undefined) ??
     null;
 
-  // ffprobe de bookworm no lee HEIC → foto sin dimensiones ni códec. Se sacan
-  // de vipsheader (tiene libheif) y el códec se deduce del tipo.
+  const isHeic = /\.(heic|heif)$/i.test(ext) || !!contentType?.includes("heic") || !!contentType?.includes("heif");
+
   let width: number | null = v?.width ?? null;
   let height: number | null = v?.height ?? null;
   let codec: string | null = v?.codec_name ?? null;
-  if (kind === "photo" && (!width || !height)) {
-    try {
-      // "file.heic: 4032x3024 uchar, 3 bands, srgb, heifload"
-      const { stdout } = await run("vipsheader", [path], RUN_OPTS);
-      const m = stdout.match(/(\d{2,6})x(\d{2,6})/);
-      if (m) {
-        width = Number(m[1]);
-        height = Number(m[2]);
+
+  // Para HEIC: ffprobe de bookworm NO lo lee, y lo que a veces devuelve (mjpeg
+  // 700x599…) es la MINIATURA incrustada, no la foto. Se ignora y se saca la
+  // resolución real de heif-info / vipsheader.
+  if (isHeic) {
+    width = null;
+    height = null;
+    codec = "HEVC";
+    for (const bin of ["heif-info", "vipsheader"]) {
+      try {
+        const { stdout } = await run(bin, [path], RUN_OPTS);
+        const m = stdout.match(/(\d{3,6})\s*[x×]\s*(\d{3,6})/i);
+        if (m) {
+          width = Number(m[1]);
+          height = Number(m[2]);
+          break;
+        }
+      } catch {
+        /* siguiente */
       }
-    } catch {
-      /* nada */
     }
-  }
-  if (kind === "photo" && !codec) {
-    if (/\.(heic|heif)$/i.test(ext) || contentType?.includes("heic") || contentType?.includes("heif")) codec = "HEVC";
-    else if (/\.(jpe?g)$/i.test(ext)) codec = "JPEG";
+  } else if (kind === "photo" && !codec) {
+    if (/\.(jpe?g)$/i.test(ext)) codec = "JPEG";
     else if (/\.png$/i.test(ext)) codec = "PNG";
     else if (/\.dng$/i.test(ext)) codec = "DNG";
   }
@@ -195,9 +202,10 @@ export async function probe(path: string, filename: string, contentType?: string
 }
 
 /**
- * Reescala una imagen a `maxW` px. sharp lee JPG/PNG/WEBP; para HEIC/HEIF (el
- * carrete del iPhone) sharp NO trae decodificador → se usa `vips` del sistema
- * (compilado con libheif) y, si tampoco, `heif-convert`.
+ * Reescala una imagen a `maxW` px aplicando SIEMPRE la orientación (EXIF / irot
+ * de HEIF). sharp lee JPG/PNG/WEBP; para HEIC del iPhone sharp no trae libheif,
+ * así que: `vips thumbnail` (auto-rota irot+EXIF) → ImageMagick (`convert
+ * -auto-orient`) → heif-convert a PNG + sharp con rotación explícita.
  */
 async function scaleImage(
   src: string,
@@ -205,16 +213,22 @@ async function scaleImage(
   maxW: number,
   fmt: "webp" | "jpeg",
 ): Promise<void> {
-  // 1) sharp directo (rápido, cubre JPG/PNG/WEBP y algún HEIC)
-  try {
-    let p = sharp(src, { failOn: "none" }).rotate().resize(maxW, maxW, { fit: "inside", withoutEnlargement: true });
-    p = fmt === "webp" ? p.webp({ quality: 80 }) : p.jpeg({ quality: 88, mozjpeg: true });
-    await p.toFile(out);
-    return;
-  } catch {
-    /* sigue */
+  const heic = /\.(heic|heif)$/i.test(src);
+
+  // 1) sharp directo — solo para lo que sharp lee de verdad (no HEIC)
+  if (!heic) {
+    try {
+      let p = sharp(src, { failOn: "none" }).rotate().resize(maxW, maxW, { fit: "inside", withoutEnlargement: true });
+      p = fmt === "webp" ? p.webp({ quality: 80 }) : p.jpeg({ quality: 88, mozjpeg: true });
+      await p.toFile(out);
+      return;
+    } catch {
+      /* sigue */
+    }
   }
-  // 2) vips del sistema (tiene libheif): decodifica HEIC y reescala de una
+
+  // 2) vips thumbnail: la vía más fiable para HEIC del iPhone — aplica irot + EXIF
+  //    de serie (auto_rotate) y reescala en un paso.
   try {
     const q = fmt === "webp" ? "[Q=80]" : "[Q=88]";
     await run("vips", ["thumbnail", src, `${out}${q}`, String(maxW)], RUN_OPTS);
@@ -222,15 +236,36 @@ async function scaleImage(
   } catch {
     /* sigue */
   }
-  // 3) heif-convert → JPEG intermedio → sharp
-  const jpg = `${out}.heifin.jpg`;
+
+  // 3) ImageMagick: decodifica HEIC + orienta + reescala + formato, todo de una
   try {
-    await run("heif-convert", ["-q", "90", src, jpg], RUN_OPTS);
-    let p = sharp(jpg, { failOn: "none" }).rotate().resize(maxW, maxW, { fit: "inside", withoutEnlargement: true });
+    await run(
+      "convert",
+      [src, "-auto-orient", "-resize", `${maxW}x${maxW}>`, "-quality", fmt === "webp" ? "80" : "88", `${fmt}:${out}`],
+      RUN_OPTS,
+    );
+    return;
+  } catch {
+    /* sigue */
+  }
+
+  // 4) heif-convert → PNG (sin rotar en libheif 1.15) → sharp con giro explícito
+  const png = `${out}.heifin.png`;
+  try {
+    await run("heif-convert", [src, png], RUN_OPTS);
+    let angle = 0;
+    try {
+      const { stdout } = await run("vipsheader", ["-f", "orientation", src], RUN_OPTS);
+      const o = Number(stdout.trim());
+      angle = o === 3 || o === 4 ? 180 : o === 6 || o === 5 ? 90 : o === 8 || o === 7 ? 270 : 0;
+    } catch {
+      /* sin dato → 0 */
+    }
+    let p = sharp(png, { failOn: "none" }).rotate(angle).resize(maxW, maxW, { fit: "inside", withoutEnlargement: true });
     p = fmt === "webp" ? p.webp({ quality: 80 }) : p.jpeg({ quality: 88, mozjpeg: true });
     await p.toFile(out);
   } finally {
-    await import("node:fs/promises").then((m) => m.rm(jpg, { force: true })).catch(() => {});
+    await import("node:fs/promises").then((m) => m.rm(png, { force: true })).catch(() => {});
   }
 }
 

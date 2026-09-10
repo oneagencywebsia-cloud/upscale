@@ -125,14 +125,23 @@ export async function regenerateDerivatives(
     await tgCachePut(base.tk, tmpThumb).catch(() => {});
     if (base.pk) await tgCachePut(base.pk, tmpPoster).catch(() => {});
 
-    // completar dimensiones/códec que ffprobe no pudo sacar del HEIC
+    // completar dimensiones/códec que ffprobe no pudo sacar del HEIC.
+    // Para FOTO se SOBREESCRIBE: si había algo era la miniatura incrustada
+    // (700x599 mjpeg…), no la foto real. Para vídeo se completa lo que falte.
     try {
       const info = await probe(filePath, filename ?? "x" + (kind === "video" ? ".mov" : ".jpg"));
       if (info.width && info.height) {
-        await query(
-          "update assets set width = coalesce(width, $1), height = coalesce(height, $2), codec = coalesce(codec, $3) where id = $4",
-          [info.width, info.height, info.codec, id],
-        );
+        if (kind === "photo") {
+          await query(
+            "update assets set width = $1, height = $2, codec = coalesce($3, codec) where id = $4",
+            [info.width, info.height, info.codec, id],
+          );
+        } else {
+          await query(
+            "update assets set width = coalesce(width, $1), height = coalesce(height, $2), codec = coalesce(codec, $3) where id = $4",
+            [info.width, info.height, info.codec, id],
+          );
+        }
       }
     } catch {
       /* nada */

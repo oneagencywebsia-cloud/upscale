@@ -1,13 +1,36 @@
+import { execFile } from "node:child_process";
 import type { FastifyInstance } from "fastify";
 import { ping, one } from "../db.js";
 import { env, VERSION } from "../env.js";
 import { ingestSnapshot, ingestState, ingestTickNow, ingestSkipPending, ingestResume } from "../ingest.js";
+
+function firstLine(cmd: string, args: string[]): Promise<string> {
+  return new Promise((resolve) => {
+    const c = execFile(cmd, args, { timeout: 5000 }, (err, out, e) => {
+      if (err && !out && !e) return resolve(`NO: ${err.message.split("\n")[0]}`);
+      resolve(((out || e || "").split("\n")[0] || "ok").slice(0, 120));
+    });
+    c.on("error", (er) => resolve(`NO: ${er.message}`));
+  });
+}
 
 export async function healthRoutes(app: FastifyInstance): Promise<void> {
   app.get("/v1/healthz", async (_req, reply) => {
     const db = await ping();
     return reply.code(db ? 200 : 503).send({ ok: db, version: VERSION });
   });
+
+  // qué herramientas de imagen hay en el contenedor (para depurar HEIC/rotación)
+  app.get("/v1/diag/tools", async () => ({
+    version: VERSION,
+    convert: await firstLine("convert", ["-version"]),
+    vips: await firstLine("vips", ["--version"]),
+    vipsheader: await firstLine("vipsheader", ["--help"]),
+    "heif-convert": await firstLine("heif-convert", ["--version"]),
+    "heif-info": await firstLine("heif-info", ["--version"]),
+    ffmpeg: await firstLine("ffmpeg", ["-version"]),
+    ffprobe: await firstLine("ffprobe", ["-version"]),
+  }));
 
   // diagnóstico de la ingesta desde Telegram (sin datos sensibles)
   app.get("/v1/ingest/status", async () => {
