@@ -1529,6 +1529,26 @@ footer.status .dot {
   background: color-mix(in srgb, var(--accent, #1c8fac) 22%, transparent);
   outline: none;
 }
+.gt-toast {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 74px);
+  margin: 0 auto;
+  max-width: 460px;
+  z-index: 60;
+  padding: 12px 16px;
+  border-radius: 14px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  text-align: center;
+  color: #fff;
+  background: rgba(20, 26, 38, 0.94);
+  border: 1px solid var(--stroke);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.6);
+}
 .density {
   display: flex;
   padding: 3px;

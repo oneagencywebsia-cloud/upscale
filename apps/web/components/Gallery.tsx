@@ -26,8 +26,14 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [density, setDensity] = useState(1);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => setAssets(flat), [flat]);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 6000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   // índices O(1). TODOS los hooks van aquí arriba, antes de cualquier return.
   const byId = useMemo(() => new Map(assets.map((a) => [a.id, a] as const)), [assets]);
@@ -152,8 +158,22 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
 
   function downloadZip(ids?: string[]) {
     const qs = ids && ids.length ? `?ids=${ids.join(",")}` : "";
-    // navegación directa: el navegador guarda el .zip (una carpeta con todo al descomprimir)
-    window.location.href = `/api/dl-all${qs}`;
+    const url = `/api/dl-all${qs}`;
+    // <a target="_blank"> abre Safari (en PWA standalone) y ahí sí sale el gestor
+    // de descargas de iOS. El .zip se guarda en Archivos → Descargas.
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.download = "";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setToast(
+      ids && ids.length
+        ? `Preparando ZIP de ${ids.length}… se guardará en Archivos › Descargas`
+        : `Preparando ZIP de ${assets.length}… tarda un rato; se guarda en Archivos › Descargas`,
+    );
   }
 
   async function bulkDelete() {
@@ -199,7 +219,7 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
               setSel(new Set());
             }}
           >
-            {selecting ? "Cancelar" : "Seleccionar"}
+            {selecting ? "Dejar de seleccionar" : "Seleccionar"}
           </button>
           <div className="gt-menu" onPointerDown={(e) => e.stopPropagation()}>
             <button
@@ -293,6 +313,12 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
           </div>
         </section>
       ))}
+
+      {toast && (
+        <motion.div className="gt-toast" initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ opacity: 0 }}>
+          {toast}
+        </motion.div>
+      )}
 
       {selecting && sel.size > 0 && (
         <motion.div className="selbar" initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }}>
