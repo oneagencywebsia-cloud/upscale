@@ -1,10 +1,38 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { createWriteStream } from "node:fs";
 import { extname } from "node:path";
 import sharp from "sharp";
 import { env } from "./env.js";
 import type { AssetKind } from "./types.js";
 
 const RUN_OPTS = { maxBuffer: 8 * 1024 * 1024, timeout: 25_000 };
+
+/** Ejecuta un binario y vuelca su stdout (binario) a `outFile`. Para exiftool
+ *  `-b`, cuyo resultado son bytes de imagen que no caben como string. */
+function runToFile(file: string, args: string[], outFile: string, timeoutMs = 25_000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const ws = createWriteStream(outFile);
+    const child = spawn(file, args, { stdio: ["ignore", "pipe", "ignore"] });
+    const timer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* ya muerto */
+      }
+      reject(new Error(`${file}: timeout ${timeoutMs}ms`));
+    }, timeoutMs);
+    child.stdout.pipe(ws);
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      ws.end();
+      code === 0 ? resolve() : reject(new Error(`${file}: exit ${code}`));
+    });
+  });
+}
 
 /**
  * Ejecuta un binario y GARANTIZA que la promesa se resuelve como muy tarde a los
@@ -270,21 +298,50 @@ async function scaleImage(
     await import("node:fs/promises").then((m) => m.rm(png, { force: true })).catch(() => {});
   }
 
-  // 5) ffmpeg: última vía y la más universal. Su decodificador HEVC propio NO
-  //    depende de libheif, así que lee los HEIC `heix` de 10 bits (HDR) del
-  //    iPhone que vips/ImageMagick/heif-convert no pueden abrir en este
-  //    contenedor. -autorotate va de serie: aplica el `irot` del HEIF.
-  await run(
-    env.FFMPEG_PATH,
-    [
-      "-y", "-i", src,
-      "-frames:v", "1",
-      "-vf", `scale='min(${maxW},iw)':-2,format=yuv420p`,
-      ...(fmt === "webp" ? ["-c:v", "libwebp", "-quality", "80"] : ["-q:v", "3"]),
-      out,
-    ],
-    RUN_OPTS,
-  );
+  // 5) ffmpeg: decodificador HEVC propio, no depende de libheif.
+  try {
+    await run(
+      env.FFMPEG_PATH,
+      [
+        "-y", "-i", src,
+        "-frames:v", "1",
+        "-vf", `scale='min(${maxW},iw)':-2,format=yuv420p`,
+        ...(fmt === "webp" ? ["-c:v", "libwebp", "-quality", "80"] : ["-q:v", "3"]),
+        out,
+      ],
+      RUN_OPTS,
+    );
+    return;
+  } catch {
+    /* sigue */
+  }
+
+  // 6) ÚLTIMA VÍA — a prueba de balas. Todo HEIC del iPhone lleva incrustado un
+  //    JPEG de vista previa a resolución completa (8 bits). exiftool lo saca sin
+  //    decodificar NADA de HEVC: si el archivo es un HEIC válido, esto funciona.
+  const prev = `${out}.exifprev.jpg`;
+  try {
+    let ok = false;
+    // iOS guarda la vista previa en una de estas etiquetas según el modelo
+    for (const tag of ["-PreviewImage", "-JpgFromRaw", "-OtherImage", "-ThumbnailImage"]) {
+      try {
+        await runToFile("exiftool", ["-b", tag, src], prev);
+        const { size } = await import("node:fs/promises").then((m) => m.stat(prev)).catch(() => ({ size: 0 }));
+        if (size > 1500) {
+          ok = true;
+          break;
+        }
+      } catch {
+        /* prueba la siguiente etiqueta */
+      }
+    }
+    if (!ok) throw new Error("HEIC sin vista previa incrustada legible");
+    let p = sharp(prev, { failOn: "none" }).rotate().resize(maxW, maxW, { fit: "inside", withoutEnlargement: true });
+    p = fmt === "webp" ? p.webp({ quality: 80 }) : p.jpeg({ quality: 88, mozjpeg: true });
+    await p.toFile(out);
+  } finally {
+    await import("node:fs/promises").then((m) => m.rm(prev, { force: true })).catch(() => {});
+  }
 }
 
 /** Miniatura WebP ~`maxW` px de una IMAGEN (HEIC incluido). */

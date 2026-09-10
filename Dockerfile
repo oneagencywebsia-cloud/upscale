@@ -6,10 +6,18 @@
 #   NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 FROM node:20-bookworm-slim AS base
-# ffmpeg: vídeo. libheif-examples (heif-convert) + libvips-tools (vips): leer HEIC/HEIF
-# del carrete del iPhone, que ni sharp ni el ffmpeg de bookworm saben decodificar.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ffmpeg ca-certificates libheif-examples libheif1 libvips-tools imagemagick \
+# ffmpeg: vídeo.
+# HEIC/HEIF del iPhone: la libheif 1.15 de Debian 12 NO decodifica los `heix`
+# de 10 bits (HDR) — salían sin miniatura. Se instala libheif 1.19 + plugin
+# libde265 desde bookworm-backports; vips e ImageMagick lo cogen por la lib
+# compartida. exiftool: última vía — saca el JPEG incrustado que TODO HEIC del
+# iPhone lleva dentro (8 bits, sin decodificar HEVC: no puede fallar).
+RUN echo 'deb http://deb.debian.org/debian bookworm-backports main' > /etc/apt/sources.list.d/backports.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends \
+       ffmpeg ca-certificates imagemagick libimage-exiftool-perl \
+  && apt-get install -y --no-install-recommends -t bookworm-backports \
+       libheif1 libheif-plugin-libde265 libheif-examples libvips-tools \
   && rm -rf /var/lib/apt/lists/*
 ENV PNPM_HOME=/pnpm
 ENV PATH=/pnpm:$PATH
