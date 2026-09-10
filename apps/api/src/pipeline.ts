@@ -17,7 +17,7 @@ const IMAGE_EXTS = [".heic", ".heif", ".jpg", ".jpeg", ".png", ".webp", ".gif", 
 let derivRunning = 0;
 const derivQ: Array<() => Promise<void>> = [];
 function pumpDeriv(): void {
-  while (derivRunning < 2 && derivQ.length) {
+  while (derivRunning < 3 && derivQ.length) {
     const job = derivQ.shift()!;
     derivRunning++;
     void job().finally(() => {

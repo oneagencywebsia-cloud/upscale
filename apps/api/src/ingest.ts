@@ -256,7 +256,7 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
     await storePending(log);
     // barrido: regenera miniatura/póster de assets viejos que quedaron con la
     // de reserva (sharp no leía HEIC → todo el carrete iPhone salía en negro)
-    if (ingestState.pending === 0) await backfillDerivatives(log);
+    if (ingestState.pending <= 3) await backfillDerivatives(log);
   } catch (e) {
     ingestState.lastTickError = (e as Error)?.message ?? String(e);
     log.error({ err: (e as Error)?.message }, "ingesta: fallo en la vuelta");
@@ -407,7 +407,7 @@ async function backfillDerivatives(log: FastifyBaseLoggerLike): Promise<void> {
     await query<{ id: string; kind: "photo" | "video"; original_key: string }>(
       `select id, kind, original_key from assets
          where poster_jpg is null and deleted_at is null and stored = true
-         order by uploaded_at desc limit 2`,
+         order by uploaded_at desc limit 3`,
     ).catch(() => ({ rows: [] as { id: string; kind: "photo" | "video"; original_key: string }[] }))
   ).rows;
   if (!rows.length) return;

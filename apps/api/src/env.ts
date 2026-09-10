@@ -67,4 +67,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.12.1-heic";
+export const VERSION = "0.12.2-heic";

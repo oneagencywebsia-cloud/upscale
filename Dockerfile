@@ -6,7 +6,10 @@
 #   NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 FROM node:20-bookworm-slim AS base
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+# ffmpeg: vídeo. libheif-examples (heif-convert) + libvips-tools (vips): leer HEIC/HEIF
+# del carrete del iPhone, que ni sharp ni el ffmpeg de bookworm saben decodificar.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ffmpeg ca-certificates libheif-examples libvips-tools \
   && rm -rf /var/lib/apt/lists/*
 ENV PNPM_HOME=/pnpm
 ENV PATH=/pnpm:$PATH

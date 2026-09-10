@@ -169,45 +169,54 @@ export async function probe(path: string, filename: string, contentType?: string
   };
 }
 
-/** Miniatura/imagen reescalada a `maxW` px (WebP). Prueba sharp; si no puede
- *  (sharp NO trae decodificador HEIC por licencia → casi todo el carrete iPhone
- *  fallaba), tira de ffmpeg, que en Debian sí lee HEIC. */
-export async function sharpThumb(srcImage: string, out: string, maxW = 640): Promise<void> {
+/**
+ * Reescala una imagen a `maxW` px. sharp lee JPG/PNG/WEBP; para HEIC/HEIF (el
+ * carrete del iPhone) sharp NO trae decodificador → se usa `vips` del sistema
+ * (compilado con libheif) y, si tampoco, `heif-convert`.
+ */
+async function scaleImage(
+  src: string,
+  out: string,
+  maxW: number,
+  fmt: "webp" | "jpeg",
+): Promise<void> {
+  // 1) sharp directo (rápido, cubre JPG/PNG/WEBP y algún HEIC)
   try {
-    await sharp(srcImage, { failOn: "none" })
-      .rotate()
-      .resize(maxW, maxW, { fit: "inside", withoutEnlargement: true })
-      .webp({ quality: 80 })
-      .toFile(out);
+    let p = sharp(src, { failOn: "none" }).rotate().resize(maxW, maxW, { fit: "inside", withoutEnlargement: true });
+    p = fmt === "webp" ? p.webp({ quality: 80 }) : p.jpeg({ quality: 88, mozjpeg: true });
+    await p.toFile(out);
     return;
   } catch {
-    /* sharp no pudo (HEIC/HEIF/formato raro) → ffmpeg */
+    /* sigue */
   }
-  await run(
-    env.FFMPEG_PATH,
-    ["-y", "-i", srcImage, "-frames:v", "1", "-vf", `scale='min(${maxW},iw)':-2`, "-c:v", "libwebp", "-quality", "80", out],
-    RUN_OPTS,
-  );
+  // 2) vips del sistema (tiene libheif): decodifica HEIC y reescala de una
+  try {
+    const q = fmt === "webp" ? "[Q=80]" : "[Q=88]";
+    await run("vips", ["thumbnail", src, `${out}${q}`, String(maxW)], RUN_OPTS);
+    return;
+  } catch {
+    /* sigue */
+  }
+  // 3) heif-convert → JPEG intermedio → sharp
+  const jpg = `${out}.heifin.jpg`;
+  try {
+    await run("heif-convert", ["-q", "90", src, jpg], RUN_OPTS);
+    let p = sharp(jpg, { failOn: "none" }).rotate().resize(maxW, maxW, { fit: "inside", withoutEnlargement: true });
+    p = fmt === "webp" ? p.webp({ quality: 80 }) : p.jpeg({ quality: 88, mozjpeg: true });
+    await p.toFile(out);
+  } finally {
+    await import("node:fs/promises").then((m) => m.rm(jpg, { force: true })).catch(() => {});
+  }
 }
 
-/** Versión grande (JPEG ~1600px) de una FOTO, para verla nítida a pantalla completa.
- *  sharp primero; si no puede (HEIC), ffmpeg. */
+/** Miniatura WebP ~`maxW` px de una IMAGEN (HEIC incluido). */
+export async function sharpThumb(srcImage: string, out: string, maxW = 640): Promise<void> {
+  await scaleImage(srcImage, out, maxW, "webp");
+}
+
+/** Versión grande (JPEG ~1600px) de una FOTO, para verla nítida a pantalla completa. */
 export async function imagePoster(srcImage: string, out: string, maxW = 1600): Promise<void> {
-  try {
-    await sharp(srcImage, { failOn: "none" })
-      .rotate()
-      .resize(maxW, maxW, { fit: "inside", withoutEnlargement: true })
-      .jpeg({ quality: 88, mozjpeg: true })
-      .toFile(out);
-    return;
-  } catch {
-    /* HEIC/raro → ffmpeg */
-  }
-  await run(
-    env.FFMPEG_PATH,
-    ["-y", "-i", srcImage, "-frames:v", "1", "-vf", `scale='min(${maxW},iw)':-2`, "-q:v", "3", out],
-    RUN_OPTS,
-  );
+  await scaleImage(srcImage, out, maxW, "jpeg");
 }
 
 /** Extrae un fotograma de un vídeo a JPEG (ffmpeg siempre trae mjpeg). */

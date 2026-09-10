@@ -6,7 +6,8 @@
 #   NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 FROM node:20-bookworm-slim AS base
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ffmpeg ca-certificates libheif-examples libvips-tools \
   && rm -rf /var/lib/apt/lists/*
 ENV PNPM_HOME=/pnpm
 ENV PATH=/pnpm:$PATH
