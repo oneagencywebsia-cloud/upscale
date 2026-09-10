@@ -513,12 +513,16 @@ async function offloadPosters(log: FastifyBaseLoggerLike): Promise<void> {
            and poster_key is not null
            and octet_length(coalesce(poster_jpg, ''::bytea)) > 4
            and not exists (select 1 from blob_refs br where br.key = a.poster_key)
-         order by uploaded_at asc limit 2`,
+         order by uploaded_at asc limit 6`,
     ).catch(() => ({ rows: [] as OF[] }))
   ).rows;
   if (!rows.length) return;
 
+  let i = 0;
   for (const a of rows) {
+    // respiro entre subidas: en reposo Telegram lo tolera de sobra, pero no
+    // conviene encadenarlas sin pausa (es lo que disparaba FLOOD_WAIT).
+    if (i++) await new Promise((r) => setTimeout(r, 400));
     const fk = `ingest:off:${a.id}`;
     const n = (await kvNum(fk)) + 1;
     if (n > 3) continue; // se rinde: se queda en la BD, no pasa nada grave

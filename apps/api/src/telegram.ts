@@ -226,12 +226,18 @@ async function pruneDir(dir: string, maxBytes: number): Promise<void> {
   }
 }
 
+// Presupuesto de la caché de derivadas. Una miniatura pesa ~23 KB pero un PÓSTER
+// ~260 KB: con los 400 MB fijos de antes solo cabían ~1.500 pósters y a partir de
+// ahí la caché se pasaba el día expulsando y re-descargando. Se le da un tercio
+// del presupuesto total, que escala con la máquina.
+const DERIV_CACHE_BYTES = () => Math.max(400, Math.floor(env.TG_CACHE_MAX_MB / 3)) * 1024 * 1024;
+
 let lastPrune = 0;
 async function pruneCache(): Promise<void> {
   if (Date.now() - lastPrune < 60_000) return; // no en cada request
   lastPrune = Date.now();
   await pruneDir(env.TG_CACHE_DIR, env.TG_CACHE_MAX_MB * 1024 * 1024);
-  await pruneDir(THUMB_DIR(), 400 * 1024 * 1024); // ~20k miniaturas
+  await pruneDir(THUMB_DIR(), DERIV_CACHE_BYTES());
 }
 
 // ------------------------------- API pública -------------------------------
