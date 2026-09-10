@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import type { AssetListItem } from "@upscale/shared";
@@ -24,13 +24,33 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
 
   const [videoState, setVideoState] = useState<"loading" | "ready" | "error" | "slow">("loading");
   const [buffering, setBuffering] = useState(false);
+  const [livePlaying, setLivePlaying] = useState(false);
+  const liveRef = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     setVideoState("loading");
     setBuffering(false);
+    setLivePlaying(false);
     if (!a || a.kind !== "video") return;
     const t = setTimeout(() => setVideoState((s) => (s === "loading" ? "slow" : s)), 20000);
     return () => clearTimeout(t);
   }, [a?.id, a?.kind]);
+
+  const isLive = !!(a && a.kind === "photo" && a.isLive && a.liveVideoUrl);
+  const liveStart = useCallback(() => {
+    const v = liveRef.current;
+    if (!v) return;
+    setLivePlaying(true);
+    v.currentTime = 0;
+    void v.play().catch(() => setLivePlaying(false));
+  }, []);
+  const liveStop = useCallback(() => {
+    const v = liveRef.current;
+    if (v) {
+      v.pause();
+      v.currentTime = 0;
+    }
+    setLivePlaying(false);
+  }, []);
 
   const go = useCallback(
     (d: number) => {
@@ -126,16 +146,42 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
                   )}
                 </>
               ) : (
-                <motion.img
-                  key={a.id}
-                  layoutId={`ph-${a.id}`}
-                  src={a.posterUrl ?? a.thumbUrl}
-                  alt={a.filename}
-                  draggable={false}
-                  whileTap={{ scale: 0.97 }}
-                  animate={{ scale: [0.96, 1] }}
-                  transition={{ type: "spring", stiffness: 260, damping: 24 }}
-                />
+                <div
+                  className="viewer-photo"
+                  onPointerDown={isLive ? liveStart : undefined}
+                  onPointerUp={isLive ? liveStop : undefined}
+                  onPointerLeave={isLive ? liveStop : undefined}
+                  onContextMenu={isLive ? (e) => e.preventDefault() : undefined}
+                >
+                  <motion.img
+                    key={a.id}
+                    src={a.posterUrl ?? a.thumbUrl}
+                    alt={a.filename}
+                    draggable={false}
+                    whileTap={isLive ? undefined : { scale: 0.97 }}
+                    animate={{ scale: [0.96, 1] }}
+                    transition={{ type: "spring", stiffness: 260, damping: 24 }}
+                  />
+                  {isLive && (
+                    <>
+                      <video
+                        ref={liveRef}
+                        src={a.liveVideoUrl!}
+                        className={`viewer-live ${livePlaying ? "on" : ""}`}
+                        playsInline
+                        preload="metadata"
+                        onEnded={liveStop}
+                      />
+                      <span className="badge live viewer-livebadge" aria-hidden="true">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
+                          <circle cx="12" cy="12" r="3.2" />
+                          <path d="M5.5 5.5a9 9 0 0 0 0 13M18.5 5.5a9 9 0 0 1 0 13" strokeLinecap="round" />
+                        </svg>
+                        LIVE
+                      </span>
+                    </>
+                  )}
+                </div>
               )}
               {assets.length > 1 && (
                 <>

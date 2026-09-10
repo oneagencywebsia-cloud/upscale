@@ -403,12 +403,13 @@ async function kvNum(k: string): Promise<number> {
  * poster_jpg NULL. 2 por vuelta. Tras 3 intentos fallidos se deja como está.
  */
 async function backfillDerivatives(log: FastifyBaseLoggerLike): Promise<void> {
+  type BF = { id: string; kind: "photo" | "video"; original_key: string; filename: string };
   const rows = (
-    await query<{ id: string; kind: "photo" | "video"; original_key: string }>(
-      `select id, kind, original_key from assets
+    await query<BF>(
+      `select id, kind, original_key, filename from assets
          where poster_jpg is null and deleted_at is null and stored = true
          order by uploaded_at desc limit 3`,
-    ).catch(() => ({ rows: [] as { id: string; kind: "photo" | "video"; original_key: string }[] }))
+    ).catch(() => ({ rows: [] as BF[] }))
   ).rows;
   if (!rows.length) return;
 
@@ -427,7 +428,7 @@ async function backfillDerivatives(log: FastifyBaseLoggerLike): Promise<void> {
         ]);
       }
       tmp = await tgEnsureLocal(a.original_key, 4);
-      await regenerateDerivatives(a.id, a.kind, tmp);
+      await regenerateDerivatives(a.id, a.kind, tmp, a.filename);
       await query("delete from kv where k = $1", [fk]).catch(() => {});
       log.info({ id: a.id }, "backfill: miniatura regenerada");
     } catch (e) {

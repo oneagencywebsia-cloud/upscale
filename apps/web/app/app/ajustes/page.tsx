@@ -61,6 +61,11 @@ export default async function AjustesPage() {
           añadir nada. Límite 2 GB por archivo (4 GB con Telegram Premium). También vale para
           fotos que quieras 100 % garantizadas (envíalas como archivo).
         </p>
+        <p className="panel-lede">
+          <b>Live Photos:</b> envía la <b>foto (.HEIC)</b> y su <b>vídeo (.MOV)</b> —los dos tienen
+          el mismo nombre (<code>IMG_1234</code>)—. Upscale los une solos: en la foto verás el
+          distintivo <b>LIVE</b> y se anima al <b>mantener pulsado</b>.
+        </p>
         <IngestBind />
       </section>
 

@@ -152,14 +152,39 @@ export async function probe(path: string, filename: string, contentType?: string
     (fmt.tags?.creation_time as string | undefined) ??
     null;
 
+  // ffprobe de bookworm no lee HEIC → foto sin dimensiones ni códec. Se sacan
+  // de vipsheader (tiene libheif) y el códec se deduce del tipo.
+  let width: number | null = v?.width ?? null;
+  let height: number | null = v?.height ?? null;
+  let codec: string | null = v?.codec_name ?? null;
+  if (kind === "photo" && (!width || !height)) {
+    try {
+      // "file.heic: 4032x3024 uchar, 3 bands, srgb, heifload"
+      const { stdout } = await run("vipsheader", [path], RUN_OPTS);
+      const m = stdout.match(/(\d{2,6})x(\d{2,6})/);
+      if (m) {
+        width = Number(m[1]);
+        height = Number(m[2]);
+      }
+    } catch {
+      /* nada */
+    }
+  }
+  if (kind === "photo" && !codec) {
+    if (/\.(heic|heif)$/i.test(ext) || contentType?.includes("heic") || contentType?.includes("heif")) codec = "HEVC";
+    else if (/\.(jpe?g)$/i.test(ext)) codec = "JPEG";
+    else if (/\.png$/i.test(ext)) codec = "PNG";
+    else if (/\.dng$/i.test(ext)) codec = "DNG";
+  }
+
   return {
     kind,
-    width: v?.width ?? null,
-    height: v?.height ?? null,
+    width,
+    height,
     durationS,
     fps,
     videoBitrate,
-    codec: v?.codec_name ?? null,
+    codec,
     capturedAt: safeIso(capturedAt),
     cameraMake: tags["com.apple.quicktime.make"] ?? tags["make"] ?? null,
     cameraModel: tags["com.apple.quicktime.model"] ?? tags["model"] ?? null,

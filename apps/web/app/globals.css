@@ -1716,6 +1716,43 @@ footer.status .dot {
   background: #000;
   outline: none;
 }
+/* Live Photo: la foto quieta con el vídeo encima, se muestra al mantener pulsado */
+.viewer-photo {
+  position: relative;
+  display: grid;
+  place-items: center;
+  touch-action: none;
+}
+.viewer-live {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+  border-radius: 16px;
+}
+.viewer-live.on {
+  opacity: 1;
+}
+.viewer-livebadge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px 4px 7px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.5);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
 .viewer-loading {
   position: absolute;
   inset: 0;

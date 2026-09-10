@@ -79,10 +79,32 @@ async function saveDerivativeBytes(id: string, thumbPath: string, posterPath?: s
  * del original en disco, y las guarda en la BD. Lo usa el barrido de recuperación
  * cuando un asset se guarda tarde y su miniatura quedó vacía.
  */
+/** Si acaba de entrar una FOTO y su .MOV de Live Photo ya estaba como vídeo
+ *  suelto (mismo nombre, ≤6 s), se pega a la foto y el vídeo deja de mostrarse. */
+async function absorbLivePartner(photoId: string, userId: string, photoFilename: string): Promise<void> {
+  const stem = photoFilename.replace(/\.[^.]+$/, "").trim();
+  if (stem.length < 3) return;
+  const mov = await one<{ id: string; original_key: string; bytes: string }>(
+    `select id, original_key, bytes from assets
+       where user_id = $1 and kind = 'video' and deleted_at is null and is_live = false
+         and coalesce(duration_s, 99) <= 6
+         and lower(regexp_replace(filename, '\\.[^.]+$', '')) = lower($2)
+       order by uploaded_at desc limit 1`,
+    [userId, stem],
+  );
+  if (!mov) return;
+  await query(
+    "update assets set live_video_key = $1, live_video_bytes = $2, is_live = true where id = $3",
+    [mov.original_key, Number(mov.bytes), photoId],
+  );
+  await query("update assets set deleted_at = now() where id = $1", [mov.id]);
+}
+
 export async function regenerateDerivatives(
   id: string,
   kind: "photo" | "video",
   filePath: string,
+  filename?: string,
 ): Promise<void> {
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tmpThumb = join(env.TMP_DIR, `${stamp}.rt.webp`);
@@ -102,6 +124,19 @@ export async function regenerateDerivatives(
     ))!;
     await tgCachePut(base.tk, tmpThumb).catch(() => {});
     if (base.pk) await tgCachePut(base.pk, tmpPoster).catch(() => {});
+
+    // completar dimensiones/códec que ffprobe no pudo sacar del HEIC
+    try {
+      const info = await probe(filePath, filename ?? "x" + (kind === "video" ? ".mov" : ".jpg"));
+      if (info.width && info.height) {
+        await query(
+          "update assets set width = coalesce(width, $1), height = coalesce(height, $2), codec = coalesce(codec, $3) where id = $4",
+          [info.width, info.height, info.codec, id],
+        );
+      }
+    } catch {
+      /* nada */
+    }
   } finally {
     await Promise.allSettled([rm(tmpThumb, { force: true }), rm(tmpPoster, { force: true })]);
   }
@@ -159,6 +194,46 @@ export async function ingestLocalFile(opts: {
 
   step("probe");
   const info = await probe(filePath, filename, contentType);
+
+  // ---- Live Photo: el .MOV corto va PEGADO a la foto del mismo nombre ----
+  const stem = filename.replace(/\.[^.]+$/, "").trim();
+  if (info.kind === "video" && (info.durationS ?? 99) <= 6 && stem.length >= 3) {
+    const photo = await one<{ id: string }>(
+      `select id from assets
+         where user_id = $1 and kind = 'photo' and deleted_at is null and live_video_key is null
+           and lower(regexp_replace(filename, '\\.[^.]+$', '')) = lower($2)
+         order by uploaded_at desc limit 1`,
+      [userId, stem],
+    );
+    if (photo) {
+      step("live-pair");
+      const liveKey = `live/${userId}/${sha256}.mov`;
+      let stored = false;
+      try {
+        if (opts.forwardFromInboxMsgId) {
+          try {
+            const { putOriginalByForward } = await import("./storage.js");
+            await withTimeout(putOriginalByForward(liveKey, opts.forwardFromInboxMsgId, filePath), 15_000, "reenviar live");
+          } catch {
+            await put(liveKey, filePath, "video/quicktime");
+          }
+        } else {
+          await put(liveKey, filePath, "video/quicktime");
+        }
+        stored = true;
+      } catch (e) {
+        log.warn(e, "no se pudo guardar el .MOV del Live Photo; entra como vídeo suelto");
+      }
+      if (stored) {
+        await query(
+          "update assets set live_video_key = $1, live_video_bytes = $2, is_live = true where id = $3",
+          [liveKey, size, photo.id],
+        );
+        await rm(filePath, { force: true });
+        return { status: "saved", id: photo.id, kind: "photo", bytes: size };
+      }
+    }
+  }
 
   let ext = (extFor(filename, contentType).toLowerCase().match(/^\.[a-z0-9]{1,12}$/)?.[0]) ?? ".bin";
   if (info.kind === "video" && !VIDEO_EXTS.includes(ext)) ext = ".mov";
@@ -243,6 +318,7 @@ export async function ingestLocalFile(opts: {
       }
     });
 
+    if (info.kind === "photo") await absorbLivePartner(dId, userId, filename).catch(() => {});
     return { status: "saved", id: dId, kind: info.kind, bytes: size };
   }
 
@@ -316,5 +392,6 @@ export async function ingestLocalFile(opts: {
     }
   });
 
+  if (info.kind === "photo") await absorbLivePartner(id, userId, filename).catch(() => {});
   return { status: "saved", id, kind: info.kind, bytes: size };
 }
