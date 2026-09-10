@@ -10,6 +10,27 @@ import { env } from "./env.js";
 const VIDEO_EXTS = [".mov", ".mp4", ".m4v", ".webm", ".mkv", ".avi"];
 const IMAGE_EXTS = [".heic", ".heif", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".tiff", ".dng", ".avif"];
 
+// ---- cola de derivadas (miniatura/póster) ----
+// Al subir 100 archivos seguidos se lanzaban 100 ffmpeg + 100 sharp a la vez y
+// el VPS se ahogaba → miniaturas a medias o sin generar. Ahora se procesan de 2
+// en 2, pase lo que pase con el ritmo de subida.
+let derivRunning = 0;
+const derivQ: Array<() => Promise<void>> = [];
+function pumpDeriv(): void {
+  while (derivRunning < 2 && derivQ.length) {
+    const job = derivQ.shift()!;
+    derivRunning++;
+    void job().finally(() => {
+      derivRunning--;
+      pumpDeriv();
+    });
+  }
+}
+function enqueueDeriv(job: () => Promise<void>): void {
+  derivQ.push(job);
+  pumpDeriv();
+}
+
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   let t: NodeJS.Timeout;
   return Promise.race([
@@ -161,12 +182,10 @@ export async function ingestLocalFile(opts: {
 
   step("miniatura-reserva");
   await placeholderThumb(tmpThumb, info.kind).catch(() => {});
+  const { tgCachePut } = await import("./telegram.js");
 
   // ---------- Ingesta DIFERIDA: fila ya, original y miniatura real después ----------
   if (opts.deferStore && opts.forwardFromInboxMsgId) {
-    step("import-telegram");
-    const { tgCachePut } = await import("./telegram.js");
-
     // 1) miniatura de reserva a la caché de disco → /v1/blob ya sirve algo
     step("cache-thumb");
     await tgCachePut(thumbKey, tmpThumb).catch(() => {});
@@ -191,8 +210,8 @@ export async function ingestLocalFile(opts: {
     await saveDerivativeBytes(dId, tmpThumb, null).catch(() => {});
     log.info({ id: dId, kind: info.kind, size }, "asset creado (original y miniatura real pendientes)");
 
-    // 3) miniatura + póster REALES en 2º plano (no bloquean que el vídeo aparezca)
-    void (async () => {
+    // 3) miniatura + póster REALES — EN COLA (máx 2 a la vez), no bloquean nada
+    enqueueDeriv(async () => {
       try {
         if (info.kind === "video") {
           await extractFrame(filePath, tmpPoster);
@@ -200,10 +219,11 @@ export async function ingestLocalFile(opts: {
         } else {
           await sharpThumb(filePath, tmpThumb);
         }
+        // fuente de verdad: bytes en BD (+ write-back a disco al servir). NADA de
+        // subir la miniatura a Telegram: en una subida masiva eran 100 sendFile
+        // que disparaban FLOOD_WAIT y dejaban miniaturas a medias.
         await saveDerivativeBytes(dId, tmpThumb, info.kind === "video" ? tmpPoster : null);
-        // la miniatura también a Telegram (blob_refs) → durable y se sirve por la
-        // vía normal con caché de disco, sin consultar la BD en cada carga de galería
-        await put(thumbKey, tmpThumb, "image/webp").catch((e) => log.warn(e, "miniatura no subida a TG"));
+        await tgCachePut(thumbKey, tmpThumb).catch(() => {});
         if (posterKey) await tgCachePut(posterKey, tmpPoster).catch(() => {});
       } catch (e) {
         log.warn(e, "miniatura real falló; se queda la de reserva");
@@ -214,7 +234,7 @@ export async function ingestLocalFile(opts: {
           rm(tmpPoster, { force: true }),
         ]);
       }
-    })();
+    });
 
     return { status: "saved", id: dId, kind: info.kind, bytes: size };
   }
@@ -259,8 +279,8 @@ export async function ingestLocalFile(opts: {
   await saveDerivativeBytes(id, tmpThumb, null).catch(() => {}); // reserva en BD ya
   log.info({ id, kind: info.kind, size, userId }, "asset guardado (miniatura real en 2º plano)");
 
-  // miniatura + póster reales en 2º plano; luego se borra el archivo de disco
-  void (async () => {
+  // miniatura + póster reales EN COLA (máx 2 a la vez); luego se borra el temporal
+  enqueueDeriv(async () => {
     try {
       await withTimeout(
         (async () => {
@@ -273,7 +293,7 @@ export async function ingestLocalFile(opts: {
             await sharpThumb(filePath, tmpThumb);
             await saveDerivativeBytes(id, tmpThumb, null);
           }
-          await put(thumbKey, tmpThumb, "image/webp").catch(() => {}); // durable + caché de disco
+          await tgCachePut(thumbKey, tmpThumb).catch(() => {});
         })(),
         6 * 60_000,
         "miniatura en 2º plano",
@@ -287,7 +307,7 @@ export async function ingestLocalFile(opts: {
         rm(tmpPoster, { force: true }),
       ]);
     }
-  })();
+  });
 
   return { status: "saved", id, kind: info.kind, bytes: size };
 }

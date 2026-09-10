@@ -262,18 +262,18 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     const used = new Set<string>();
     let added = 0;
     let failed = 0;
-    // SECUENCIAL: se descarga un archivo, se mete en el zip, y solo entonces se
-    // baja el siguiente. Así no se abren 500 descargas de Telegram a la vez.
-    for (const r of rows) {
-      if (reply.raw.destroyed) break;
-      let local: string;
-      try {
-        local = await blobToLocalFile(r.original_key);
-      } catch (e) {
-        failed++;
-        req.log.warn({ id: r.id, err: (e as Error)?.message }, "zip: archivo omitido");
-        continue;
-      }
+
+    // Ventana de prefetch: se bajan CONC archivos de Telegram a la vez mientras
+    // el ZIP escribe el anterior. Nada de recompresión (store), copia byte a byte.
+    const CONC = 4;
+    const inflight = new Map<number, Promise<string | null>>();
+    const kickoff = (i: number) => {
+      if (i >= rows.length || inflight.has(i)) return;
+      inflight.set(i, blobToLocalFile(rows[i]!.original_key).catch(() => null));
+    };
+    for (let i = 0; i < CONC; i++) kickoff(i);
+
+    const nameFor = (r: { filename: string; kind: string; id: string }) => {
       let nm = r.filename || `${r.kind}_${r.id}`;
       if (!/\.[a-z0-9]{2,5}$/i.test(nm)) nm += r.kind === "video" ? ".mov" : ".jpg";
       if (used.has(nm)) {
@@ -285,13 +285,28 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
         nm = `${stem}_${k}${ext}`;
       }
       used.add(nm);
+      return nm;
+    };
+
+    for (let i = 0; i < rows.length; i++) {
+      if (reply.raw.destroyed) break;
+      const r = rows[i]!;
+      const local = await inflight.get(i)!;
+      inflight.delete(i);
+      kickoff(i + CONC); // mantener la ventana llena
+      if (!local) {
+        failed++;
+        req.log.warn({ id: r.id }, "zip: archivo omitido");
+        continue;
+      }
+      const nm = nameFor(r);
       await new Promise<void>((resolve) => {
         const done = () => {
           clearTimeout(t);
           archive.off("entry", done);
           resolve();
         };
-        const t = setTimeout(done, 120_000); // no colgar el zip por un archivo raro
+        const t = setTimeout(done, 120_000);
         archive.once("entry", done);
         archive.file(local, { name: nm, date: new Date(r.captured_at) });
       });
