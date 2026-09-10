@@ -74,6 +74,8 @@ export const ingestState: {
   lastTimings: { bytes: number; downloadMs: number; processMs: number; totalMs: number } | null;
   pausedUntil: string | null;
   pending: number;
+  /** trabajo de mantenimiento pendiente (miniaturas/metadatos/pósters) */
+  chores: number;
 } = {
   started: false,
   inbox: env.TELEGRAM_INBOX,
@@ -88,6 +90,7 @@ export const ingestState: {
   lastTimings: null,
   pausedUntil: null,
   pending: 0,
+  chores: 0,
 };
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
@@ -283,24 +286,50 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
       }
     }
 
-    // barrido: guarda en el almacén los originales de las filas ya creadas
-    await storePending(log);
-    // barrido: regenera miniatura/póster de assets viejos que quedaron con la
-    // de reserva (sharp no leía HEIC → todo el carrete iPhone salía en negro)
-    if (ingestState.pending <= 3) await backfillDerivatives(log);
-    // solo con todo tranquilo: adelgazar la BD moviendo pósters a Telegram
-    if (ingestState.pending === 0 && ingestState.lastSeen === 0) {
-      await offloadPosters(log).catch((e) => log.warn(e, "barrido de pósters"));
-    }
+    /* el mantenimiento va en el finally: aquí no, que un `return` temprano
+       (inbox vacío) lo dejaba sin ejecutar. Ver maintenance(). */
   } catch (e) {
     ingestState.lastTickError = (e as Error)?.message ?? String(e);
     log.error({ err: (e as Error)?.message }, "ingesta: fallo en la vuelta");
   } finally {
+    // SIEMPRE, haya llegado algo nuevo o no. Estaba tras el bucle de items y el
+    // `return` de "inbox vacío" lo saltaba: como el inbox está vacío casi todo
+    // el tiempo, el backfill no llegaba a ejecutarse NUNCA y nada se reparaba
+    // solo (miniaturas de reserva eternas, pósters sin sacar de la BD…).
+    await maintenance(log).catch((e) => log.warn(e, "mantenimiento"));
     running = false;
     ingestState.running = false;
     ingestState.lastStep = "en reposo";
     void armInboxListener().catch(() => {}); // re-arma el disparo instantáneo si hubo reconexión
   }
+}
+
+/**
+ * Tareas de fondo que deben correr en CADA vuelta, llegue o no material nuevo:
+ * guardar originales pendientes, regenerar miniaturas/metadatos que fallaron y
+ * ir sacando los pósters de Postgres a Telegram.
+ */
+async function maintenance(log: FastifyBaseLoggerLike): Promise<void> {
+  await storePending(log).catch((e) => log.warn(e, "barrido de guardado"));
+  if (ingestState.pending <= 3) {
+    await backfillDerivatives(log).catch((e) => log.warn(e, "barrido de miniaturas"));
+  }
+  if (ingestState.pending === 0) {
+    await offloadPosters(log).catch((e) => log.warn(e, "barrido de pósters"));
+  }
+  // ¿queda faena? el bucle no debe irse al ritmo lento con trabajo por hacer
+  const q = await one<{ n: string }>(
+    `select count(*) n from assets a
+       where deleted_at is null and stored = true
+         and (
+           (poster_jpg is null and not exists (select 1 from blob_refs br where br.key = a.poster_key))
+           or (kind = 'video' and (width is null or duration_s is null)
+               and octet_length(coalesce(poster_jpg, ''::bytea)) > 4)
+           or (poster_key is not null and octet_length(coalesce(poster_jpg, ''::bytea)) > 4
+               and not exists (select 1 from blob_refs br where br.key = a.poster_key))
+         )`,
+  ).catch(() => null);
+  ingestState.chores = q ? Number(q.n) : 0;
 }
 
 interface FastifyBaseLoggerLike {
@@ -612,7 +641,7 @@ export function startInboxIngest(log: FastifyBaseLoggerLike): void {
   const loop = async () => {
     await tick(log).catch(() => {});
     // reduce la frecuencia cuando no llega nada nuevo ni hay pendientes de guardar
-    const quiet = ingestState.lastSeen === 0 && ingestState.pending === 0;
+    const quiet = ingestState.lastSeen === 0 && ingestState.pending === 0 && ingestState.chores === 0;
     idle = quiet ? Math.min(idle + 1, 4) : 0;
     const next = idle >= 3 ? slow : fast;
     setTimeout(() => void loop(), next * 1000);
