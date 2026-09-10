@@ -8,7 +8,7 @@ import {
   tgInboxNewMedia,
   tgInboxStartId,
   tgDownloadInbox,
-  tgDownloadInboxHead,
+  tgDownloadInboxHeadTail,
   tgDeleteInbox,
   resetTelegram,
   armInboxListener,
@@ -21,8 +21,11 @@ import {
  *  original entero se guarda por reenvío server-side. Debajo, descarga completa
  *  (es rápida y así el hash real y las dimensiones entran a la primera). */
 const HEAD_INGEST_OVER_BYTES = 16 * 1024 * 1024;
-/** Cuánta cabecera basta para el póster + (casi siempre) los metadatos. */
-const HEAD_BYTES = 12 * 1024 * 1024;
+/** Cabecera: contiene los primeros fotogramas (de ahí sale el póster). */
+const HEAD_BYTES = 8 * 1024 * 1024;
+/** Cola: en los MP4/MOV del iPhone el índice `moov` (duración, resolución, fps,
+ *  códec) va AL FINAL. Sin esto ffprobe no lee nada y el vídeo entra sin datos. */
+const TAIL_BYTES = 6 * 1024 * 1024;
 
 /**
  * Vigila el inbox de Telegram (Mensajes guardados por defecto). Cada archivo
@@ -207,9 +210,13 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
         const headOnly = isVideo && it.bytes > HEAD_INGEST_OVER_BYTES;
         let dl: number;
         if (headOnly) {
-          ingestState.lastStep = `leyendo cabecera de msg ${it.id} (${Math.round(it.bytes / 1e6)} MB)`;
-          log.info({ id: it.id, filename: it.filename, bytes: it.bytes, userId }, "ingesta: cabecera (archivo grande)");
-          dl = await withTimeout(tgDownloadInboxHead(it.id, tmp, HEAD_BYTES), 90_000, "leer cabecera de Telegram");
+          ingestState.lastStep = `leyendo cabecera+cola de msg ${it.id} (${Math.round(it.bytes / 1e6)} MB)`;
+          log.info({ id: it.id, filename: it.filename, bytes: it.bytes, userId }, "ingesta: cabecera+cola (archivo grande)");
+          dl = await withTimeout(
+            tgDownloadInboxHeadTail(it.id, tmp, HEAD_BYTES, TAIL_BYTES),
+            90_000,
+            "leer cabecera+cola de Telegram",
+          );
         } else {
           ingestState.lastStep = `descargando msg ${it.id} (${Math.round(it.bytes / 1e6)} MB)`;
           log.info({ id: it.id, filename: it.filename, bytes: it.bytes, userId }, "ingesta: descargando de Telegram");

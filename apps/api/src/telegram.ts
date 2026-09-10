@@ -368,9 +368,64 @@ export async function tgDownloadInbox(id: number, outPath: string, deadlineMs = 
 }
 
 /**
- * Descarga SOLO los primeros `maxBytes` del archivo del inbox (para sondear
- * metadatos y sacar el póster sin bajarse el vídeo entero — que a ~1 MB/s son
- * minutos). El original íntegro se guarda aparte por reenvío server-side.
+ * Descarga la CABECERA y la COLA del archivo del inbox en un fichero disperso
+ * del tamaño real (el hueco del medio queda a ceros).
+ *
+ * Por qué las dos puntas: en los MP4/MOV del iPhone el átomo `moov` —el índice
+ * con duración, resolución, fps y códec— va al FINAL del archivo. Bajando solo
+ * el principio, ffprobe no lee absolutamente nada (y ffmpeg no puede sacar el
+ * póster). Con principio + final, ffprobe lee el índice de la cola y ffmpeg
+ * saca el primer fotograma de la cabecera, sin bajarse los 600 MB del medio.
+ *
+ * Devuelve los bytes realmente descargados.
+ */
+export async function tgDownloadInboxHeadTail(
+  id: number,
+  outPath: string,
+  headBytes: number,
+  tailBytes: number,
+): Promise<number> {
+  const c = await getClient();
+  const [msg] = await raceTimeout(c.getMessages(env.TELEGRAM_INBOX, { ids: [id] }), 30_000, `getMessages ${id}`);
+  const doc = msg?.document as Api.Document | undefined;
+  if (!doc || !msg?.media) throw new Error(`mensaje ${id} sin documento`);
+  const total = Number(doc.size) || 0;
+
+  // si es pequeño, el archivo entero y listo
+  if (!total || total <= headBytes + tailBytes) {
+    return tgDownloadInboxHead(id, outPath, total || headBytes + tailBytes);
+  }
+
+  const loc = new Api.InputDocumentFileLocation({
+    id: doc.id,
+    accessHash: doc.accessHash,
+    fileReference: doc.fileReference,
+    thumbSize: "",
+  });
+  const dcId = doc.dcId;
+
+  // la cola se alinea a 4 KB (MTProto exige offset alineado)
+  const tailStart = Math.floor((total - tailBytes) / 4096) * 4096;
+
+  const { open } = await import("node:fs/promises");
+  const fh = await open(outPath, "w");
+  try {
+    await fh.truncate(total); // fichero disperso del tamaño REAL
+    const clients = await downloadClients(2);
+    const [head, tail] = await Promise.all([
+      fetchSubRange(loc, dcId, 0, headBytes, clients[0]),
+      fetchSubRange(loc, dcId, tailStart, total, clients[1]),
+    ]);
+    await fh.write(head, 0, head.length, 0);
+    await fh.write(tail, 0, tail.length, tailStart);
+    return head.length + tail.length;
+  } finally {
+    await fh.close();
+  }
+}
+
+/**
+ * Descarga SOLO los primeros `maxBytes` del archivo del inbox.
  * Devuelve los bytes escritos (≤ maxBytes, o el tamaño real si es más pequeño).
  */
 export async function tgDownloadInboxHead(id: number, outPath: string, maxBytes: number): Promise<number> {
@@ -1027,8 +1082,24 @@ export async function tgRead(
             : "select poster_jpg as b from assets where poster_key = $1 and deleted_at is null limit 1",
           [key],
         ).catch(() => null);
-    if (row?.b && row.b.length) {
-      const buf = row.b;
+    // Si el póster no existe (falló al generarse), se sirve la MINIATURA en su
+    // lugar. Antes esto daba 404 y el visor se quedaba en negro: más vale una
+    // imagen pequeña que nada, y el barrido la sustituye cuando la regenere.
+    const bytes = row?.b ?? null;
+    // ...pero solo si el póster tampoco está en Telegram (si está, hay que ir a
+    // buscarlo ahí, no servir la miniatura en su lugar).
+    if (isPoster && !inTg && !bytes?.length) {
+      const alt = await one<{ b: Buffer | null }>(
+        `select thumb_webp as b from assets
+           where poster_key = $1 and deleted_at is null and thumb_webp is not null limit 1`,
+        [key],
+      ).catch(() => null);
+      if (alt?.b?.length) {
+        return { stream: Readable.from([alt.b]), size: alt.b.length, totalSize: alt.b.length };
+      }
+    }
+    if (bytes && bytes.length) {
+      const buf = bytes;
       const total = buf.length;
       // write-back a disco: la PRÓXIMA petición de esta miniatura sale del disco,
       // no vuelve a la BD. Convierte el coste de BD en una sola vez por miniatura.

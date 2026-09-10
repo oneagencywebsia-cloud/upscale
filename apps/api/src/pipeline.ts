@@ -49,6 +49,16 @@ export interface IngestResult {
 }
 
 /** SHA-256 de un archivo del disco. Bucle simple: no puede bloquearse por backpressure. */
+/** Hash determinista de los primeros `n` bytes + el tamaño total. Para archivos
+ *  ingeridos por cabecera+cola, donde leer el fichero entero no procede. */
+async function hashHead(p: string, n: number, totalSize: number): Promise<string> {
+  const h = createHash("sha256");
+  for await (const chunk of createReadStream(p, { start: 0, end: n - 1, highWaterMark: 1024 * 1024 })) {
+    h.update(chunk as Buffer);
+  }
+  return h.update(`|${totalSize}`).digest("hex");
+}
+
 async function hashFile(p: string): Promise<string> {
   const h = createHash("sha256");
   for await (const chunk of createReadStream(p, { highWaterMark: 1024 * 1024 })) {
@@ -205,12 +215,12 @@ export async function ingestLocalFile(opts: {
   const size = opts.headOnly ? opts.knownBytes || onDiskSize : onDiskSize;
 
   step("hash");
-  // headOnly: hash de (cabecera + tamaño real). Es determinista, así que reenviar
-  // el mismo archivo da el mismo sha y el dedup lo pilla igual; y dos archivos
-  // distintos casi nunca comparten los primeros MB Y el tamaño exacto.
-  const sha256 = opts.headOnly
-    ? createHash("sha256").update(await readFile(filePath)).update(`|${size}`).digest("hex")
-    : await hashFile(filePath);
+  // headOnly: hash de (primeros 4 MB + tamaño real). Es determinista, así que
+  // reenviar el mismo archivo da el mismo sha y el dedup lo pilla igual; y dos
+  // archivos distintos casi nunca comparten los primeros MB Y el tamaño exacto.
+  // OJO: con headOnly el fichero es DISPERSO y ocupa el tamaño real (cientos de
+  // MB), así que se leen solo los primeros MB — nunca el archivo entero.
+  const sha256 = opts.headOnly ? await hashHead(filePath, 4 * 1024 * 1024, size) : await hashFile(filePath);
 
   step("dedup");
   const dup = await one<{ id: string; kind: "photo" | "video" }>(
