@@ -77,8 +77,17 @@ export async function blobRoutes(app: FastifyInstance): Promise<void> {
       reply.header("Cache-Control", cacheHdr);
       if (disposition) reply.header("Content-Disposition", disposition);
       return reply.send(file.stream);
-    } catch {
-      return reply.code(404).send({ error: "no existe" });
+    } catch (e) {
+      const msg = (e as Error)?.message ?? String(e);
+      // "no registrado" = de verdad no existe → 404 definitivo.
+      // Cualquier otra cosa (Telegram lento, fileReference caducado, corte de
+      // red) es TRANSITORIA: con 404 el <video> se rendía para siempre; con 503
+      // + Retry-After el navegador vuelve a pedirlo y la reproducción continúa.
+      const permanente = /no registrado|no encontrado/i.test(msg);
+      req.log.warn({ key, err: msg, permanente }, "blob: no se pudo servir");
+      if (permanente) return reply.code(404).send({ error: "no existe" });
+      reply.header("Retry-After", "1");
+      return reply.code(503).send({ error: "no disponible ahora mismo, reintenta" });
     }
   });
 }

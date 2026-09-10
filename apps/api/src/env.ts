@@ -25,6 +25,10 @@ const base = z.object({
   TELEGRAM_CHANNEL_ID: z.string().optional(),
   TG_CACHE_DIR: z.string().default("./tg-cache"),
   TG_CACHE_MAX_MB: z.coerce.number().default(2048),
+  /** Conexiones simultáneas de descarga a Telegram. Telegram limita CADA conexión
+   *  a ~1 MB/s; los clientes oficiales abren varias. 4 = ~4 MB/s (suficiente para
+   *  4K). Subir a 6-8 si la red del VPS da para más; bajar si sale FLOOD_WAIT. */
+  TG_DOWNLOAD_STREAMS: z.coerce.number().min(1).max(8).default(4),
 
   // Ingesta desde Telegram: manda un vídeo "como archivo" a este chat y entra
   // en la biblioteca sin recomprimir. Por defecto "me" = Mensajes guardados.
@@ -67,4 +71,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.13.2-fastvideo";
+export const VERSION = "0.14.0-escala";

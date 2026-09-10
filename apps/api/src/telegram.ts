@@ -28,6 +28,7 @@ export function resetTelegram(): void {
   channelEntity = null;
   armedOn = null; // el listener del inbox se re-arma al reconectar
   dying?.then((c) => c.disconnect().catch(() => {})).catch(() => {});
+  resetPool();
 }
 
 /**
@@ -111,6 +112,72 @@ async function getClient(): Promise<TelegramClient> {
     clientPromise = null;
     throw e;
   }
+}
+
+// ---------------------- pool de conexiones de descarga ----------------------
+// Telegram limita CADA conexión a ~1 MB/s. Hasta ahora los "4 hilos en paralelo"
+// llamaban todos a getClient() → el MISMO cliente → GramJS los multiplexaba por
+// UNA sola conexión: cero aceleración. Los clientes oficiales abren varias
+// conexiones a la vez; esto hace lo mismo: N clientes independientes sobre la
+// MISMA sesión, usados SOLO para bajar bytes (nunca para enviar ni escuchar
+// eventos). Resultado: ~N MB/s, que es lo que hace que un 4K se reproduzca sin
+// tirones en vez de pararse cada 3 segundos.
+let poolPromise: Promise<TelegramClient[]> | null = null;
+
+async function getPool(): Promise<TelegramClient[]> {
+  if (!poolPromise) {
+    poolPromise = (async () => {
+      const n = Math.max(1, Math.min(8, env.TG_DOWNLOAD_STREAMS));
+      const made: TelegramClient[] = [];
+      for (let i = 0; i < n; i++) {
+        try {
+          const c = new TelegramClient(
+            new StringSession(env.TELEGRAM_SESSION!),
+            env.TELEGRAM_API_ID!,
+            env.TELEGRAM_API_HASH!,
+            { connectionRetries: 2, requestRetries: 2, timeout: 20, floodSleepThreshold: 20, autoReconnect: true },
+          );
+          c.setLogLevel("error" as never);
+          await raceTimeout(c.connect(), 25_000, `connect pool#${i}`);
+          made.push(c);
+        } catch (e) {
+          console.error(`[tg] pool#${i} no conectó:`, (e as Error).message);
+          break; // con los que haya vamos servidos; el resto cae al cliente principal
+        }
+      }
+      if (!made.length) throw new Error("ninguna conexión de descarga disponible");
+      return made;
+    })();
+    poolPromise.catch(() => {
+      poolPromise = null;
+    });
+  }
+  try {
+    return await poolPromise;
+  } catch {
+    poolPromise = null;
+    return [await getClient()]; // plan B: el cliente principal
+  }
+}
+
+/** N clientes para repartir N trozos. Si el pool falla, todos son el principal. */
+async function downloadClients(want: number): Promise<TelegramClient[]> {
+  let pool: TelegramClient[];
+  try {
+    pool = await getPool();
+  } catch {
+    pool = [await getClient()];
+  }
+  const live = pool.filter((c) => c.connected !== false);
+  const use = live.length ? live : [await getClient()];
+  return Array.from({ length: want }, (_, i) => use[i % use.length]!);
+}
+
+/** Tira el pool (reconecta de cero en la próxima descarga). */
+function resetPool(): void {
+  const dying = poolPromise;
+  poolPromise = null;
+  dying?.then((cs) => cs.forEach((c) => c.disconnect().catch(() => {}))).catch(() => {});
 }
 
 async function getChannel(): Promise<Api.TypeInputPeer> {
@@ -595,13 +662,16 @@ async function tgDownloadParallel(
     await fh.truncate(total);
     const REQ = 512 * 1024;
     const per = Math.max(REQ, Math.ceil(total / streams / REQ) * REQ);
+    const nParts = Math.ceil(total / per);
+    // una conexión por trozo (pool) → el ancho de banda SUMA de verdad
+    const clients = await downloadClients(nParts);
     const jobs: Promise<void>[] = [];
-    for (let start = 0; start < total; start += per) {
-      const from = start;
-      const to = Math.min(total, start + per);
+    for (let i = 0; i < nParts; i++) {
+      const from = i * per;
+      const to = Math.min(total, from + per);
+      const c = clients[i]!;
       jobs.push(
         (async () => {
-          const c = await getClient();
           let pos = from;
           for await (const chunk of c.iterDownload({
             file: loc,
@@ -666,22 +736,28 @@ export async function tgEnsureLocal(key: string, streams = 3): Promise<string> {
 }
 
 const warming = new Set<string>();
+let warmChain: Promise<unknown> = Promise.resolve();
 
 /**
  * Precarga la key entera al disco en 2º plano (sin bloquear). Tras la primera
  * reproducción, todos los rangos (seeks, final del vídeo, revisionados) se sirven
  * del disco al instante → cero tirones.
+ *
+ * Las precargas se hacen DE UNA EN UNA: si se lanzan varias a la vez se reparten
+ * el mismo ancho de banda y ninguna termina, que es justo lo que hacía que un
+ * vídeo arrancara, se atascara, volviera a arrancar y así en bucle.
  */
 export function warmCache(key: string, totalBytes: number): void {
   if (warming.has(key)) return;
   if (existsSync(cachePath(key))) return;
-  // no merece la pena para archivos pequeños ni para uno mayor que toda la caché
-  if (totalBytes < 3 * 1024 * 1024) return;
-  if (totalBytes > env.TG_CACHE_MAX_MB * 1024 * 1024) return;
+  if (totalBytes < 3 * 1024 * 1024) return; // no merece la pena
+  // Antes: si el archivo era mayor que TODA la caché se abandonaba la precarga y
+  // el vídeo se quedaba servido en directo a ~1 MB/s para siempre (= tirones
+  // eternos). Ahora solo se descarta si por sí solo vaciaría media caché.
+  if (totalBytes > env.TG_CACHE_MAX_MB * 1024 * 1024 * 0.5) return;
   warming.add(key);
-  // en paralelo (4 hilos) → el archivo entero está en disco en pocos segundos y
-  // el resto de la reproducción sale de disco, sin un solo tirón.
-  void ensureCached(key, 4)
+  warmChain = warmChain
+    .then(() => (existsSync(cachePath(key)) ? undefined : ensureCached(key, env.TG_DOWNLOAD_STREAMS)))
     .catch((e) => console.error("[tg] warmCache falló:", (e as Error).message))
     .finally(() => warming.delete(key));
 }
@@ -760,13 +836,15 @@ async function fetchSubRange(
   dcId: number | undefined,
   from: number,
   to: number,
+  client?: TelegramClient,
 ): Promise<Buffer> {
   const alignedStart = Math.floor(from / CHUNK) * CHUNK;
   const skip = from - alignedStart;
   const want = to - from;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      const c = await getClient();
+      // cada trozo por SU conexión → suman ancho de banda de verdad
+      const c = attempt === 1 && client ? client : await getClient();
       const out = Buffer.allocUnsafe(want);
       let dropped = 0;
       let filled = 0;
@@ -808,20 +886,38 @@ async function tgReadRangeLive(
   const { loc, total, dcId } = await docLocation(key);
   const wantLen = end - start + 1;
 
-  // El rango pedido (≤16 MB) se baja en 4 sub-trozos EN PARALELO y se junta.
-  // Así el buffer del <video> se llena ~4x más rápido y no se pilla.
+  // El rango se baja en trozos PEQUEÑOS (1 MB) con una VENTANA DESLIZANTE de N
+  // conexiones y se van entregando EN ORDEN según llegan.
+  //
+  // Antes: se lanzaban N trozos gigantes y se hacía Promise.all → el navegador no
+  // recibía NI UN BYTE hasta tener los 16 MB completos (a ~1 MB/s, 16 s en
+  // silencio). El <video> se cansaba, cortaba, reintentaba... y así en bucle.
+  // Ahora el primer byte sale en ~1 s y el caudal es continuo.
   async function* gen(): AsyncGenerator<Buffer> {
-    const STREAMS = 4;
-    const part = Math.max(CHUNK, Math.ceil(wantLen / STREAMS / CHUNK) * CHUNK);
-    const jobs: Promise<Buffer>[] = [];
-    for (let s = 0; s * part < wantLen; s++) {
-      const from = start + s * part;
-      const to = Math.min(end + 1, from + part);
-      jobs.push(fetchSubRange(loc, dcId, from, to));
-    }
+    const STREAMS = Math.max(1, Math.min(8, env.TG_DOWNLOAD_STREAMS));
+    const PART = 1024 * 1024; // trozo pequeño = primer byte pronto
+    const nParts = Math.ceil(wantLen / PART);
+    const clients = await downloadClients(Math.min(nParts, STREAMS));
+
+    const inflight = new Map<number, Promise<Buffer>>();
+    const launch = (i: number): void => {
+      if (i >= nParts || inflight.has(i)) return;
+      const from = start + i * PART;
+      const to = Math.min(end + 1, from + PART);
+      const p = fetchSubRange(loc, dcId, from, to, clients[i % clients.length]);
+      p.catch(() => {}); // evita "unhandled rejection" si otro trozo falla antes
+      inflight.set(i, p);
+    };
+    for (let i = 0; i < Math.min(nParts, STREAMS); i++) launch(i);
+
     try {
-      const parts = await Promise.all(jobs);
-      for (const p of parts) yield p; // en orden
+      for (let i = 0; i < nParts; i++) {
+        const cur = inflight.get(i)!;
+        const buf = await cur;
+        inflight.delete(i);
+        launch(i + STREAMS); // al liberarse una conexión, entra el siguiente trozo
+        yield buf;
+      }
     } catch (e) {
       docCache.delete(key); // fileReference fresco al siguiente intento
       throw e;
@@ -829,6 +925,63 @@ async function tgReadRangeLive(
   }
 
   return { stream: Readable.from(gen()), totalSize: total };
+}
+
+/**
+ * Diagnóstico del almacén: conexiones vivas, estado de la caché y una prueba de
+ * velocidad real (baja 8 MB de un original y mide MB/s). Sirve para saber si el
+ * pool está funcionando y si la caché es persistente o se borra en cada deploy.
+ */
+export async function tgDiag(sampleKey?: string): Promise<Record<string, unknown>> {
+  const out: Record<string, unknown> = {};
+  try {
+    const pool = await getPool();
+    out.conexionesDescarga = { pedidas: env.TG_DOWNLOAD_STREAMS, activas: pool.filter((c) => c.connected !== false).length };
+  } catch (e) {
+    out.conexionesDescarga = { error: (e as Error).message };
+  }
+
+  try {
+    const files = await readdir(env.TG_CACHE_DIR).catch(() => [] as string[]);
+    let bytes = 0;
+    let n = 0;
+    for (const f of files) {
+      const s = await stat(join(env.TG_CACHE_DIR, f)).catch(() => null);
+      if (s?.isFile()) {
+        bytes += s.size;
+        n++;
+      }
+    }
+    out.cache = {
+      dir: env.TG_CACHE_DIR,
+      archivos: n,
+      mb: Math.round(bytes / 1e6),
+      presupuestoMb: env.TG_CACHE_MAX_MB,
+      calentando: [...warming].length,
+    };
+  } catch (e) {
+    out.cache = { error: (e as Error).message };
+  }
+
+  if (sampleKey) {
+    try {
+      const { loc, total, dcId } = await docLocation(sampleKey);
+      const want = Math.min(8 * 1024 * 1024, total);
+      const nParts = Math.max(1, Math.ceil(want / (1024 * 1024)));
+      const clients = await downloadClients(Math.min(nParts, env.TG_DOWNLOAD_STREAMS));
+      const t0 = Date.now();
+      await Promise.all(
+        Array.from({ length: nParts }, (_, i) =>
+          fetchSubRange(loc, dcId, i * 1024 * 1024, Math.min(want, (i + 1) * 1024 * 1024), clients[i % clients.length]),
+        ),
+      );
+      const secs = (Date.now() - t0) / 1000;
+      out.velocidad = { key: sampleKey, mb: +(want / 1e6).toFixed(1), segundos: +secs.toFixed(2), mbps: +(want / 1e6 / secs).toFixed(2) };
+    } catch (e) {
+      out.velocidad = { error: (e as Error).message };
+    }
+  }
+  return out;
 }
 
 /** Stream de lectura del objeto. Con `range` intenta servir en directo desde Telegram. */

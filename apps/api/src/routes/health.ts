@@ -32,6 +32,38 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
     ffprobe: await firstLine("ffprobe", ["-version"]),
   }));
 
+  // ¿va rápido Telegram? conexiones vivas, caché y prueba de velocidad real.
+  // ?key=orig/... para medir con un original concreto; si no, coge el último vídeo.
+  app.get("/v1/diag/storage", async (req) => {
+    const { tgDiag } = await import("../telegram.js");
+    const q = req.query as { key?: string };
+    let key = q.key;
+    if (!key) {
+      const r = await one<{ k: string }>(
+        `select original_key k from assets
+           where kind = 'video' and stored = true and deleted_at is null
+           order by uploaded_at desc limit 1`,
+      ).catch(() => null);
+      key = r?.k;
+    }
+    // peso de la BD: lo que decide si la biblioteca escala a millones de archivos
+    const db = await one<{ total: string; posters: string; thumbs: string; n: string; pend: string }>(
+      `select pg_size_pretty(pg_total_relation_size('assets')) as total,
+              pg_size_pretty(coalesce(sum(octet_length(poster_jpg)),0)) as posters,
+              pg_size_pretty(coalesce(sum(octet_length(thumb_webp)),0)) as thumbs,
+              count(*) as n,
+              count(*) filter (where octet_length(coalesce(poster_jpg,''::bytea)) > 4) as pend
+         from assets where deleted_at is null`,
+    ).catch(() => null);
+    return {
+      version: VERSION,
+      bd: db
+        ? { tablaAssets: db.total, postersEnBd: db.posters, miniaturasEnBd: db.thumbs, archivos: Number(db.n), postersPorDescargar: Number(db.pend) }
+        : null,
+      ...(await tgDiag(key)),
+    };
+  });
+
   // diagnóstico de la ingesta desde Telegram (sin datos sensibles)
   app.get("/v1/ingest/status", async () => {
     const lastId = await one<{ v: string }>("select v from kv where k = 'ingest:last_id'").catch(() => null);

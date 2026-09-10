@@ -1,4 +1,4 @@
-import { listAssets } from "@/lib/api";
+import { listAssets, getStorage } from "@/lib/api";
 import { groupByDay, bytesHuman } from "@/lib/format";
 import Gallery from "@/components/Gallery";
 import PrismMount from "@/components/PrismMount";
@@ -16,16 +16,31 @@ export default async function GalleryPage({
   const onlyFav = fav === "1";
 
   let items: Awaited<ReturnType<typeof listAssets>>["items"] = [];
+  let cursor: string | null = null;
   let error: string | null = null;
   try {
-    const data = await listAssets({ limit: 400, kind: filter, fav: onlyFav });
+    // SOLO la primera página: la biblioteca puede tener cientos de miles de
+    // archivos. El resto entra por scroll infinito (cursor keyset).
+    const data = await listAssets({ limit: 120, kind: filter, fav: onlyFav });
     items = data.items;
+    cursor = data.nextCursor ?? null;
   } catch {
     error = "No se pudo conectar con el servidor de Upscale.";
   }
 
+  // Totales REALES de toda la biblioteca (un sum/count en la BD), no solo de lo
+  // que se ha cargado en pantalla.
+  let totalCount = items.length;
+  let totalBytes = items.reduce((s, a) => s + a.bytes, 0);
+  try {
+    const s = await getStorage();
+    totalCount = s.count;
+    totalBytes = s.usedBytes;
+  } catch {
+    /* si falla, se enseña lo cargado */
+  }
+
   const groups = groupByDay(items);
-  const totalBytes = items.reduce((s, a) => s + a.bytes, 0);
 
   return (
     <div className="app">
@@ -33,7 +48,7 @@ export default async function GalleryPage({
         <div>
           <h2>{onlyFav ? "Favoritos" : "Tu biblioteca"}</h2>
           <p>
-            {items.length.toLocaleString("es-ES")} elementos · {bytesHuman(totalBytes)} · todo íntegro
+            {totalCount.toLocaleString("es-ES")} elementos · {bytesHuman(totalBytes)} · todo íntegro
           </p>
         </div>
         <PrismMount />
@@ -46,7 +61,14 @@ export default async function GalleryPage({
           </div>
         }
       >
-        <Gallery groups={groups} error={error} />
+        <Gallery
+          groups={groups}
+          error={error}
+          initialCursor={cursor}
+          kind={filter}
+          fav={onlyFav}
+          total={totalCount}
+        />
       </ErrorBoundary>
     </div>
   );

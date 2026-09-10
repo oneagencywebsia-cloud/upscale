@@ -2211,3 +2211,17 @@ footer.status .dot {
   }
 }
 
+
+/* centinela del scroll infinito de la galería */
+.gt-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 28px 0 40px;
+  color: var(--muted, #8b90a0);
+}
+.gt-more small {
+  font-size: 13px;
+  letter-spacing: 0.01em;
+}

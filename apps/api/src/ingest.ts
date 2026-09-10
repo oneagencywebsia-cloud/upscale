@@ -1,4 +1,4 @@
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { env } from "./env.js";
@@ -281,6 +281,10 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
     // barrido: regenera miniatura/póster de assets viejos que quedaron con la
     // de reserva (sharp no leía HEIC → todo el carrete iPhone salía en negro)
     if (ingestState.pending <= 3) await backfillDerivatives(log);
+    // solo con todo tranquilo: adelgazar la BD moviendo pósters a Telegram
+    if (ingestState.pending === 0 && ingestState.lastSeen === 0) {
+      await offloadPosters(log).catch((e) => log.warn(e, "barrido de pósters"));
+    }
   } catch (e) {
     ingestState.lastTickError = (e as Error)?.message ?? String(e);
     log.error({ err: (e as Error)?.message }, "ingesta: fallo en la vuelta");
@@ -432,10 +436,12 @@ async function backfillDerivatives(log: FastifyBaseLoggerLike): Promise<void> {
   // ffprobe no pudo sacarle dimensiones/duración → se completa con el original.
   const rows = (
     await query<BF>(
-      `select id, kind, original_key, filename from assets
+      `select id, kind, original_key, filename from assets a
          where deleted_at is null and stored = true
            and (
-             poster_jpg is null
+             (poster_jpg is null
+              -- ya descargado a Telegram por el barrido de descarga: no es que falte
+              and not exists (select 1 from blob_refs br where br.key = a.poster_key))
              or (kind = 'video' and (width is null or duration_s is null)
                  and octet_length(coalesce(poster_jpg, ''::bytea)) > 4)
            )
@@ -488,6 +494,64 @@ async function backfillDerivatives(log: FastifyBaseLoggerLike): Promise<void> {
     }
   }
 }
+/**
+ * ESCALA: los pósters (~200 KB cada uno) viven en Postgres para que la galería
+ * nunca se quede en blanco. A 100.000 archivos eso son ~20 GB de base de datos,
+ * que ninguna Postgres gestionada aguanta barato. Este barrido los va sacando a
+ * Telegram (donde el espacio es ilimitado y gratis) y los borra de la BD.
+ *
+ * Va MUY despacio a propósito (2 por vuelta, solo cuando no hay nada más que
+ * hacer): subir miniaturas en bloque a Telegram dispara FLOOD_WAIT.
+ * La miniatura pequeña (~25 KB) se queda en la BD como red de seguridad.
+ */
+async function offloadPosters(log: FastifyBaseLoggerLike): Promise<void> {
+  type OF = { id: string; poster_key: string | null };
+  const rows = (
+    await query<OF>(
+      `select id, poster_key from assets a
+         where deleted_at is null and stored = true
+           and poster_key is not null
+           and octet_length(coalesce(poster_jpg, ''::bytea)) > 4
+           and not exists (select 1 from blob_refs br where br.key = a.poster_key)
+         order by uploaded_at asc limit 2`,
+    ).catch(() => ({ rows: [] as OF[] }))
+  ).rows;
+  if (!rows.length) return;
+
+  for (const a of rows) {
+    const fk = `ingest:off:${a.id}`;
+    const n = (await kvNum(fk)) + 1;
+    if (n > 3) continue; // se rinde: se queda en la BD, no pasa nada grave
+    await kvSet(fk, n);
+    const tmp = join(env.TMP_DIR, `off-${a.id}-${randomBytes(4).toString("hex")}.jpg`);
+    try {
+      const r = await one<{ b: Buffer }>("select poster_jpg as b from assets where id = $1", [a.id]);
+      if (!r?.b?.length) {
+        await query("delete from kv where k = $1", [fk]).catch(() => {});
+        continue;
+      }
+      await mkdir(env.TMP_DIR, { recursive: true });
+      await writeFile(tmp, r.b);
+      await withTimeout(tgPut(a.poster_key!, tmp), 60_000, "subir póster");
+      // ya está en Telegram (blob_refs) → liberar la BD
+      await query("update assets set poster_jpg = null where id = $1", [a.id]);
+      await query("delete from kv where k = $1", [fk]).catch(() => {});
+      log.info({ id: a.id, bytes: r.b.length }, "póster movido a Telegram (BD liberada)");
+    } catch (e) {
+      const emsg = (e as Error)?.message ?? String(e);
+      log.warn({ id: a.id, intento: n, err: emsg }, "no se pudo mover el póster");
+      if (/flood/i.test(emsg)) {
+        const fw = /flood(?:_wait)?[ _]?(\d+)/i.exec(emsg);
+        pausedUntil = Date.now() + (fw ? Math.min(3600, Number(fw[1]) + 5) : 900) * 1000;
+        ingestState.pausedUntil = new Date(pausedUntil).toISOString();
+      }
+      break; // uno malo por vuelta es suficiente
+    } finally {
+      await rm(tmp, { force: true }).catch(() => {});
+    }
+  }
+}
+
 /**
  * Se abandona el backfill de un asset tras 3 intentos. Para que no vuelva a
  * salir en el barrido:

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import type { AssetListItem } from "@upscale/shared";
-import { durationHuman } from "@/lib/format";
+import { durationHuman, groupByDay } from "@/lib/format";
 import Viewer from "./Viewer";
 import DensityControl from "./DensityControl";
 
@@ -16,11 +16,31 @@ interface DayGroup {
 
 // px mínimos por celda: 0 = fotos grandes (menos columnas) … 2 = pequeñas (más columnas).
 const TILE = [172, 108, 78];
+const PAGE = 120;
 
-export default function Gallery({ groups, error }: { groups: DayGroup[]; error: string | null }) {
+export default function Gallery({
+  groups,
+  error,
+  initialCursor = null,
+  kind,
+  fav = false,
+  total = 0,
+}: {
+  groups: DayGroup[];
+  error: string | null;
+  /** cursor keyset de la primera página; null = no hay más */
+  initialCursor?: string | null;
+  kind?: string;
+  fav?: boolean;
+  /** total real de la biblioteca (no solo lo cargado) */
+  total?: number;
+}) {
   const router = useRouter();
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
   const [assets, setAssets] = useState(flat);
+  const [cursor, setCursor] = useState<string | null>(initialCursor);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const sentinel = useRef<HTMLDivElement | null>(null);
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const [selecting, setSelecting] = useState(false);
   const [sel, setSel] = useState<Set<string>>(new Set());
@@ -28,7 +48,54 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
   const [menuOpen, setMenuOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  useEffect(() => setAssets(flat), [flat]);
+  // Al refrescar (router.refresh) llega SOLO la primera página. Se toma como
+  // verdad (así se ven altas y bajas) y se conserva todo lo ya paginado que sea
+  // más antiguo que ella — si no, el scroll infinito se rebobinaría solo.
+  useEffect(() => {
+    setAssets((prev) => {
+      if (!prev.length) return flat;
+      if (!flat.length) return prev;
+      const oldest = flat[flat.length - 1]!.capturedAt;
+      const seen = new Set(flat.map((a) => a.id));
+      const tail = prev.filter((a) => a.capturedAt < oldest && !seen.has(a.id));
+      return [...flat, ...tail];
+    });
+  }, [flat]);
+  useEffect(() => setCursor(initialCursor), [initialCursor]);
+
+  // ---- scroll infinito: la biblioteca puede tener cientos de miles ----
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !cursor) return;
+    setLoadingMore(true);
+    try {
+      const q = new URLSearchParams({ cursor, limit: String(PAGE) });
+      if (kind) q.set("kind", kind);
+      if (fav) q.set("fav", "1");
+      const r = await fetch(`/api/assets?${q}`, { cache: "no-store" });
+      if (!r.ok) throw new Error("no se pudo cargar más");
+      const data = (await r.json()) as { items: AssetListItem[]; nextCursor: string | null };
+      setAssets((prev) => {
+        const seen = new Set(prev.map((a) => a.id));
+        return [...prev, ...(data.items ?? []).filter((a) => !seen.has(a.id))];
+      });
+      setCursor(data.nextCursor ?? null);
+    } catch {
+      setToast("No se pudieron cargar más archivos. Baja otra vez para reintentar.");
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [cursor, loadingMore, kind, fav]);
+
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!el || !cursor) return;
+    // 1200 px de margen: la página siguiente ya está cargada cuando el usuario llega
+    const io = new IntersectionObserver((es) => es[0]?.isIntersecting && void loadMore(), {
+      rootMargin: "1200px 0px",
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [cursor, loadMore]);
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 6000);
@@ -57,6 +124,9 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
   }, [router, openIdx, selecting]);
 
   // índices O(1). TODOS los hooks van aquí arriba, antes de cualquier return.
+  // Los días se recalculan desde `assets` (no desde la prop) para que el scroll
+  // infinito pueda añadir días nuevos según se van pidiendo páginas.
+  const liveGroups = useMemo(() => groupByDay(assets), [assets]);
   const byId = useMemo(() => new Map(assets.map((a) => [a.id, a] as const)), [assets]);
   const idxById = useMemo(() => {
     const m = new Map<string, number>();
@@ -224,10 +294,6 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
     );
   }
 
-  const liveGroups = groups
-    .map((g) => ({ ...g, items: g.items.map((it) => byId.get(it.id)).filter(Boolean) as AssetListItem[] }))
-    .filter((g) => g.items.length);
-
   return (
     <>
       <div className="gallery-toolbar">
@@ -262,7 +328,7 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
                     downloadZip();
                   }}
                 >
-                  Descargar todo ({assets.length})
+                  Descargar todo ({(total || assets.length).toLocaleString("es-ES")})
                 </button>
                 <button
                   role="menuitem"
@@ -334,6 +400,14 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
           </div>
         </section>
       ))}
+
+      {/* centinela del scroll infinito: al acercarse, pide la página siguiente */}
+      {cursor && (
+        <div ref={sentinel} className="gt-more">
+          <span className="viewer-spin" aria-hidden="true" />
+          <small>Cargando más… ({assets.length.toLocaleString("es-ES")}{total ? ` de ${total.toLocaleString("es-ES")}` : ""})</small>
+        </div>
+      )}
 
       {toast && (
         <motion.div className="gt-toast" initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ opacity: 0 }}>
