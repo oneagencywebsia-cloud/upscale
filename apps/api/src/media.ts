@@ -264,9 +264,27 @@ async function scaleImage(
     let p = sharp(png, { failOn: "none" }).rotate(angle).resize(maxW, maxW, { fit: "inside", withoutEnlargement: true });
     p = fmt === "webp" ? p.webp({ quality: 80 }) : p.jpeg({ quality: 88, mozjpeg: true });
     await p.toFile(out);
-  } finally {
+    await import("node:fs/promises").then((m) => m.rm(png, { force: true })).catch(() => {});
+    return;
+  } catch {
     await import("node:fs/promises").then((m) => m.rm(png, { force: true })).catch(() => {});
   }
+
+  // 5) ffmpeg: última vía y la más universal. Su decodificador HEVC propio NO
+  //    depende de libheif, así que lee los HEIC `heix` de 10 bits (HDR) del
+  //    iPhone que vips/ImageMagick/heif-convert no pueden abrir en este
+  //    contenedor. -autorotate va de serie: aplica el `irot` del HEIF.
+  await run(
+    env.FFMPEG_PATH,
+    [
+      "-y", "-i", src,
+      "-frames:v", "1",
+      "-vf", `scale='min(${maxW},iw)':-2,format=yuv420p`,
+      ...(fmt === "webp" ? ["-c:v", "libwebp", "-quality", "80"] : ["-q:v", "3"]),
+      out,
+    ],
+    RUN_OPTS,
+  );
 }
 
 /** Miniatura WebP ~`maxW` px de una IMAGEN (HEIC incluido). */

@@ -332,10 +332,9 @@ async function maintenance(log: FastifyBaseLoggerLike): Promise<void> {
     if (ingestState.pending === 0 && !streamingActivo()) {
       await offloadPosters(log).catch((e) => log.warn(e, "barrido de pósters"));
     }
-    // lo más caro va al final y solo con todo en calma
-    if (ingestState.pending === 0 && !streamingActivo()) {
-      await generarPreviews(log).catch((e) => log.warn(e, "copias de reproducción"));
-    }
+    // OJO: generarPreviews NO va aquí. Transcodificar un 4K son minutos y
+    // congelaría este bucle entero (miniaturas, arranques, guardado). Corre en
+    // su propio worker independiente — ver startPreviewWorker().
   }
   // ¿queda faena? el bucle no debe irse al ritmo lento con trabajo por hacer
   const q = await one<{ n: string }>(
@@ -573,19 +572,36 @@ async function backfillDerivatives(log: FastifyBaseLoggerLike): Promise<void> {
  * descarga. Esto solo alimenta al reproductor de la app.
  *
  * Uno cada vez y solo en reposo: transcodificar consume CPU y ancho de banda.
+ * Devuelve true si hizo (o intentó) algo, false si no había nada pendiente.
  */
-async function generarPreviews(log: FastifyBaseLoggerLike): Promise<void> {
+async function generarPreviews(log: FastifyBaseLoggerLike): Promise<boolean> {
+  // Solo vídeos que de verdad no caben por el tubo (~2,3 MB/s):
+  //  - bitrate conocido y > 1,4 MB/s, o
+  //  - ingerido por cabecera (sin duración) y > 45 MB → casi seguro 4K pesado.
+  // Un clip corto y ligero se reproduce bien con el original: no se transcodifica.
   const a = await one<{ id: string; original_key: string; filename: string; bytes: string; preview_state: number }>(
     `select id, original_key, filename, bytes, preview_state from assets
        where kind = 'video' and stored = true and deleted_at is null
          and preview_key is null and preview_state >= 0
+         and (
+           (duration_s is not null and duration_s > 0 and bytes::float8 / duration_s > 1400000)
+           or ((duration_s is null or duration_s = 0) and bytes > 45 * 1024 * 1024)
+         )
        order by uploaded_at desc limit 1`,
   ).catch(() => null);
-  if (!a) return;
+  if (!a) {
+    // nada que necesite copia: marca como "no hace falta" lo que quede colgado
+    await query(
+      `update assets set preview_state = -1
+         where kind = 'video' and preview_key is null and preview_state >= 0 and deleted_at is null
+           and duration_s is not null and duration_s > 0 and bytes::float8 / duration_s <= 1400000`,
+    ).catch(() => {});
+    return false;
+  }
 
   if (a.preview_state >= 3) {
     await query("update assets set preview_state = -1 where id = $1", [a.id]).catch(() => {});
-    return; // se rinde: se seguirá viendo el original (con sus tirones)
+    return true; // se rinde: se seguirá viendo el original (con sus tirones)
   }
   await query("update assets set preview_state = preview_state + 1 where id = $1", [a.id]).catch(() => {});
 
@@ -620,6 +636,7 @@ async function generarPreviews(log: FastifyBaseLoggerLike): Promise<void> {
   } finally {
     await rm(out, { force: true }).catch(() => {});
   }
+  return true;
 }
 
 /**
@@ -776,6 +793,40 @@ export function startInboxIngest(log: FastifyBaseLoggerLike): void {
   setTimeout(() => void loop(), 3000);
   // disparo instantáneo cuando llega algo al inbox (el sondeo queda de respaldo)
   void armInboxListener(() => void tick(log)).catch(() => {});
+
+  startPreviewWorker(log);
+}
+
+/**
+ * Worker SEPARADO para las copias ligeras de reproducción. Va por su cuenta,
+ * a su ritmo, sin bloquear jamás el bucle de ingesta: transcodificar un 4K son
+ * varios minutos y no puede frenar las miniaturas ni los arranques.
+ *
+ * Una copia cada vez. Se aparta si hay alguien reproduciendo (CPU + banda para
+ * quien está mirando). Reintenta cada 20 s cuando hay trabajo, cada 5 min si no.
+ */
+let previewRunning = false;
+function startPreviewWorker(log: FastifyBaseLoggerLike): void {
+  if (env.STORAGE_DRIVER !== "telegram") return;
+  const loop = async () => {
+    let huboTrabajo = false;
+    if (!previewRunning && !streamingActivo() && Date.now() >= pausedUntil) {
+      previewRunning = true;
+      try {
+        huboTrabajo = await generarPreviews(log).then(
+          () => true,
+          (e) => {
+            log.warn(e, "worker de copias de reproducción");
+            return false;
+          },
+        );
+      } finally {
+        previewRunning = false;
+      }
+    }
+    setTimeout(() => void loop(), (huboTrabajo ? 20 : 300) * 1000);
+  };
+  setTimeout(() => void loop(), 15_000);
 }
 
 /** Fuerza una vuelta de ingesta ahora (para el endpoint de diagnóstico). */
