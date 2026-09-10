@@ -263,9 +263,9 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     let added = 0;
     let failed = 0;
 
-    // Ventana de prefetch: se bajan CONC archivos de Telegram a la vez mientras
-    // el ZIP escribe el anterior. Nada de recompresión (store), copia byte a byte.
-    const CONC = 4;
+    // Ventana de prefetch: se bajan CONC archivos a la vez (y cada uno con varios
+    // hilos por dentro) mientras el ZIP escribe el anterior. Store mode, byte a byte.
+    const CONC = 3;
     const inflight = new Map<number, Promise<string | null>>();
     const kickoff = (i: number) => {
       if (i >= rows.length || inflight.has(i)) return;

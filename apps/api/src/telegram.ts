@@ -518,8 +518,71 @@ async function messageForKey(key: string): Promise<Api.Message> {
   throw new Error("mensaje del inbox no encontrado");
 }
 
+/**
+ * Descarga un documento entero a `outPath` con VARIOS hilos en paralelo (como los
+ * clientes oficiales de Telegram). Escrituras posicionadas en el archivo. Sin
+ * recompresión — son los mismos bytes, solo que en trozos simultáneos.
+ */
+async function tgDownloadParallel(
+  msg: Api.Message,
+  outPath: string,
+  streams = 4,
+): Promise<void> {
+  const doc = msg.document as Api.Document | undefined;
+  const total = Number(doc?.size) || 0;
+  const dcId = doc?.dcId;
+  if (!doc || !total) {
+    // sin tamaño no se puede trocear: caemos al descargador normal
+    const c = await getClient();
+    await c.downloadMedia(msg, { outputFile: outPath });
+    return;
+  }
+  const loc = new Api.InputDocumentFileLocation({
+    id: doc.id,
+    accessHash: doc.accessHash,
+    fileReference: doc.fileReference,
+    thumbSize: "",
+  });
+
+  const { open } = await import("node:fs/promises");
+  const fh = await open(outPath, "w");
+  try {
+    await fh.truncate(total);
+    const REQ = 512 * 1024;
+    const per = Math.max(REQ, Math.ceil(total / streams / REQ) * REQ);
+    const jobs: Promise<void>[] = [];
+    for (let start = 0; start < total; start += per) {
+      const from = start;
+      const to = Math.min(total, start + per);
+      jobs.push(
+        (async () => {
+          const c = await getClient();
+          let pos = from;
+          for await (const chunk of c.iterDownload({
+            file: loc,
+            dcId,
+            offset: bigInt(from),
+            limit: to - from,
+            requestSize: REQ,
+          })) {
+            const buf = Buffer.from(chunk as Uint8Array);
+            if (!buf.length) continue;
+            const w = pos + buf.length > to ? buf.subarray(0, to - pos) : buf;
+            await fh.write(w, 0, w.length, pos);
+            pos += w.length;
+            if (pos >= to) break;
+          }
+        })(),
+      );
+    }
+    await Promise.all(jobs);
+  } finally {
+    await fh.close();
+  }
+}
+
 /** Descarga la key entera a la caché de disco (una sola vez aunque llamen en paralelo). */
-async function ensureCached(key: string): Promise<string> {
+async function ensureCached(key: string, streams = 4): Promise<string> {
   const cp = cachePath(key);
   if (existsSync(cp)) {
     await utimes(cp, new Date(), new Date()).catch(() => {}); // LRU touch
@@ -529,12 +592,11 @@ async function ensureCached(key: string): Promise<string> {
   let job = downloading.get(key);
   if (!job) {
     job = (async () => {
-      const c = await getClient();
       const msg = await messageForKey(key);
       await mkdir(env.TG_CACHE_DIR, { recursive: true });
       const tmp = `${cp}.${randomBytes(6).toString("hex")}.dl`;
       try {
-        await c.downloadMedia(msg, { outputFile: tmp });
+        await tgDownloadParallel(msg, tmp, streams);
         await rm(cp, { force: true }).catch(() => {});
         await rename(tmp, cp);
         pruneCache();
@@ -554,8 +616,8 @@ async function ensureCached(key: string): Promise<string> {
 }
 
 /** Ruta local del archivo entero (lo descarga del almacén si hace falta). Para el ZIP. */
-export async function tgEnsureLocal(key: string): Promise<string> {
-  return ensureCached(key);
+export async function tgEnsureLocal(key: string, streams = 3): Promise<string> {
+  return ensureCached(key, streams);
 }
 
 const warming = new Set<string>();
@@ -572,12 +634,11 @@ export function warmCache(key: string, totalBytes: number): void {
   if (totalBytes < 3 * 1024 * 1024) return;
   if (totalBytes > env.TG_CACHE_MAX_MB * 1024 * 1024) return;
   warming.add(key);
-  // pequeño respiro para no competir con el arranque de la reproducción
-  setTimeout(() => {
-    void ensureCached(key)
-      .catch((e) => console.error("[tg] warmCache falló:", (e as Error).message))
-      .finally(() => warming.delete(key));
-  }, 2000);
+  // en paralelo (4 hilos) → el archivo entero está en disco en pocos segundos y
+  // el resto de la reproducción sale de disco, sin un solo tirón.
+  void ensureCached(key, 4)
+    .catch((e) => console.error("[tg] warmCache falló:", (e as Error).message))
+    .finally(() => warming.delete(key));
 }
 
 /**
@@ -648,61 +709,77 @@ async function docLocationFresh(
 
 const CHUNK = 512 * 1024; // requestSize: múltiplo de 4096, máx 512 KB
 
+/** Baja [from, to) de un documento con reintentos. Devuelve exactamente to-from bytes. */
+async function fetchSubRange(
+  loc: Api.InputDocumentFileLocation,
+  dcId: number | undefined,
+  from: number,
+  to: number,
+): Promise<Buffer> {
+  const alignedStart = Math.floor(from / CHUNK) * CHUNK;
+  const skip = from - alignedStart;
+  const want = to - from;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const c = await getClient();
+      const out = Buffer.allocUnsafe(want);
+      let dropped = 0;
+      let filled = 0;
+      for await (const chunk of c.iterDownload({
+        file: loc,
+        dcId,
+        offset: bigInt(alignedStart),
+        limit: Math.ceil((want + skip) / CHUNK) * CHUNK,
+        requestSize: CHUNK,
+      })) {
+        let buf = Buffer.from(chunk as Uint8Array);
+        if (dropped < skip) {
+          const d = Math.min(skip - dropped, buf.length);
+          dropped += d;
+          buf = buf.subarray(d);
+        }
+        if (!buf.length) continue;
+        const room = want - filled;
+        if (buf.length > room) buf = buf.subarray(0, room);
+        buf.copy(out, filled);
+        filled += buf.length;
+        if (filled >= want) break;
+      }
+      if (filled === want) return out;
+      throw new Error(`subrango incompleto ${filled}/${want}`);
+    } catch (e) {
+      if (attempt === 3) throw e;
+      await new Promise((r) => setTimeout(r, 150 * attempt));
+    }
+  }
+  throw new Error("subrango: sin datos");
+}
+
 async function tgReadRangeLive(
   key: string,
   start: number,
   end: number,
 ): Promise<{ stream: Readable; totalSize: number }> {
-  const { total } = await docLocation(key);
+  const { loc, total, dcId } = await docLocation(key);
   const wantLen = end - start + 1;
 
-  // Generador resiliente: si Telegram corta a media descarga (fileReference
-  // caducado, error de DC transitorio…) reanuda desde donde se quedó con una
-  // localización fresca, hasta 3 intentos. Esto mata los tirones a mitad y el
-  // "pillado" al final del vídeo.
+  // El rango pedido (≤16 MB) se baja en 4 sub-trozos EN PARALELO y se junta.
+  // Así el buffer del <video> se llena ~4x más rápido y no se pilla.
   async function* gen(): AsyncGenerator<Buffer> {
-    let emitted = 0;
-    let stalls = 0; // veces seguidas SIN avanzar ni un byte
-    while (emitted < wantLen) {
-      const before = emitted;
-      const from = start + emitted;
-      const alignedStart = Math.floor(from / CHUNK) * CHUNK;
-      const skip = from - alignedStart;
-      const need = wantLen - emitted;
-      const limit = Math.min(total - alignedStart, Math.ceil((need + skip) / CHUNK) * CHUNK);
-      try {
-        const c = await getClient();
-        const { loc, dcId } = await docLocation(key);
-        const iter = c.iterDownload({ file: loc, dcId, offset: bigInt(alignedStart), limit, requestSize: CHUNK });
-        let dropped = 0;
-        for await (const chunk of iter) {
-          let buf = Buffer.from(chunk as Uint8Array);
-          if (dropped < skip) {
-            const d = Math.min(skip - dropped, buf.length);
-            dropped += d;
-            buf = buf.subarray(d);
-          }
-          if (!buf.length) continue;
-          const remaining = wantLen - emitted;
-          if (buf.length > remaining) buf = buf.subarray(0, remaining);
-          emitted += buf.length;
-          yield buf;
-          if (emitted >= wantLen) return;
-        }
-      } catch (e) {
-        docCache.delete(key); // fuerza fileReference fresco
-        if (emitted === before && ++stalls >= 4) throw e;
-        await new Promise((r) => setTimeout(r, 200 * stalls));
-        continue;
-      }
-      // iterador agotado limpio: si no avanzó nada, cuenta como stall
-      if (emitted === before) {
-        docCache.delete(key);
-        if (++stalls >= 4) throw new Error(`rango incompleto ${emitted}/${wantLen} (${key})`);
-        await new Promise((r) => setTimeout(r, 200 * stalls));
-      } else {
-        stalls = 0;
-      }
+    const STREAMS = 4;
+    const part = Math.max(CHUNK, Math.ceil(wantLen / STREAMS / CHUNK) * CHUNK);
+    const jobs: Promise<Buffer>[] = [];
+    for (let s = 0; s * part < wantLen; s++) {
+      const from = start + s * part;
+      const to = Math.min(end + 1, from + part);
+      jobs.push(fetchSubRange(loc, dcId, from, to));
+    }
+    try {
+      const parts = await Promise.all(jobs);
+      for (const p of parts) yield p; // en orden
+    } catch (e) {
+      docCache.delete(key); // fileReference fresco al siguiente intento
+      throw e;
     }
   }
 
