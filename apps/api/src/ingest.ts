@@ -1,9 +1,10 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { env } from "./env.js";
 import { query, one } from "./db.js";
 import { ingestLocalFile, regenerateDerivatives } from "./pipeline.js";
+import { makePreview } from "./media.js";
 import {
   tgInboxNewMedia,
   tgInboxStartId,
@@ -331,6 +332,10 @@ async function maintenance(log: FastifyBaseLoggerLike): Promise<void> {
     if (ingestState.pending === 0 && !streamingActivo()) {
       await offloadPosters(log).catch((e) => log.warn(e, "barrido de pósters"));
     }
+    // lo más caro va al final y solo con todo en calma
+    if (ingestState.pending === 0 && !streamingActivo()) {
+      await generarPreviews(log).catch((e) => log.warn(e, "copias de reproducción"));
+    }
   }
   // ¿queda faena? el bucle no debe irse al ritmo lento con trabajo por hacer
   const q = await one<{ n: string }>(
@@ -562,6 +567,61 @@ async function backfillDerivatives(log: FastifyBaseLoggerLike): Promise<void> {
     }
   }
 }
+/**
+ * Genera la copia LIGERA de reproducción de los vídeos que no caben por el tubo.
+ * El ORIGINAL no se toca: sigue intacto en Telegram y es lo único que se
+ * descarga. Esto solo alimenta al reproductor de la app.
+ *
+ * Uno cada vez y solo en reposo: transcodificar consume CPU y ancho de banda.
+ */
+async function generarPreviews(log: FastifyBaseLoggerLike): Promise<void> {
+  const a = await one<{ id: string; original_key: string; filename: string; bytes: string; preview_state: number }>(
+    `select id, original_key, filename, bytes, preview_state from assets
+       where kind = 'video' and stored = true and deleted_at is null
+         and preview_key is null and preview_state >= 0
+       order by uploaded_at desc limit 1`,
+  ).catch(() => null);
+  if (!a) return;
+
+  if (a.preview_state >= 3) {
+    await query("update assets set preview_state = -1 where id = $1", [a.id]).catch(() => {});
+    return; // se rinde: se seguirá viendo el original (con sus tirones)
+  }
+  await query("update assets set preview_state = preview_state + 1 where id = $1", [a.id]).catch(() => {});
+
+  const stamp = randomBytes(4).toString("hex");
+  const out = join(env.TMP_DIR, `prev-${a.id}-${stamp}.mp4`);
+  try {
+    ingestState.lastStep = `preparando copia de reproducción de "${a.filename}"`;
+    log.info({ f: a.filename, mb: Math.round(Number(a.bytes) / 1e6) }, "preview: empieza");
+    await mkdir(env.TMP_DIR, { recursive: true });
+
+    // hace falta el original ENTERO: ffmpeg tiene que decodificarlo todo
+    const src = await tgEnsureLocal(a.original_key, 4);
+    await makePreview(src, out);
+
+    const { size } = await stat(out);
+    if (!size) throw new Error("preview vacía");
+
+    const m = a.original_key.match(/^orig\/(.+)\.[a-z0-9]+$/i);
+    const key = `prev/${m?.[1] ?? a.id}.mp4`;
+    await withTimeout(tgPut(key, out), 10 * 60_000, "subir preview");
+    await query("update assets set preview_key = $1, preview_bytes = $2, preview_state = 0 where id = $3", [
+      key,
+      size,
+      a.id,
+    ]);
+    log.info(
+      { f: a.filename, origMb: Math.round(Number(a.bytes) / 1e6), prevMb: Math.round(size / 1e6) },
+      "preview: lista",
+    );
+  } catch (e) {
+    log.warn({ f: a.filename, err: (e as Error)?.message }, "preview: falló");
+  } finally {
+    await rm(out, { force: true }).catch(() => {});
+  }
+}
+
 /**
  * Deja en disco los primeros MB de los vídeos para que abrir uno sea INMEDIATO.
  * Medido antes de esto: entre 1 y 12 s por vídeo, porque cada apertura resolvía

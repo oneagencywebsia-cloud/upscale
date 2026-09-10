@@ -55,8 +55,19 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
               count(*) filter (where octet_length(coalesce(poster_jpg,''::bytea)) > 4) as pend
          from assets where deleted_at is null`,
     ).catch(() => null);
+    // copias ligeras de reproducción: cuántas hechas / pendientes y cuánto ahorran
+    const pv = await one<{ listas: string; pend: string; orig: string | null; prev: string | null }>(
+      `select count(*) filter (where preview_key is not null) as listas,
+              count(*) filter (where preview_key is null and preview_state >= 0) as pend,
+              pg_size_pretty(coalesce(sum(bytes) filter (where preview_key is not null),0)) as orig,
+              pg_size_pretty(coalesce(sum(preview_bytes) filter (where preview_key is not null),0)) as prev
+         from assets where kind = 'video' and deleted_at is null`,
+    ).catch(() => null);
     return {
       version: VERSION,
+      copiasDeReproduccion: pv
+        ? { listas: Number(pv.listas), pendientes: Number(pv.pend), pesoOriginales: pv.orig, pesoCopias: pv.prev }
+        : null,
       bd: db
         ? { tablaAssets: db.total, postersEnBd: db.posters, miniaturasEnBd: db.thumbs, archivos: Number(db.n), postersPorDescargar: Number(db.pend) }
         : null,

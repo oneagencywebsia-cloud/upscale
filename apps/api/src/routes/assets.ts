@@ -38,6 +38,7 @@ interface Row {
   captured_at: Date; uploaded_at: Date; camera_make: string | null; camera_model: string | null;
   lens: string | null; lat: number | null; lon: number | null; is_live: boolean;
   thumb_key: string; poster_key: string | null; original_key: string;
+  preview_key: string | null; preview_bytes: string | null;
   live_video_key: string | null; live_video_bytes: string | null;
   is_favorite: boolean;
 }
@@ -48,7 +49,8 @@ const A =
   "a.id, a.user_id, a.kind, a.filename, a.mime, a.bytes, a.sha256, a.width, a.height, " +
   "a.duration_s, a.fps, a.video_bitrate, a.codec, a.captured_at, a.uploaded_at, a.camera_make, " +
   "a.camera_model, a.lens, a.lat, a.lon, a.is_live, a.original_key, a.thumb_key, a.poster_key, " +
-  "a.live_video_key, a.live_video_bytes, a.is_favorite, a.deleted_at";
+  "a.live_video_key, a.live_video_bytes, a.is_favorite, a.deleted_at, " +
+  "a.preview_key, a.preview_bytes";
 
 function toAsset(r: Row): Asset {
   return {
@@ -373,7 +375,11 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
       [id, userId],
     );
     if (!r) return reply.code(404).send({ error: "no existe" });
-    return reply.redirect(await signedUrl(r.original_key, { expiresIn: 3600 }), 302);
+    // REPRODUCIR (y solo reproducir) usa la copia ligera si existe: el tubo del
+    // VPS da ~2,3 MB/s y un 4K/60 pide ~6,2, así que el original se atasca.
+    // Las descargas (/original, el ZIP, originalUrl) NUNCA pasan por aquí.
+    const paraVer = r.preview_key ?? r.original_key;
+    return reply.redirect(await signedUrl(paraVer, { expiresIn: 3600 }), 302);
   });
 
   // ---------- descargar original ----------
@@ -406,6 +412,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     await Promise.allSettled([
       remove(r.original_key),
       remove(r.thumb_key),
+      r.preview_key ? remove(r.preview_key) : Promise.resolve(),
       r.poster_key ? remove(r.poster_key) : Promise.resolve(),
       r.live_video_key ? remove(r.live_video_key) : Promise.resolve(),
     ]);

@@ -292,6 +292,45 @@ export async function extractFrame(src: string, out: string, maxW = 1600): Promi
 
 export const makePoster = extractFrame;
 
+/**
+ * Copia LIGERA para reproducir dentro de la app (1080p, ~5 Mbps). NO sustituye
+ * al original: el original sigue intacto en el almacén y es lo que se descarga.
+ *
+ * Por qué existe: la subida del VPS da ~2,3 MB/s y un 4K/60 del iPhone pide
+ * ~6,2 MB/s, así que se reproduce a 0,37x y se atasca. Esta versión pide
+ * ~0,6 MB/s: entra de sobra por el tubo y arranca al instante.
+ *
+ * Detalles que importan:
+ *  - `+faststart` mueve el índice `moov` AL PRINCIPIO → el navegador puede
+ *    empezar a reproducir sin bajarse el final del archivo.
+ *  - `-threads 2` deja CPU libre para que la app siga respondiendo.
+ *  - se conserva la orientación y los fps originales (se siente igual de fluido).
+ */
+export async function makePreview(src: string, out: string, maxH = 1080): Promise<void> {
+  await run(
+    env.FFMPEG_PATH,
+    [
+      "-y",
+      "-i", src,
+      "-vf", `scale='if(gt(ih,${maxH}),-2,iw)':'min(${maxH},ih)':flags=fast_bilinear`,
+      "-c:v", "libx264",
+      "-preset", "veryfast",
+      "-crf", "23",
+      "-maxrate", "5M",
+      "-bufsize", "10M",
+      "-profile:v", "high",
+      "-pix_fmt", "yuv420p", // compatible con todo (el HDR de 10 bits no lo lee Safari)
+      "-c:a", "aac",
+      "-b:a", "128k",
+      "-movflags", "+faststart",
+      "-threads", "2",
+      out,
+    ],
+    // un 4K largo puede tardar varios minutos; corre en 2º plano, no bloquea nada
+    { maxBuffer: 8 * 1024 * 1024, timeout: 25 * 60_000 },
+  );
+}
+
 /** Miniatura de reserva: cuadro oscuro. Nunca falla (sharp la crea de cero). */
 export async function placeholderThumb(out: string, kind: AssetKind): Promise<void> {
   const bg = kind === "video" ? { r: 18, g: 23, b: 38 } : { r: 26, g: 30, b: 45 };

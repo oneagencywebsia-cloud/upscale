@@ -71,4 +71,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.15.0-instantaneo";
+export const VERSION = "0.16.0-preview";
