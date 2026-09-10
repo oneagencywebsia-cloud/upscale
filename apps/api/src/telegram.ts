@@ -197,6 +197,16 @@ const CACHE_INLINE_LIMIT = 50 * 1024 * 1024; // solo cacheamos archivos pequeño
 const THUMB_DIR = () => join(env.TG_CACHE_DIR, "thumbs");
 const isDerivative = (key: string) => key.endsWith("/thumb.webp") || key.endsWith("/poster.jpg");
 
+// ---------------------------- caché de ARRANQUE ----------------------------
+// Abrir un vídeo costaba entre 1 y 12 s porque cada apertura hablaba con
+// Telegram de cero (resolver el documento + bajar el primer trozo). Con los
+// primeros MB de cada vídeo YA en disco, la reproducción empieza en ~20 ms y el
+// resto se va trayendo mientras miras. Son 6 MB por vídeo: 45 vídeos = 270 MB,
+// y reconstruirlos tras un deploy son unos segundos a 20 MB/s.
+const HEAD_CACHE_BYTES = 6 * 1024 * 1024;
+const HEADS_DIR = () => join(env.TG_CACHE_DIR, "heads");
+const headPath = (key: string) => join(HEADS_DIR(), createHash("sha1").update(key).digest("hex"));
+
 function cachePath(key: string): string {
   const hash = createHash("sha1").update(key).digest("hex");
   return isDerivative(key) ? join(THUMB_DIR(), hash) : join(env.TG_CACHE_DIR, hash);
@@ -238,6 +248,9 @@ async function pruneCache(): Promise<void> {
   lastPrune = Date.now();
   await pruneDir(env.TG_CACHE_DIR, env.TG_CACHE_MAX_MB * 1024 * 1024);
   await pruneDir(THUMB_DIR(), DERIV_CACHE_BYTES());
+  // los arranques son pequeños y son LO que hace que el play sea inmediato:
+  // presupuesto propio para que el trasiego de vídeos grandes no los expulse
+  await pruneDir(HEADS_DIR(), Math.max(300, Math.floor(env.TG_CACHE_MAX_MB / 4)) * 1024 * 1024);
 }
 
 // ------------------------------- API pública -------------------------------
@@ -840,6 +853,29 @@ export async function tgHeadTailTemp(
   return { path: outPath, total, partial: true };
 }
 
+/**
+ * Deja los primeros MB de `key` en disco para que abrir el vídeo sea instantáneo.
+ * Idempotente y barato: si ya está, no hace nada.
+ */
+export async function tgEnsureHead(key: string): Promise<boolean> {
+  const hp = headPath(key);
+  if (existsSync(hp)) return false;
+  if (existsSync(cachePath(key))) return false; // ya está el archivo entero
+  const { loc, total, dcId } = await docLocation(key);
+  const want = Math.min(HEAD_CACHE_BYTES, total || HEAD_CACHE_BYTES);
+  const buf = await fetchSubRange(loc, dcId, 0, want, (await downloadClients(1))[0]);
+  await mkdir(HEADS_DIR(), { recursive: true });
+  const tmp = `${hp}.${randomBytes(4).toString("hex")}`;
+  await writeFile(tmp, buf);
+  await rename(tmp, hp);
+  return true;
+}
+
+/** ¿Tenemos ya el arranque de esta key en disco? */
+export function tieneArranque(key: string): boolean {
+  return existsSync(headPath(key));
+}
+
 // ---- prioridad: la reproducción del usuario manda sobre el mantenimiento ----
 let lastLiveReadAt = 0;
 /** ¿Hay alguien viendo algo ahora mismo? (rango servido en los últimos `ms`) */
@@ -1072,6 +1108,7 @@ export async function tgDiag(sampleKey?: string): Promise<Record<string, unknown
       dir: env.TG_CACHE_DIR,
       originales: await medir(env.TG_CACHE_DIR),
       derivadas: await medir(THUMB_DIR()),
+      arranquesDeVideo: await medir(HEADS_DIR()),
       presupuestoMb: env.TG_CACHE_MAX_MB,
       calentando: [...warming].length,
       reproduciendoAhora: streamingActivo(),
@@ -1171,6 +1208,33 @@ export async function tgRead(
       })();
       const slice = range ? buf.subarray(range.start, Math.min(range.end + 1, total)) : buf;
       return { stream: Readable.from([slice]), size: slice.length, totalSize: total };
+    }
+  }
+
+  // ¿el trozo pedido cae dentro del ARRANQUE que ya tenemos en disco? Entonces
+  // se sirve de local (~20 ms) sin tocar Telegram. Es lo que hace que darle al
+  // play sea inmediato en vez de esperar 1-12 s. Si el rango se sale del
+  // arranque, se recorta: el reproductor pedirá el siguiente trozo acto seguido
+  // (respuesta parcial más corta de lo pedido: es válido en HTTP Range).
+  if (range) {
+    const hp = headPath(key);
+    if (existsSync(hp)) {
+      try {
+        const { size: headSize } = await stat(hp);
+        if (range.start < headSize) {
+          await utimes(hp, new Date(), new Date()).catch(() => {});
+          const total = await tgSize(key);
+          const end = Math.min(range.end, headSize - 1);
+          warmCache(key, total); // el resto, en 2º plano
+          return {
+            stream: createReadStream(hp, { start: range.start, end }),
+            size: end - range.start + 1,
+            totalSize: total,
+          };
+        }
+      } catch {
+        /* si algo falla, camino normal */
+      }
     }
   }
 

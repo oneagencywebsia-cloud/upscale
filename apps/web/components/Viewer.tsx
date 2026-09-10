@@ -35,6 +35,25 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
     return () => clearTimeout(t);
   }, [a?.id, a?.kind]);
 
+  // Mientras miras uno, se va pidiendo el arranque del siguiente y el anterior:
+  // al pasar de uno a otro ya está en camino y la apertura se siente inmediata.
+  useEffect(() => {
+    if (index === null) return;
+    const t = setTimeout(() => {
+      for (const n of [index + 1, index - 1]) {
+        const v = assets[n];
+        if (!v) continue;
+        if (v.kind === "video") {
+          void fetch(`/api/media/${v.id}`, { headers: { Range: "bytes=0-524287" } }).catch(() => {});
+        } else if (v.posterUrl) {
+          const img = new Image();
+          img.src = v.posterUrl;
+        }
+      }
+    }, 400); // sin robarle ancho de banda al que estás viendo ahora
+    return () => clearTimeout(t);
+  }, [index, assets]);
+
   const isLive = !!(a && a.kind === "photo" && a.isLive && a.liveVideoUrl);
   const liveStart = useCallback(() => {
     const v = liveRef.current;

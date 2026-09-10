@@ -17,6 +17,8 @@ import {
   tgEnsureLocal,
   tgHeadTailTemp,
   streamingActivo,
+  tgEnsureHead,
+  tieneArranque,
 } from "./telegram.js";
 
 /** Vídeos/archivos por encima de esto: se ingiere solo la cabecera (rápido) y el
@@ -321,7 +323,9 @@ async function maintenance(log: FastifyBaseLoggerLike): Promise<void> {
   if (streamingActivo()) {
     ingestState.lastStep = "en reposo (mantenimiento en pausa: reproducción en curso)";
   } else {
-    if (ingestState.pending <= 3) {
+    // lo PRIMERO: que abrir un vídeo sea inmediato. Es barato y es lo que se nota.
+    await precargarArranques(log).catch((e) => log.warn(e, "precarga de arranques"));
+    if (ingestState.pending <= 3 && !streamingActivo()) {
       await backfillDerivatives(log).catch((e) => log.warn(e, "barrido de miniaturas"));
     }
     if (ingestState.pending === 0 && !streamingActivo()) {
@@ -558,6 +562,41 @@ async function backfillDerivatives(log: FastifyBaseLoggerLike): Promise<void> {
     }
   }
 }
+/**
+ * Deja en disco los primeros MB de los vídeos para que abrir uno sea INMEDIATO.
+ * Medido antes de esto: entre 1 y 12 s por vídeo, porque cada apertura resolvía
+ * el documento en Telegram y bajaba el primer trozo en caliente. Con el arranque
+ * en local se sirve en ~20 ms y el resto entra mientras miras.
+ *
+ * Va de lo más reciente a lo más antiguo (es lo que se abre) y es muy barato:
+ * 6 MB por vídeo a 20 MB/s.
+ */
+async function precargarArranques(log: FastifyBaseLoggerLike): Promise<number> {
+  const rows = (
+    await query<{ original_key: string; filename: string }>(
+      `select original_key, filename from assets
+         where kind = 'video' and stored = true and deleted_at is null
+         order by captured_at desc limit 60`,
+    ).catch(() => ({ rows: [] as { original_key: string; filename: string }[] }))
+  ).rows;
+
+  let hechos = 0;
+  for (const a of rows) {
+    if (streamingActivo()) break; // si estás viendo algo, esto puede esperar
+    if (tieneArranque(a.original_key)) continue;
+    try {
+      ingestState.lastStep = `preparando arranque de "${a.filename}"`;
+      if (await tgEnsureHead(a.original_key)) hechos++;
+      if (hechos >= 4) break; // 4 por vuelta: no monopoliza nada
+    } catch (e) {
+      log.warn({ f: a.filename, err: (e as Error)?.message }, "arranque: no se pudo precargar");
+      break;
+    }
+  }
+  if (hechos) log.info({ hechos }, "arranques precargados");
+  return hechos;
+}
+
 /**
  * ESCALA: los pósters (~200 KB cada uno) viven en Postgres para que la galería
  * nunca se quede en blanco. A 100.000 archivos eso son ~20 GB de base de datos,

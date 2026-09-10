@@ -57,13 +57,18 @@ export async function blobRoutes(app: FastifyInstance): Promise<void> {
         // caché de disco esto ni se aplica (se sirve el rango completo).
         const MAX_SLICE = 16 * 1024 * 1024;
         if (end - start + 1 > MAX_SLICE) end = start + MAX_SLICE - 1;
-        const { stream } = await readBlob(key, { start, end });
+        // El almacén puede servir MENOS de lo pedido (p. ej. el trozo cae justo
+        // en el borde de lo que hay en disco). Es válido en HTTP Range, pero las
+        // cabeceras tienen que decir lo que se envía DE VERDAD o el navegador
+        // corta la conexión y reintenta en bucle.
+        const { stream, size } = await readBlob(key, { start, end });
+        const realEnd = size > 0 ? start + size - 1 : end;
         reply.code(206);
         reply.header("Content-Type", contentType);
         reply.header("X-Content-Type-Options", "nosniff");
         reply.header("Accept-Ranges", "bytes");
-        reply.header("Content-Range", `bytes ${start}-${end}/${total}`);
-        reply.header("Content-Length", end - start + 1);
+        reply.header("Content-Range", `bytes ${start}-${realEnd}/${total}`);
+        reply.header("Content-Length", realEnd - start + 1);
         reply.header("Cache-Control", cacheHdr);
         if (disposition) reply.header("Content-Disposition", disposition);
         return reply.send(stream);
