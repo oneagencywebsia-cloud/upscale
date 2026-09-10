@@ -71,4 +71,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.14.3-barridos";
+export const VERSION = "0.14.4-prioridad";

@@ -15,6 +15,8 @@ import {
   tgPutByForward,
   tgPut,
   tgEnsureLocal,
+  tgHeadTailTemp,
+  streamingActivo,
 } from "./telegram.js";
 
 /** Vídeos/archivos por encima de esto: se ingiere solo la cabecera (rápido) y el
@@ -310,12 +312,21 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
  * ir sacando los pósters de Postgres a Telegram.
  */
 async function maintenance(log: FastifyBaseLoggerLike): Promise<void> {
+  // guardar originales pendientes es prioritario (son reenvíos, no gastan banda)
   await storePending(log).catch((e) => log.warn(e, "barrido de guardado"));
-  if (ingestState.pending <= 3) {
-    await backfillDerivatives(log).catch((e) => log.warn(e, "barrido de miniaturas"));
-  }
-  if (ingestState.pending === 0) {
-    await offloadPosters(log).catch((e) => log.warn(e, "barrido de pósters"));
+
+  // El resto son descargas pesadas. Si el usuario está viendo un vídeo AHORA,
+  // se apartan: reproducir siempre manda sobre el mantenimiento. Antes el
+  // barrido acaparaba las 4 conexiones y la reproducción caía a 2 MB/s.
+  if (streamingActivo()) {
+    ingestState.lastStep = "en reposo (mantenimiento en pausa: reproducción en curso)";
+  } else {
+    if (ingestState.pending <= 3) {
+      await backfillDerivatives(log).catch((e) => log.warn(e, "barrido de miniaturas"));
+    }
+    if (ingestState.pending === 0 && !streamingActivo()) {
+      await offloadPosters(log).catch((e) => log.warn(e, "barrido de pósters"));
+    }
   }
   // ¿queda faena? el bucle no debe irse al ritmo lento con trabajo por hacer
   const q = await one<{ n: string }>(
@@ -467,12 +478,12 @@ async function kvNum(k: string): Promise<number> {
  * poster_jpg NULL. 2 por vuelta. Tras 3 intentos fallidos se deja como está.
  */
 async function backfillDerivatives(log: FastifyBaseLoggerLike): Promise<void> {
-  type BF = { id: string; kind: "photo" | "video"; original_key: string; filename: string };
+  type BF = { id: string; kind: "photo" | "video"; original_key: string; filename: string; bytes: string };
   // (a) sin póster (carrete HEIC viejo) o (b) vídeo ingerido por cabecera al que
   // ffprobe no pudo sacarle dimensiones/duración → se completa con el original.
   const rows = (
     await query<BF>(
-      `select id, kind, original_key, filename from assets a
+      `select id, kind, original_key, filename, bytes from assets a
          where deleted_at is null and stored = true
            and (
              (poster_jpg is null
@@ -493,6 +504,9 @@ async function backfillDerivatives(log: FastifyBaseLoggerLike): Promise<void> {
                         // arregla nada, igual se abandona tras 3 (no bucle infinito)
     ingestState.lastStep = `completando metadatos de un archivo`;
     let tmp: string | null = null;
+    // tgEnsureLocal devuelve la ruta de la CACHÉ (no se borra); el temporal de
+    // cabecera+cola sí es nuestro y hay que limpiarlo.
+    let tmpEsPropio = false;
     try {
       const m = a.original_key.match(/^orig\/(.+)\.[a-z0-9]+$/i);
       const base = m?.[1];
@@ -502,7 +516,19 @@ async function backfillDerivatives(log: FastifyBaseLoggerLike): Promise<void> {
           a.id,
         ]);
       }
-      tmp = await tgEnsureLocal(a.original_key, 4);
+      // Un vídeo grande NO se baja entero para sacarle 4 datos y un fotograma:
+      // con cabecera+cola (14 MB) ffprobe lee el `moov` y ffmpeg el primer
+      // frame. De un 4K de 600 MB pasamos a 14 MB.
+      const grande = a.kind === "video" && Number(a.bytes) > 24 * 1024 * 1024;
+      if (grande) {
+        await mkdir(env.TMP_DIR, { recursive: true });
+        const ext = a.filename.match(/\.[a-z0-9]{2,5}$/i)?.[0] ?? ".mov";
+        tmp = join(env.TMP_DIR, `bf-${a.id}-${randomBytes(4).toString("hex")}${ext}`);
+        await withTimeout(tgHeadTailTemp(a.original_key, tmp), 120_000, "cabecera+cola");
+        tmpEsPropio = true;
+      } else {
+        tmp = await tgEnsureLocal(a.original_key, 4);
+      }
       await regenerateDerivatives(a.id, a.kind, tmp, a.filename);
 
       // ¿resuelto? foto: basta con tener póster. vídeo: además, dimensiones.
@@ -527,6 +553,8 @@ async function backfillDerivatives(log: FastifyBaseLoggerLike): Promise<void> {
         await query("delete from kv where k = $1", [fk]).catch(() => {});
       }
       break; // no encadenar si algo va mal
+    } finally {
+      if (tmp && tmpEsPropio) await rm(tmp, { force: true }).catch(() => {});
     }
   }
 }

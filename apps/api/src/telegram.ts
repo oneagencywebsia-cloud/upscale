@@ -796,6 +796,57 @@ export async function tgEnsureLocal(key: string, streams = 3): Promise<string> {
   return ensureCached(key, streams);
 }
 
+/**
+ * Fichero DISPERSO con la cabecera y la cola de un objeto YA guardado, del
+ * tamaño real. Para releer metadatos o sacar el póster de un vídeo sin bajarse
+ * el archivo entero: de un 4K de 600 MB se descargan 14 MB.
+ * Devuelve la ruta de un temporal — lo borra quien lo pide.
+ */
+export async function tgHeadTailTemp(
+  key: string,
+  outPath: string,
+  headBytes = 8 * 1024 * 1024,
+  tailBytes = 6 * 1024 * 1024,
+): Promise<{ path: string; total: number; partial: boolean }> {
+  const { loc, total, dcId } = await docLocation(key);
+  const { open } = await import("node:fs/promises");
+
+  if (!total || total <= headBytes + tailBytes) {
+    // pequeño: el archivo entero sale más a cuenta que trocear
+    const fh = await open(outPath, "w");
+    try {
+      const buf = await fetchSubRange(loc, dcId, 0, total, (await downloadClients(1))[0]);
+      await fh.write(buf, 0, buf.length, 0);
+    } finally {
+      await fh.close();
+    }
+    return { path: outPath, total, partial: false };
+  }
+
+  const tailStart = Math.floor((total - tailBytes) / 4096) * 4096;
+  const fh = await open(outPath, "w");
+  try {
+    await fh.truncate(total);
+    const cs = await downloadClients(2);
+    const [head, tail] = await Promise.all([
+      fetchSubRange(loc, dcId, 0, headBytes, cs[0]),
+      fetchSubRange(loc, dcId, tailStart, total, cs[1]),
+    ]);
+    await fh.write(head, 0, head.length, 0);
+    await fh.write(tail, 0, tail.length, tailStart);
+  } finally {
+    await fh.close();
+  }
+  return { path: outPath, total, partial: true };
+}
+
+// ---- prioridad: la reproducción del usuario manda sobre el mantenimiento ----
+let lastLiveReadAt = 0;
+/** ¿Hay alguien viendo algo ahora mismo? (rango servido en los últimos `ms`) */
+export function streamingActivo(ms = 20_000): boolean {
+  return Date.now() - lastLiveReadAt < ms;
+}
+
 const warming = new Set<string>();
 let warmChain: Promise<unknown> = Promise.resolve();
 
@@ -944,6 +995,7 @@ async function tgReadRangeLive(
   start: number,
   end: number,
 ): Promise<{ stream: Readable; totalSize: number }> {
+  lastLiveReadAt = Date.now(); // el mantenimiento se aparta mientras esto pase
   const { loc, total, dcId } = await docLocation(key);
   const wantLen = end - start + 1;
 
@@ -1003,22 +1055,26 @@ export async function tgDiag(sampleKey?: string): Promise<Record<string, unknown
   }
 
   try {
-    const files = await readdir(env.TG_CACHE_DIR).catch(() => [] as string[]);
-    let bytes = 0;
-    let n = 0;
-    for (const f of files) {
-      const s = await stat(join(env.TG_CACHE_DIR, f)).catch(() => null);
-      if (s?.isFile()) {
-        bytes += s.size;
-        n++;
+    const medir = async (dir: string) => {
+      const files = await readdir(dir).catch(() => [] as string[]);
+      let bytes = 0;
+      let n = 0;
+      for (const f of files) {
+        const s = await stat(join(dir, f)).catch(() => null);
+        if (s?.isFile()) {
+          bytes += s.size;
+          n++;
+        }
       }
-    }
+      return { archivos: n, mb: Math.round(bytes / 1e6) };
+    };
     out.cache = {
       dir: env.TG_CACHE_DIR,
-      archivos: n,
-      mb: Math.round(bytes / 1e6),
+      originales: await medir(env.TG_CACHE_DIR),
+      derivadas: await medir(THUMB_DIR()),
       presupuestoMb: env.TG_CACHE_MAX_MB,
       calentando: [...warming].length,
+      reproduciendoAhora: streamingActivo(),
     };
   } catch (e) {
     out.cache = { error: (e as Error).message };
