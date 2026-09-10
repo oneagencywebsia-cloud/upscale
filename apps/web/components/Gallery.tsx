@@ -35,6 +35,27 @@ export default function Gallery({ groups, error }: { groups: DayGroup[]; error: 
     return () => clearTimeout(t);
   }, [toast]);
 
+  // la biblioteca se refresca sola: al volver a la pestaña y cada 25 s. Así
+  // aparecen los archivos que van entrando por Telegram sin recargar a mano.
+  useEffect(() => {
+    let busy = false;
+    const tick = () => {
+      if (busy || document.hidden || openIdx !== null || selecting) return;
+      busy = true;
+      router.refresh();
+      setTimeout(() => (busy = false), 3000);
+    };
+    const iv = setInterval(tick, 25_000);
+    const onVis = () => !document.hidden && tick();
+    window.addEventListener("focus", onVis);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      clearInterval(iv);
+      window.removeEventListener("focus", onVis);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [router, openIdx, selecting]);
+
   // índices O(1). TODOS los hooks van aquí arriba, antes de cualquier return.
   const byId = useMemo(() => new Map(assets.map((a) => [a.id, a] as const)), [assets]);
   const idxById = useMemo(() => {

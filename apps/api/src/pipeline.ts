@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { query, one } from "./db.js";
 import { put } from "./storage.js";
-import { probe, sharpThumb, extractFrame, placeholderThumb, extFor, mimeFor, safeIso } from "./media.js";
+import { probe, sharpThumb, extractFrame, imagePoster, placeholderThumb, extFor, mimeFor, safeIso } from "./media.js";
 import { env } from "./env.js";
 
 const VIDEO_EXTS = [".mov", ".mp4", ".m4v", ".webm", ".mkv", ".avi"];
@@ -90,12 +90,18 @@ export async function regenerateDerivatives(
   try {
     if (kind === "video") {
       await extractFrame(filePath, tmpPoster);
-      await sharpThumb(tmpPoster, tmpThumb);
-      await saveDerivativeBytes(id, tmpThumb, tmpPoster);
     } else {
-      await sharpThumb(filePath, tmpThumb);
-      await saveDerivativeBytes(id, tmpThumb, null);
+      await imagePoster(filePath, tmpPoster);
     }
+    await sharpThumb(tmpPoster, tmpThumb);
+    await saveDerivativeBytes(id, tmpThumb, tmpPoster);
+    const { tgCachePut } = await import("./telegram.js");
+    const base = (await one<{ tk: string; pk: string | null }>(
+      "select thumb_key as tk, poster_key as pk from assets where id = $1",
+      [id],
+    ))!;
+    await tgCachePut(base.tk, tmpThumb).catch(() => {});
+    if (base.pk) await tgCachePut(base.pk, tmpPoster).catch(() => {});
   } finally {
     await Promise.allSettled([rm(tmpThumb, { force: true }), rm(tmpPoster, { force: true })]);
   }
@@ -173,7 +179,8 @@ export async function ingestLocalFile(opts: {
   const base = `${userId}/${yyyy}/${mm}/${sha256}`;
   const originalKey = `orig/${base}${ext}`;
   const thumbKey = `copy/${base}/thumb.webp`;
-  const posterKey = info.kind === "video" ? `copy/${base}/poster.jpg` : null;
+  // poster = vista grande y nítida: fotograma del vídeo, o la foto reescalada
+  const posterKey = `copy/${base}/poster.jpg`;
   const mime = mimeFor(ext, contentType);
 
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -217,14 +224,14 @@ export async function ingestLocalFile(opts: {
           await extractFrame(filePath, tmpPoster);
           await sharpThumb(tmpPoster, tmpThumb);
         } else {
-          await sharpThumb(filePath, tmpThumb);
+          await imagePoster(filePath, tmpPoster); // foto grande y nítida
+          await sharpThumb(tmpPoster, tmpThumb); // miniatura a partir del póster (ya legible por sharp)
         }
         // fuente de verdad: bytes en BD (+ write-back a disco al servir). NADA de
-        // subir la miniatura a Telegram: en una subida masiva eran 100 sendFile
-        // que disparaban FLOOD_WAIT y dejaban miniaturas a medias.
-        await saveDerivativeBytes(dId, tmpThumb, info.kind === "video" ? tmpPoster : null);
+        // subir la miniatura a Telegram (en subidas masivas = FLOOD_WAIT).
+        await saveDerivativeBytes(dId, tmpThumb, tmpPoster);
         await tgCachePut(thumbKey, tmpThumb).catch(() => {});
-        if (posterKey) await tgCachePut(posterKey, tmpPoster).catch(() => {});
+        await tgCachePut(posterKey, tmpPoster).catch(() => {});
       } catch (e) {
         log.warn(e, "miniatura real falló; se queda la de reserva");
       } finally {
@@ -272,7 +279,7 @@ export async function ingestLocalFile(opts: {
     [
       userId, info.kind, filename, mime, size, sha256, info.width, info.height, info.durationS, info.fps,
       info.videoBitrate, info.codec, capturedAt, info.cameraMake, info.cameraModel, info.lens,
-      info.lat, info.lon, false, originalKey, thumbKey, null,
+      info.lat, info.lon, false, originalKey, thumbKey, posterKey,
     ],
   );
   const id = inserted!.id;
@@ -287,13 +294,13 @@ export async function ingestLocalFile(opts: {
           if (info.kind === "video") {
             await extractFrame(filePath, tmpPoster);
             await sharpThumb(tmpPoster, tmpThumb);
-            await saveDerivativeBytes(id, tmpThumb, tmpPoster);
-            await query("update assets set poster_key = $1 where id = $2", [posterKey, id]);
           } else {
-            await sharpThumb(filePath, tmpThumb);
-            await saveDerivativeBytes(id, tmpThumb, null);
+            await imagePoster(filePath, tmpPoster);
+            await sharpThumb(tmpPoster, tmpThumb);
           }
+          await saveDerivativeBytes(id, tmpThumb, tmpPoster);
           await tgCachePut(thumbKey, tmpThumb).catch(() => {});
+          await tgCachePut(posterKey, tmpPoster).catch(() => {});
         })(),
         6 * 60_000,
         "miniatura en 2º plano",

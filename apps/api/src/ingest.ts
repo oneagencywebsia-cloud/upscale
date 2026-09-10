@@ -13,6 +13,7 @@ import {
   armInboxListener,
   tgPutByForward,
   tgPut,
+  tgEnsureLocal,
 } from "./telegram.js";
 
 /**
@@ -253,6 +254,9 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
 
     // barrido: guarda en el almacén los originales de las filas ya creadas
     await storePending(log);
+    // barrido: regenera miniatura/póster de assets viejos que quedaron con la
+    // de reserva (sharp no leía HEIC → todo el carrete iPhone salía en negro)
+    if (ingestState.pending === 0) await backfillDerivatives(log);
   } catch (e) {
     ingestState.lastTickError = (e as Error)?.message ?? String(e);
     log.error({ err: (e as Error)?.message }, "ingesta: fallo en la vuelta");
@@ -391,6 +395,52 @@ async function storePending(log: FastifyBaseLoggerLike): Promise<void> {
 async function kvNum(k: string): Promise<number> {
   const r = await one<{ v: string }>("select v from kv where k = $1", [k]).catch(() => null);
   return Number(r?.v) || 0;
+}
+
+/**
+ * Regenera miniatura/póster de assets viejos que se quedaron con la de reserva
+ * (sharp no lee HEIC → el carrete del iPhone salía en negro). Se detectan por
+ * poster_jpg NULL. 2 por vuelta. Tras 3 intentos fallidos se deja como está.
+ */
+async function backfillDerivatives(log: FastifyBaseLoggerLike): Promise<void> {
+  const rows = (
+    await query<{ id: string; kind: "photo" | "video"; original_key: string }>(
+      `select id, kind, original_key from assets
+         where poster_jpg is null and deleted_at is null and stored = true
+         order by uploaded_at desc limit 2`,
+    ).catch(() => ({ rows: [] as { id: string; kind: "photo" | "video"; original_key: string }[] }))
+  ).rows;
+  if (!rows.length) return;
+
+  for (const a of rows) {
+    const fk = `ingest:bf:${a.id}`;
+    const n = (await kvNum(fk)) + 1;
+    ingestState.lastStep = `regenerando miniatura de un archivo antiguo`;
+    let tmp: string | null = null;
+    try {
+      const m = a.original_key.match(/^orig\/(.+)\.[a-z0-9]+$/i);
+      const base = m?.[1];
+      if (base) {
+        await query("update assets set poster_key = coalesce(poster_key, $1) where id = $2", [
+          `copy/${base}/poster.jpg`,
+          a.id,
+        ]);
+      }
+      tmp = await tgEnsureLocal(a.original_key, 4);
+      await regenerateDerivatives(a.id, a.kind, tmp);
+      await query("delete from kv where k = $1", [fk]).catch(() => {});
+      log.info({ id: a.id }, "backfill: miniatura regenerada");
+    } catch (e) {
+      await kvSet(fk, n);
+      log.warn({ id: a.id, intento: n, err: (e as Error)?.message }, "backfill: falló");
+      if (n >= 3) {
+        // dejar de intentarlo: poster_jpg vacío (no null) para que no vuelva a salir
+        await query("update assets set poster_jpg = decode('', 'hex') where id = $1", [a.id]).catch(() => {});
+        await query("delete from kv where k = $1", [fk]).catch(() => {});
+      }
+      break; // no encadenar si algo va mal
+    }
+  }
 }
 async function kvSet(k: string, v: number): Promise<void> {
   await query(

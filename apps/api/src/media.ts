@@ -169,13 +169,45 @@ export async function probe(path: string, filename: string, contentType?: string
   };
 }
 
-/** Miniatura WebP ~640px a partir de una IMAGEN (JPEG/PNG/HEIC/...). */
-export async function sharpThumb(srcImage: string, out: string): Promise<void> {
-  await sharp(srcImage, { failOn: "none" })
-    .rotate()
-    .resize(640, 640, { fit: "inside", withoutEnlargement: true })
-    .webp({ quality: 80 })
-    .toFile(out);
+/** Miniatura/imagen reescalada a `maxW` px (WebP). Prueba sharp; si no puede
+ *  (sharp NO trae decodificador HEIC por licencia → casi todo el carrete iPhone
+ *  fallaba), tira de ffmpeg, que en Debian sí lee HEIC. */
+export async function sharpThumb(srcImage: string, out: string, maxW = 640): Promise<void> {
+  try {
+    await sharp(srcImage, { failOn: "none" })
+      .rotate()
+      .resize(maxW, maxW, { fit: "inside", withoutEnlargement: true })
+      .webp({ quality: 80 })
+      .toFile(out);
+    return;
+  } catch {
+    /* sharp no pudo (HEIC/HEIF/formato raro) → ffmpeg */
+  }
+  await run(
+    env.FFMPEG_PATH,
+    ["-y", "-i", srcImage, "-frames:v", "1", "-vf", `scale='min(${maxW},iw)':-2`, "-c:v", "libwebp", "-quality", "80", out],
+    RUN_OPTS,
+  );
+}
+
+/** Versión grande (JPEG ~1600px) de una FOTO, para verla nítida a pantalla completa.
+ *  sharp primero; si no puede (HEIC), ffmpeg. */
+export async function imagePoster(srcImage: string, out: string, maxW = 1600): Promise<void> {
+  try {
+    await sharp(srcImage, { failOn: "none" })
+      .rotate()
+      .resize(maxW, maxW, { fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 88, mozjpeg: true })
+      .toFile(out);
+    return;
+  } catch {
+    /* HEIC/raro → ffmpeg */
+  }
+  await run(
+    env.FFMPEG_PATH,
+    ["-y", "-i", srcImage, "-frames:v", "1", "-vf", `scale='min(${maxW},iw)':-2`, "-q:v", "3", out],
+    RUN_OPTS,
+  );
 }
 
 /** Extrae un fotograma de un vídeo a JPEG (ffmpeg siempre trae mjpeg). */
