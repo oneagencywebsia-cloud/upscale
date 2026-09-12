@@ -2356,16 +2356,20 @@ footer.status .dot {
     background: rgba(255, 255, 255, 0.14);
   }
 
-  /* tira de miniaturas: como el carrete de Fotos, se recorre arrastrando el
-     dedo por encima — cada miniatura bajo el dedo se convierte en la actual */
+  /* tira de miniaturas: el carrete de Fotos de verdad. Scroll NATIVO (no uno
+     hecho a mano con JS) — así el navegador pone la inercia gratis al soltar
+     el dedo, en vez de quedarse parado en seco. scroll-snap ayuda al navegador
+     a encajar solo en el centro de cada miniatura al frenar. */
   .vm-film {
     display: flex;
     align-items: center;
     gap: 5px;
     height: 52px;
     overflow-x: auto;
+    overscroll-behavior-x: contain;
     scrollbar-width: none;
-    touch-action: none;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
     -webkit-user-select: none;
     user-select: none;
   }
@@ -2389,6 +2393,7 @@ footer.status .dot {
     transform: scale(0.86);
     transition: opacity 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
     box-shadow: 0 0 0 0 #fff;
+    scroll-snap-align: center;
   }
   .vm-film-item.on {
     opacity: 1;

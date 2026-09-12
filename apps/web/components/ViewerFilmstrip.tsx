@@ -3,9 +3,9 @@
 import { useEffect, useRef } from "react";
 import type { AssetListItem } from "@upscale/shared";
 
-// vecinos a cada lado de la foto actual: de sobra para poder arrastrar el
-// dedo por la tira sin quedarse corto, y ligero (≤160 miniaturas en el DOM
-// aunque la biblioteca tenga decenas de miles).
+// vecinos a cada lado de la foto actual: de sobra para poder recorrer la tira
+// sin quedarse corto, y ligero (≤160 miniaturas en el DOM aunque la
+// biblioteca tenga decenas de miles).
 const WINDOW = 80;
 
 interface Props {
@@ -15,38 +15,70 @@ interface Props {
 }
 
 /**
- * El carrete de Fotos: una tira de miniaturas que se recorre arrastrando el
- * dedo por ENCIMA — la que quede bajo el dedo se convierte en la foto actual
- * al instante, no hace falta soltar. Se recentra sola cuando el índice cambia
- * por otra vía (deslizar la foto grande, las flechas, tocar una miniatura).
+ * El carrete de Fotos. A propósito NO reinventa el gesto a mano (eso fue lo
+ * que se quedaba "plantado" al soltar y a veces invertía el sentido — mi
+ * recentrado peleaba con el propio dedo mientras arrastrabas): se deja que el
+ * navegador haga el scroll NATIVO de verdad, con su inercia — y solo se
+ * escucha a qué miniatura corresponde el centro en cada momento, incluida la
+ * fase de deceleración tras soltar el dedo.
  */
 export default function ViewerFilmstrip({ assets, index, onIndex }: Props) {
   const railRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef(new Map<number, HTMLButtonElement>());
-  const dragging = useRef(false);
-  const lastPicked = useRef(index);
+  const lastReported = useRef(index);
+  // true mientras SOMOS nosotros quienes movemos el scroll (centrar tras
+  // llegar el índice por fuera) — para no reaccionar a nuestro propio scrollTo
+  // como si fuera al usuario arrastrando y liarla.
+  const programmatic = useRef(false);
+  const settleTimer = useRef<number | undefined>(undefined);
 
-  useEffect(() => {
-    lastPicked.current = index;
+  const centerOn = (i: number, smooth: boolean) => {
     const rail = railRef.current;
-    const el = itemRefs.current.get(index);
+    const el = itemRefs.current.get(i);
     if (!rail || !el) return;
-    const target = el.offsetLeft - rail.clientWidth / 2 + el.clientWidth / 2;
-    rail.scrollTo({ left: target, behavior: dragging.current ? "auto" : "smooth" });
+    programmatic.current = true;
+    rail.scrollTo({ left: el.offsetLeft - rail.clientWidth / 2 + el.clientWidth / 2, behavior: smooth ? "smooth" : "auto" });
+    window.clearTimeout(settleTimer.current);
+    settleTimer.current = window.setTimeout(() => (programmatic.current = false), smooth ? 450 : 60);
+  };
+
+  // el índice cambió por otra vía (deslizar la foto grande, flechas, tocar
+  // una miniatura ya centra sola) → recentrar la tira sobre él
+  useEffect(() => {
+    if (lastReported.current === index) return;
+    lastReported.current = index;
+    centerOn(index, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index]);
 
-  const pick = (clientX: number) => {
+  const onScroll = () => {
+    if (programmatic.current) return; // eco de nuestro propio centrado, ignorar
+    const rail = railRef.current;
+    if (!rail) return;
+    const center = rail.scrollLeft + rail.clientWidth / 2;
+    let best = -1;
+    let bestDist = Infinity;
     for (const [i, el] of itemRefs.current) {
-      const r = el.getBoundingClientRect();
-      if (clientX >= r.left && clientX <= r.right) {
-        if (i !== lastPicked.current) {
-          lastPicked.current = i;
-          onIndex(i);
-        }
-        return;
+      const d = Math.abs(el.offsetLeft + el.clientWidth / 2 - center);
+      if (d < bestDist) {
+        bestDist = d;
+        best = i;
       }
     }
+    if (best !== -1 && best !== lastReported.current) {
+      lastReported.current = best;
+      onIndex(best);
+    }
+    // el scroll nativo (con su inercia) sigue disparando este evento hasta que
+    // se asienta solo; en cuanto pasan 120 ms sin uno nuevo, se ha parado de
+    // verdad — ahí se ajusta el encaje final al centro exacto.
+    window.clearTimeout(settleTimer.current);
+    settleTimer.current = window.setTimeout(() => {
+      if (best !== -1) centerOn(best, true);
+    }, 120);
   };
+
+  useEffect(() => () => window.clearTimeout(settleTimer.current), []);
 
   const from = Math.max(0, index - WINDOW);
   const to = Math.min(assets.length, index + WINDOW + 1);
@@ -59,41 +91,29 @@ export default function ViewerFilmstrip({ assets, index, onIndex }: Props) {
     .reverse();
 
   return (
-    <div
-      ref={railRef}
-      className="vm-film"
-      role="listbox"
-      aria-label="Miniaturas — arrastra para recorrer"
-      onPointerDown={(e) => {
-        dragging.current = true;
-        pick(e.clientX);
-      }}
-      onPointerMove={(e) => {
-        if (dragging.current) pick(e.clientX);
-      }}
-      onPointerUp={() => (dragging.current = false)}
-      onPointerCancel={() => (dragging.current = false)}
-    >
+    <div ref={railRef} className="vm-film" role="listbox" aria-label="Miniaturas — desliza para recorrer" onScroll={onScroll}>
       <div className="vm-film-pad" aria-hidden="true" />
-      {visible.map(({ a, realIndex }) => {
-        return (
-          <button
-            key={a.id}
-            ref={(el) => {
-              if (el) itemRefs.current.set(realIndex, el);
-              else itemRefs.current.delete(realIndex);
-            }}
-            type="button"
-            className={`vm-film-item ${realIndex === index ? "on" : ""}`}
-            role="option"
-            aria-selected={realIndex === index}
-            aria-label={a.filename}
-            onClick={() => onIndex(realIndex)}
-          >
-            <img src={a.thumbUrl} alt="" draggable={false} loading="lazy" decoding="async" />
-          </button>
-        );
-      })}
+      {visible.map(({ a, realIndex }) => (
+        <button
+          key={a.id}
+          ref={(el) => {
+            if (el) itemRefs.current.set(realIndex, el);
+            else itemRefs.current.delete(realIndex);
+          }}
+          type="button"
+          className={`vm-film-item ${realIndex === index ? "on" : ""}`}
+          role="option"
+          aria-selected={realIndex === index}
+          aria-label={a.filename}
+          onClick={() => {
+            lastReported.current = realIndex;
+            onIndex(realIndex);
+            centerOn(realIndex, true);
+          }}
+        >
+          <img src={a.thumbUrl} alt="" draggable={false} loading="lazy" decoding="async" />
+        </button>
+      ))}
       <div className="vm-film-pad" aria-hidden="true" />
     </div>
   );
