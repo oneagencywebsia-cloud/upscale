@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, animate, motion, useMotionValue, useTransform } from "motion/react";
 import type { AssetListItem } from "@upscale/shared";
 import { specRows } from "@/lib/format";
+import ViewerFilmstrip from "./ViewerFilmstrip";
 
 /** Mismo corte que usa el CSS del visor para pasar a diseño móvil (globals.css). */
 const MOBILE_BP = "(max-width: 860px)";
@@ -226,9 +227,6 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
               </button>
-              <button className="vm-iconbtn" onClick={() => setSheetOpen(true)} aria-label="Información">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M12 11v5.5" strokeLinecap="round" /><circle cx="12" cy="8" r="0.9" fill="currentColor" stroke="none" /></svg>
-              </button>
             </div>
 
             {/*
@@ -359,23 +357,37 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
               )}
             </motion.div>
 
-            {/* Barra flotante inferior de acciones — solo móvil */}
+            {/* Barra flotante inferior — carrete de miniaturas + acciones, solo móvil */}
             <div className={`vm-bottom ${chromeVisible ? "" : "vm-hidden"}`}>
-              <button className="vm-iconbtn" onClick={() => onFavorite(a.id, !a.isFavorite)} aria-label={a.isFavorite ? "Quitar de favoritos" : "Favorito"}>
-                <svg width="21" height="21" viewBox="0 0 24 24" fill={a.isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8"><path d="M12 17.3 6.2 20l1.1-6.3L2.5 9.2l6.4-.9L12 2.5l3.1 5.8 6.4.9-4.8 4.5L17.8 20z" /></svg>
-              </button>
-              <a className="vm-iconbtn" href={`/api/dl/${a.id}`} aria-label="Descargar">
-                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v12m0 0 4.5-4.5M12 16l-4.5-4.5M5 19h14" /></svg>
-              </a>
-              <button
-                className="vm-iconbtn vm-danger"
-                onClick={() => {
-                  if (confirm(`Borrar ${a.filename}? Es definitivo.`)) onDelete(a.id);
-                }}
-                aria-label="Borrar"
-              >
-                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m2 0-.8 12.1a2 2 0 0 1-2 1.9H9.8a2 2 0 0 1-2-1.9L7 7" /></svg>
-              </button>
+              {assets.length > 1 && index !== null && (
+                <ViewerFilmstrip assets={assets} index={index} onIndex={onIndex} />
+              )}
+              <div className="vm-toolbar">
+                <div className="vm-pill">
+                  <a className="vm-iconbtn" href={`/api/dl/${a.id}`} aria-label="Descargar">
+                    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v12m0 0 4.5-4.5M12 16l-4.5-4.5M5 19h14" /></svg>
+                  </a>
+                </div>
+                <div className="vm-pill">
+                  <button className="vm-iconbtn" onClick={() => onFavorite(a.id, !a.isFavorite)} aria-label={a.isFavorite ? "Quitar de favoritos" : "Favorito"}>
+                    <svg width="21" height="21" viewBox="0 0 24 24" fill={a.isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8"><path d="M12 17.3 6.2 20l1.1-6.3L2.5 9.2l6.4-.9L12 2.5l3.1 5.8 6.4.9-4.8 4.5L17.8 20z" /></svg>
+                  </button>
+                  <button className="vm-iconbtn" onClick={() => setSheetOpen(true)} aria-label="Información">
+                    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="9" /><path d="M12 11v5.5" strokeLinecap="round" /><circle cx="12" cy="8" r="0.9" fill="currentColor" stroke="none" /></svg>
+                  </button>
+                </div>
+                <div className="vm-pill">
+                  <button
+                    className="vm-iconbtn vm-danger"
+                    onClick={() => {
+                      if (confirm(`Borrar ${a.filename}? Es definitivo.`)) onDelete(a.id);
+                    }}
+                    aria-label="Borrar"
+                  >
+                    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m2 0-.8 12.1a2 2 0 0 1-2 1.9H9.8a2 2 0 0 1-2-1.9L7 7" /></svg>
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="viewer-panel">
