@@ -647,7 +647,12 @@ async function generarPreviews(log: FastifyBaseLoggerLike): Promise<boolean> {
  *
  * Va de lo más reciente a lo más antiguo (es lo que se abre) y es muy barato:
  * 6 MB por vídeo a 20 MB/s.
+ *
+ * ARRANQUE EN FRÍO: un deploy borra esta caché (vive en el contenedor). Durante
+ * los primeros 6 min tras arrancar se van 10 por vuelta en vez de 4, para que
+ * la biblioteca vuelva a abrirse rápido cuanto antes; luego baja el ritmo.
  */
+const bootAt = Date.now();
 async function precargarArranques(log: FastifyBaseLoggerLike): Promise<number> {
   const rows = (
     await query<{ original_key: string; filename: string }>(
@@ -657,6 +662,7 @@ async function precargarArranques(log: FastifyBaseLoggerLike): Promise<number> {
     ).catch(() => ({ rows: [] as { original_key: string; filename: string }[] }))
   ).rows;
 
+  const cap = Date.now() - bootAt < 6 * 60_000 ? 10 : 4;
   let hechos = 0;
   for (const a of rows) {
     if (streamingActivo()) break; // si estás viendo algo, esto puede esperar
@@ -664,7 +670,7 @@ async function precargarArranques(log: FastifyBaseLoggerLike): Promise<number> {
     try {
       ingestState.lastStep = `preparando arranque de "${a.filename}"`;
       if (await tgEnsureHead(a.original_key)) hechos++;
-      if (hechos >= 4) break; // 4 por vuelta: no monopoliza nada
+      if (hechos >= cap) break;
     } catch (e) {
       log.warn({ f: a.filename, err: (e as Error)?.message }, "arranque: no se pudo precargar");
       break;

@@ -44,7 +44,10 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
         const v = assets[n];
         if (!v) continue;
         if (v.kind === "video") {
-          void fetch(`/api/media/${v.id}`, { headers: { Range: "bytes=0-524287" } }).catch(() => {});
+          // 2 MB del arranque del vecino: suficiente para que empiece al
+          // instante al pasar a él (con preview lista, suele ser el vídeo casi
+          // entero). Rango pequeño = no le roba banda al que ves ahora.
+          void fetch(`/api/media/${v.id}`, { headers: { Range: "bytes=0-2097151" } }).catch(() => {});
         } else if (v.posterUrl) {
           const img = new Image();
           img.src = v.posterUrl;
