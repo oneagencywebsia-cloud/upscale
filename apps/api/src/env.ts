@@ -71,4 +71,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.17.2-warmup";
+export const VERSION = "0.18.0-archivos-grandes";

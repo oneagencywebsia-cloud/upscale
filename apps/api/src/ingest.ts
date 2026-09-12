@@ -20,6 +20,7 @@ import {
   streamingActivo,
   tgEnsureHead,
   tieneArranque,
+  pinCachedFile,
 } from "./telegram.js";
 
 /** Vídeos/archivos por encima de esto: se ingiere solo la cabecera (rápido) y el
@@ -607,13 +608,19 @@ async function generarPreviews(log: FastifyBaseLoggerLike): Promise<boolean> {
 
   const stamp = randomBytes(4).toString("hex");
   const out = join(env.TMP_DIR, `prev-${a.id}-${stamp}.mp4`);
+  let unpin: (() => void) | null = null;
   try {
     ingestState.lastStep = `preparando copia de reproducción de "${a.filename}"`;
     log.info({ f: a.filename, mb: Math.round(Number(a.bytes) / 1e6) }, "preview: empieza");
     await mkdir(env.TMP_DIR, { recursive: true });
 
-    // hace falta el original ENTERO: ffmpeg tiene que decodificarlo todo
+    // hace falta el original ENTERO: ffmpeg tiene que decodificarlo todo. En
+    // un vídeo de 20 min esto pueden ser varios GB — más que TODA la caché —
+    // así que se protege de que el limpiador lo expulse mientras se usa (si
+    // no, se autoborraba nada más descargarse y cada intento volvía a bajar
+    // el original entero desde cero, sin avanzar nunca).
     const src = await tgEnsureLocal(a.original_key, 4);
+    unpin = pinCachedFile(src);
     await makePreview(src, out);
 
     const { size } = await stat(out);
@@ -621,7 +628,7 @@ async function generarPreviews(log: FastifyBaseLoggerLike): Promise<boolean> {
 
     const m = a.original_key.match(/^orig\/(.+)\.[a-z0-9]+$/i);
     const key = `prev/${m?.[1] ?? a.id}.mp4`;
-    await withTimeout(tgPut(key, out), 10 * 60_000, "subir preview");
+    await withTimeout(tgPut(key, out), 20 * 60_000, "subir preview");
     await query("update assets set preview_key = $1, preview_bytes = $2, preview_state = 0 where id = $3", [
       key,
       size,
@@ -634,6 +641,7 @@ async function generarPreviews(log: FastifyBaseLoggerLike): Promise<boolean> {
   } catch (e) {
     log.warn({ f: a.filename, err: (e as Error)?.message }, "preview: falló");
   } finally {
+    unpin?.();
     await rm(out, { force: true }).catch(() => {});
   }
   return true;

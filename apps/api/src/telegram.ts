@@ -212,6 +212,20 @@ function cachePath(key: string): string {
   return isDerivative(key) ? join(THUMB_DIR(), hash) : join(env.TG_CACHE_DIR, hash);
 }
 
+// Archivos "en uso" que NUNCA debe tocar el limpiador aunque él solo supere
+// todo el presupuesto — p. ej. el original de un vídeo de 20 min (varios GB)
+// mientras dura su conversión a copia ligera. Sin esto: se descarga, el
+// limpiador lo expulsa porque no cabe en la caché, y la siguiente vez hay que
+// volver a descargarlo entero — para siempre. Ver pinCachedFile().
+const pinnedCache = new Set<string>();
+/** Protege `p` de pruneDir mientras dure una operación larga sobre él (p. ej.
+ *  transcodificar). Llamar a la función que devuelve para soltarlo — SIEMPRE,
+ *  en un finally, acabe bien o mal la operación. */
+export function pinCachedFile(p: string): () => void {
+  pinnedCache.add(p);
+  return () => pinnedCache.delete(p);
+}
+
 async function pruneDir(dir: string, maxBytes: number): Promise<void> {
   try {
     const files = await readdir(dir);
@@ -225,9 +239,17 @@ async function pruneDir(dir: string, maxBytes: number): Promise<void> {
     const list = stats.filter(Boolean) as { p: string; size: number; at: number }[];
     let total = list.reduce((n, x) => n + x.size, 0);
     if (total <= maxBytes) return;
-    list.sort((a, b) => a.at - b.at);
-    for (const x of list) {
+    list.sort((a, b) => a.at - b.at); // más antiguo primero
+    // NUNCA se borra el más reciente, aunque él solo ya supere el presupuesto
+    // — un original de varios GB (más grande que TODA la caché) es justo lo
+    // que se acaba de descargar para poder usarlo; borrarlo ahora sería tirar
+    // esa descarga a la basura y repetirla la próxima vez, sin fin. Se acepta
+    // pasarse del presupuesto por ese archivo — en cuanto entre algo más
+    // nuevo, deja de ser "el más reciente" y ya puede salir él solo.
+    const candidates = list.length > 1 ? list.slice(0, -1) : [];
+    for (const x of candidates) {
       if (total <= maxBytes) break;
+      if (pinnedCache.has(x.p)) continue; // en uso activo — intocable
       await rm(x.p, { force: true });
       total -= x.size;
     }
@@ -1111,6 +1133,7 @@ export async function tgDiag(sampleKey?: string): Promise<Record<string, unknown
       arranquesDeVideo: await medir(HEADS_DIR()),
       presupuestoMb: env.TG_CACHE_MAX_MB,
       calentando: [...warming].length,
+      protegidos: pinnedCache.size, // en uso activo (p. ej. transcodificando) — el limpiador no los toca
       reproduciendoAhora: streamingActivo(),
     };
   } catch (e) {

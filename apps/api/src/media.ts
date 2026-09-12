@@ -398,11 +398,15 @@ export async function makePreview(src: string, out: string, maxH = 1080): Promis
       "-c:a", "aac",
       "-b:a", "128k",
       "-movflags", "+faststart",
-      "-threads", "2",
+      "-threads", "3",
       out,
     ],
-    // un 4K largo puede tardar varios minutos; corre en 2º plano, no bloquea nada
-    { maxBuffer: 8 * 1024 * 1024, timeout: 25 * 60_000 },
+    // Un vídeo de 20 min en 4K puede tardar bastante en "veryfast" con pocos
+    // hilos — 90 min de margen. Corre en su propio worker en 2º plano (ver
+    // startPreviewWorker en ingest.ts), así que un margen amplio no bloquea
+    // nada más: es preferible a que se dé por vencido a mitad de camino y
+    // haya que empezar de cero en el siguiente intento.
+    { maxBuffer: 8 * 1024 * 1024, timeout: 90 * 60_000 },
   );
 }
 
