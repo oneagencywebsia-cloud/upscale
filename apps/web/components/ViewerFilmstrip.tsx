@@ -32,14 +32,26 @@ export default function ViewerFilmstrip({ assets, index, onIndex }: Props) {
   const programmatic = useRef(false);
   const settleTimer = useRef<number | undefined>(undefined);
 
-  const centerOn = (i: number, smooth: boolean) => {
+  // `reportWhenSettled`: al TOCAR una miniatura directamente, no se avisa del
+  // índice hasta que termine de centrarse del todo — no a mitad de camino.
+  // En un móvil real un toque casi nunca está 100% quieto: ese pelín de
+  // movimiento puede arrancar el scroll nativo, y si se informa antes de
+  // tiempo, el ajuste de encaje final (más abajo) puede aterrizar en la
+  // miniatura de al lado y pisar el toque con la vecina — "lleva a otra foto".
+  const centerOn = (i: number, smooth: boolean, reportWhenSettled = false) => {
     const rail = railRef.current;
     const el = itemRefs.current.get(i);
     if (!rail || !el) return;
     programmatic.current = true;
     rail.scrollTo({ left: el.offsetLeft - rail.clientWidth / 2 + el.clientWidth / 2, behavior: smooth ? "smooth" : "auto" });
     window.clearTimeout(settleTimer.current);
-    settleTimer.current = window.setTimeout(() => (programmatic.current = false), smooth ? 450 : 60);
+    settleTimer.current = window.setTimeout(() => {
+      programmatic.current = false;
+      if (reportWhenSettled) {
+        lastReported.current = i;
+        onIndex(i);
+      }
+    }, smooth ? 450 : 60);
   };
 
   // el índice cambió por otra vía (deslizar la foto grande, flechas, tocar
@@ -82,13 +94,9 @@ export default function ViewerFilmstrip({ assets, index, onIndex }: Props) {
 
   const from = Math.max(0, index - WINDOW);
   const to = Math.min(assets.length, index + WINDOW + 1);
-  // `assets` va de más reciente a más antigua (index 0 = la última foto). Se
-  // pinta al revés para que la tira lea como un carrete de verdad: lo más
-  // antiguo a la izquierda, lo más reciente a la derecha.
-  const visible = assets
-    .slice(from, to)
-    .map((a, i) => ({ a, realIndex: from + i }))
-    .reverse();
+  // `assets` va de más reciente a más antigua (index 0 = la última foto) y se
+  // pinta en ese mismo orden: lo más reciente a la izquierda.
+  const visible = assets.slice(from, to).map((a, i) => ({ a, realIndex: from + i }));
 
   return (
     <div ref={railRef} className="vm-film" role="listbox" aria-label="Miniaturas — desliza para recorrer" onScroll={onScroll}>
@@ -105,11 +113,7 @@ export default function ViewerFilmstrip({ assets, index, onIndex }: Props) {
           role="option"
           aria-selected={realIndex === index}
           aria-label={a.filename}
-          onClick={() => {
-            lastReported.current = realIndex;
-            onIndex(realIndex);
-            centerOn(realIndex, true);
-          }}
+          onClick={() => centerOn(realIndex, true, true)}
         >
           <img src={a.thumbUrl} alt="" draggable={false} loading="lazy" decoding="async" />
         </button>
