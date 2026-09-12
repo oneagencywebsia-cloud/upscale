@@ -2391,7 +2391,9 @@ footer.status .dot {
     background: #131313;
     opacity: 0.5;
     transform: scale(0.86);
-    transition: opacity 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+    /* rápida a propósito: al deslizar, el cuadro debe sentirse pegado a la
+       posición real, no yendo un pelín por detrás */
+    transition: opacity 0.06s linear, transform 0.06s linear, box-shadow 0.06s linear;
     box-shadow: 0 0 0 0 #fff;
     scroll-snap-align: center;
   }

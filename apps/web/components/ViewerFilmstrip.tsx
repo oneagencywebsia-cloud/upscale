@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { AssetListItem } from "@upscale/shared";
 
 // vecinos a cada lado de la foto actual: de sobra para poder recorrer la tira
@@ -53,6 +53,19 @@ export default function ViewerFilmstrip({ assets, index, onIndex }: Props) {
       }
     }, smooth ? 450 : 60);
   };
+
+  // Al MONTAR (se abre el visor), la tira arranca en scrollLeft:0 — el
+  // extremo de lo más reciente, no la foto que se acaba de tocar. Sin este
+  // centrado instantáneo, el primer scroll (el propio navegador ajustando el
+  // scroll-snap al layout inicial) detecta "lo más cercano al centro desde
+  // 0" y avisa de ESE índice, PISANDO la foto que realmente se tocó — por
+  // eso siempre abría la más reciente pasara lo que pasara. Se hace ANTES de
+  // pintar (useLayoutEffect) y con programmatic ya en marcha, para que ese
+  // primer ajuste del navegador no llegue a reportarse nunca.
+  useLayoutEffect(() => {
+    centerOn(index, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // el índice cambió por otra vía (deslizar la foto grande, flechas, tocar
   // una miniatura ya centra sola) → recentrar la tira sobre él
