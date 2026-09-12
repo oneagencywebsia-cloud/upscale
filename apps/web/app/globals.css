@@ -852,9 +852,24 @@ footer.status .dot {
   }
 }
 @media (max-width: 620px) {
-  .seg,
   .search {
     display: none;
+  }
+  /* El filtro Todo/Fotos/Vídeos/★ no cabe en la fila de iconos: en vez de
+     ocultarlo sin más (antes no había NINGUNA forma de ver solo vídeos en el
+     móvil), baja a una segunda fila propia dentro de la misma píldora. */
+  .bar {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .seg {
+    order: 20;
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+  .seg a {
+    flex: 1;
+    text-align: center;
   }
 }
 
@@ -2185,29 +2200,197 @@ footer.status .dot {
   }
 }
 
-/* Visor en móvil: que SÍ se pueda desplazar el panel */
+/* ===================================================================
+   Visor en móvil — a pantalla completa, estilo Fotos de iOS.
+   Foto/vídeo a sangre, barras flotantes que se ocultan al tocar la imagen,
+   deslizar para pasar de una a otra, deslizar hacia abajo para cerrar, y los
+   datos técnicos en una hoja que sube desde abajo (no un panel fijo que
+   empuja el contenido y obliga a hacer scroll para ver "Cerrar" o "Borrar").
+   =================================================================== */
+.vm-top,
+.vm-bottom,
+.vm-scrim,
+.vm-sheet {
+  display: none;
+}
 @media (max-width: 860px) {
   .viewer {
     display: block;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    touch-action: pan-y;
+    padding: 0;
+    background: #000;
+    overflow: hidden;
+    touch-action: none;
   }
   .viewer-stage {
+    display: block;
+    position: relative;
+    width: 100%;
+    height: 100%;
+    height: 100dvh;
+    max-width: 100%;
+    max-height: none;
+  }
+
+  /* la foto/vídeo ocupa TODA la pantalla, de borde a borde */
+  .viewer-media {
+    position: absolute;
+    inset: 0;
+    border-radius: 0;
+    border: 0;
+  }
+  .viewer-media img,
+  .viewer-media video {
+    max-width: 100vw;
+    max-height: 100dvh;
+  }
+  /* la foto sí lleva el gesto propio (deslizar/tocar) — el vídeo necesita sus
+     dedos libres para los controles nativos (pausa, arrastrar el tiempo) */
+  .viewer-photo {
+    touch-action: none;
+    width: 100%;
+    height: 100%;
+  }
+  /* en foto, deslizar sustituye a las flechas; en vídeo se quedan (más
+     pequeñas, a los lados) porque ahí no hay gesto de deslizar */
+  .viewer-nav {
+    display: none;
+  }
+  .viewer-media:has(video) .viewer-nav {
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    top: auto;
+    bottom: 14px;
+    transform: none;
+  }
+  .viewer-media:has(video) .viewer-nav.prev {
+    left: 10px;
+  }
+  .viewer-media:has(video) .viewer-nav.next {
+    right: 10px;
+  }
+
+  /* el panel de datos de escritorio y sus botones no se usan en móvil:
+     los reemplazan la barra inferior de iconos y la hoja de información */
+  .viewer-panel {
+    display: none;
+  }
+
+  /* barras flotantes: degradado oscuro para leer los iconos sobre cualquier
+     foto, sin caja sólida que tape más imagen de la necesaria */
+  .vm-top,
+  .vm-bottom {
+    display: flex;
+    align-items: center;
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 5;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+  }
+  .vm-hidden {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .vm-top {
+    top: 0;
+    justify-content: space-between;
+    padding: calc(env(safe-area-inset-top) + 10px) 10px 28px;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.55), transparent);
+  }
+  .vm-bottom {
+    bottom: 0;
+    justify-content: space-around;
+    padding: 22px 24px calc(env(safe-area-inset-bottom) + 16px);
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.6), transparent);
+  }
+  .vm-iconbtn {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 0;
+    background: transparent;
+    color: #fff;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .vm-iconbtn:active {
+    background: rgba(255, 255, 255, 0.14);
+  }
+  .vm-danger {
+    color: #ff8a80;
+  }
+
+  /* hoja de información: sube desde abajo, no un panel que empuja la foto */
+  .vm-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 8;
+    background: rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+  .vm-scrim.vm-show {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .vm-sheet {
     display: flex;
     flex-direction: column;
-    height: auto;
-    min-height: 100%;
-    max-width: 100%;
-    overflow: visible;
+    gap: 14px;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9;
+    max-height: 72vh;
+    overflow-y: auto;
+    padding: 10px 18px calc(22px + env(safe-area-inset-bottom));
+    background: var(--surface);
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 -18px 50px -20px rgba(0, 0, 0, 0.6);
+    transform: translateY(100%);
+    transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
-  .viewer-media {
-    flex: none;
+  .vm-sheet.vm-show {
+    transform: translateY(0);
   }
-  .viewer-panel {
+  .vm-sheet-handle {
+    width: 36px;
+    height: 4px;
+    margin: 2px auto 0;
+    border-radius: 999px;
+    background: var(--stroke-strong);
+  }
+  .vm-sheet-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .vm-sheet-head h3 {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-dim);
+  }
+  .vm-done {
     flex: none;
-    overflow: visible;
-    padding-bottom: calc(20px + env(safe-area-inset-bottom));
+    border: 0;
+    background: transparent;
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 14px;
+    padding: 4px 2px;
+    cursor: pointer;
   }
 }
 

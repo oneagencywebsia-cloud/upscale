@@ -2,9 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, animate, motion, useMotionValue } from "motion/react";
 import type { AssetListItem } from "@upscale/shared";
 import { specRows } from "@/lib/format";
+
+/** Mismo corte que usa el CSS del visor para pasar a diseño móvil (globals.css). */
+const MOBILE_BP = "(max-width: 860px)";
 
 interface Props {
   assets: AssetListItem[];
@@ -21,6 +24,28 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
 
   const open = index !== null;
   const a = open ? assets[index] : null;
+
+  // Móvil: visor a pantalla completa estilo Fotos — barras que se ocultan al
+  // tocar la imagen, hoja de datos técnicos que sube desde abajo en vez de
+  // panel fijo, deslizar hacia abajo para cerrar. En escritorio no cambia nada.
+  const [mobile, setMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(MOBILE_BP);
+    setMobile(mq.matches);
+    const onChange = () => setMobile(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  const [chromeVisible, setChromeVisible] = useState(true);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  // arrastre vertical de la imagen (para el gesto de cerrar deslizando)
+  const dragY = useMotionValue(0);
+  const gesture = useRef({ active: false, x0: 0, y0: 0, t0: 0, axis: null as null | "x" | "y" });
+  useEffect(() => {
+    setChromeVisible(true);
+    setSheetOpen(false);
+    dragY.set(0);
+  }, [a?.id, dragY]);
 
   const [videoState, setVideoState] = useState<"loading" | "ready" | "error" | "slow">("loading");
   const [buffering, setBuffering] = useState(false);
@@ -83,6 +108,48 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
     [index, assets.length, onIndex],
   );
 
+  // Gesto táctil del visor móvil: un solo dedo decide en marcha si es un toque
+  // (alterna las barras), un deslizamiento horizontal (foto siguiente/anterior)
+  // o vertical hacia abajo (cerrar) — igual que Fotos de iOS. Solo en móvil y
+  // nunca sobre una Live Photo (ahí el dedo ya controla el mantener pulsado).
+  const onMediaPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (!mobile || isLive) return;
+      gesture.current = { active: true, x0: e.clientX, y0: e.clientY, t0: Date.now(), axis: null };
+    },
+    [mobile, isLive],
+  );
+  const onMediaPointerMove = useCallback((e: React.PointerEvent) => {
+    const g = gesture.current;
+    if (!g.active) return;
+    const dx = e.clientX - g.x0;
+    const dy = e.clientY - g.y0;
+    if (!g.axis) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      g.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+    }
+    if (g.axis === "y" && dy > 0) dragY.set(dy);
+  }, [dragY]);
+  const onMediaPointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      const g = gesture.current;
+      if (!g.active) return;
+      g.active = false;
+      const dx = e.clientX - g.x0;
+      const dy = e.clientY - g.y0;
+      const dt = Date.now() - g.t0;
+      if (g.axis === "x") {
+        if (Math.abs(dx) > 56 && dt < 650) go(dx < 0 ? 1 : -1);
+      } else if (g.axis === "y") {
+        if (dy > 110 || (dy > 44 && dt < 250)) onClose();
+        else animate(dragY, 0, { type: "spring", stiffness: 420, damping: 34 });
+      } else {
+        setChromeVisible((v) => !v);
+      }
+    },
+    [go, onClose, dragY],
+  );
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -119,7 +186,29 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="viewer-media">
+            {/* Barra flotante superior — solo móvil (CSS la oculta en escritorio) */}
+            <div className={`vm-top ${chromeVisible ? "" : "vm-hidden"}`}>
+              <button
+                className="vm-iconbtn"
+                onClick={() => (sheetOpen ? setSheetOpen(false) : onClose())}
+                aria-label={sheetOpen ? "Cerrar información" : "Cerrar"}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
+              </button>
+              <button className="vm-iconbtn" onClick={() => setSheetOpen(true)} aria-label="Información">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M12 11v5.5" strokeLinecap="round" /><circle cx="12" cy="8" r="0.9" fill="currentColor" stroke="none" /></svg>
+              </button>
+            </div>
+
+            {/*
+              El gesto táctil (deslizar/tocar) va SOLO en la foto (.viewer-photo
+              más abajo), nunca en el contenedor del vídeo: los controles nativos
+              del <video> necesitan sus propios toques (pausa, arrastrar la
+              barra de tiempo) y agarrarlos aquí arriba se los quitaría.
+              El desplazamiento vertical para cerrar sí es de este contenedor
+              entero (`dragY`), así se ve la foto entera deslizándose.
+            */}
+            <motion.div className="viewer-media" style={{ y: dragY }}>
               {a.kind === "video" ? (
                 <>
                   <motion.video
@@ -170,8 +259,10 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
               ) : (
                 <div
                   className="viewer-photo"
-                  onPointerDown={isLive ? liveStart : undefined}
-                  onPointerUp={isLive ? liveStop : undefined}
+                  onPointerDown={isLive ? liveStart : onMediaPointerDown}
+                  onPointerMove={isLive ? undefined : onMediaPointerMove}
+                  onPointerUp={isLive ? liveStop : onMediaPointerUp}
+                  onPointerCancel={isLive ? undefined : onMediaPointerUp}
                   onPointerLeave={isLive ? liveStop : undefined}
                   onContextMenu={isLive ? (e) => e.preventDefault() : undefined}
                 >
@@ -211,6 +302,25 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
                   <button className="viewer-nav next" onClick={() => go(1)} disabled={index === assets.length - 1} aria-label="Siguiente">›</button>
                 </>
               )}
+            </motion.div>
+
+            {/* Barra flotante inferior de acciones — solo móvil */}
+            <div className={`vm-bottom ${chromeVisible ? "" : "vm-hidden"}`}>
+              <button className="vm-iconbtn" onClick={() => onFavorite(a.id, !a.isFavorite)} aria-label={a.isFavorite ? "Quitar de favoritos" : "Favorito"}>
+                <svg width="21" height="21" viewBox="0 0 24 24" fill={a.isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8"><path d="M12 17.3 6.2 20l1.1-6.3L2.5 9.2l6.4-.9L12 2.5l3.1 5.8 6.4.9-4.8 4.5L17.8 20z" /></svg>
+              </button>
+              <a className="vm-iconbtn" href={`/api/dl/${a.id}`} aria-label="Descargar">
+                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v12m0 0 4.5-4.5M12 16l-4.5-4.5M5 19h14" /></svg>
+              </a>
+              <button
+                className="vm-iconbtn vm-danger"
+                onClick={() => {
+                  if (confirm(`Borrar ${a.filename}? Es definitivo.`)) onDelete(a.id);
+                }}
+                aria-label="Borrar"
+              >
+                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m2 0-.8 12.1a2 2 0 0 1-2 1.9H9.8a2 2 0 0 1-2-1.9L7 7" /></svg>
+              </button>
             </div>
 
             <div className="viewer-panel">
@@ -256,6 +366,31 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
                   Borrar
                 </button>
               </div>
+            </div>
+
+            {/* Hoja de información móvil — sube desde abajo al tocar el icono ⓘ */}
+            <div className={`vm-scrim ${sheetOpen ? "vm-show" : ""}`} onClick={() => setSheetOpen(false)} aria-hidden="true" />
+            <div className={`vm-sheet ${sheetOpen ? "vm-show" : ""}`} onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Información del archivo">
+              <div className="vm-sheet-handle" aria-hidden="true" />
+              <div className="vm-sheet-head">
+                <h3>{a.filename}</h3>
+                <button className="vm-done" onClick={() => setSheetOpen(false)}>Hecho</button>
+              </div>
+
+              <div className="integ">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="m8.5 12 2.5 2.5 4.5-5" /></svg>
+                <div>Original íntegro<small>SHA-256 {a.sha256.slice(0, 16)}… · sin recompresión</small></div>
+              </div>
+
+              <dl className="specs">
+                {specRows(a).map(([k, v]) => (
+                  <div key={k}><dt>{k}</dt><dd>{v}</dd></div>
+                ))}
+              </dl>
+
+              {a.liveVideoUrl && (
+                <a className="btn" href={a.liveVideoUrl}>Vídeo Live</a>
+              )}
             </div>
           </motion.div>
         </motion.div>
