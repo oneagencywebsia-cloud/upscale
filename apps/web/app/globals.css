@@ -2241,8 +2241,14 @@ footer.status .dot {
     object-fit: contain;
   }
   /* la foto vecina, esperando fuera de pantalla hasta que el arrastre la
-     acerca — mismo tratamiento visual que la foto principal (letterbox negro) */
-  .vm-peek {
+     acerca — mismo tratamiento visual que la foto principal (letterbox negro).
+     Selector calificado como ".viewer-media .vm-peek" (dos clases) a propósito:
+     la regla base de escritorio ".viewer-media img" tiene más peso que un
+     ".vm-peek" suelto (una clase sola pierde contra clase+elemento aunque
+     venga después en el archivo) — con solo una clase, esta regla NUNCA
+     llegaba a aplicarse y la vecina se quedaba con el tamaño de escritorio
+     (72vw), invadiendo la pantalla en reposo. */
+  .viewer-media .vm-peek {
     display: block;
     position: absolute;
     inset: 0;

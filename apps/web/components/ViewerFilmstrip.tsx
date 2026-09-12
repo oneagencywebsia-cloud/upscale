@@ -50,7 +50,13 @@ export default function ViewerFilmstrip({ assets, index, onIndex }: Props) {
 
   const from = Math.max(0, index - WINDOW);
   const to = Math.min(assets.length, index + WINDOW + 1);
-  const visible = assets.slice(from, to);
+  // `assets` va de más reciente a más antigua (index 0 = la última foto). Se
+  // pinta al revés para que la tira lea como un carrete de verdad: lo más
+  // antiguo a la izquierda, lo más reciente a la derecha.
+  const visible = assets
+    .slice(from, to)
+    .map((a, i) => ({ a, realIndex: from + i }))
+    .reverse();
 
   return (
     <div
@@ -69,8 +75,7 @@ export default function ViewerFilmstrip({ assets, index, onIndex }: Props) {
       onPointerCancel={() => (dragging.current = false)}
     >
       <div className="vm-film-pad" aria-hidden="true" />
-      {visible.map((a, i) => {
-        const realIndex = from + i;
+      {visible.map(({ a, realIndex }) => {
         return (
           <button
             key={a.id}
