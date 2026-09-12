@@ -2229,9 +2229,15 @@ footer.status .dot {
      brusco al llegar). Con 100%/100% + object-fit el hueco ya está reservado
      desde el primer fotograma — llegue la imagen antes o después, no hay
      salto: solo aparece donde ya tenía su sitio. */
+  /* max-width/max-height explícitos a "none": la regla base de escritorio
+     (.viewer-media img,.viewer-media video) trae min(72vw,920px)/84vh — SON
+     propiedades aparte de width/height, así que no basta con poner width:100%
+     para anularlas; sin este "none" seguían aplicando también en móvil. */
   .viewer-photo img {
     width: 100%;
     height: 100%;
+    max-width: none;
+    max-height: none;
     object-fit: contain;
   }
   /* la foto vecina, esperando fuera de pantalla hasta que el arrastre la
@@ -2242,6 +2248,8 @@ footer.status .dot {
     inset: 0;
     width: 100%;
     height: 100%;
+    max-width: none;
+    max-height: none;
     object-fit: contain;
     background: #000;
     pointer-events: none;
