@@ -2213,16 +2213,17 @@ footer.status .dot {
     border-radius: 0;
     border: 0;
   }
-  .viewer-media video {
-    max-width: 100vw;
-    max-height: 100dvh;
-  }
-  /* la foto sí lleva el gesto propio (deslizar/tocar) — el vídeo necesita sus
-     dedos libres para los controles nativos (pausa, arrastrar el tiempo) */
-  .viewer-photo {
+  /* la foto y el vídeo llevan el mismo gesto propio (deslizar/tocar): en
+     móvil el vídeo usa controles hechos a mano (más abajo), no los nativos
+     del navegador, así que puede compartir toda la superficie táctil igual
+     que una foto — sin ellos, el gesto tenía que dejarle el dedo libre al
+     <video> y deslizar sobre él no hacía nada. */
+  .viewer-photo,
+  .viewer-video {
     touch-action: none;
     width: 100%;
     height: 100%;
+    position: relative;
   }
   /* CLAVE contra el "teletransporte": antes el <img> no reservaba espacio
      hasta que la imagen terminaba de decodificar (tamaño natural 0x0 → salto
@@ -2233,7 +2234,8 @@ footer.status .dot {
      (.viewer-media img,.viewer-media video) trae min(72vw,920px)/84vh — SON
      propiedades aparte de width/height, así que no basta con poner width:100%
      para anularlas; sin este "none" seguían aplicando también en móvil. */
-  .viewer-photo img {
+  .viewer-photo img,
+  .viewer-video video {
     width: 100%;
     height: 100%;
     max-width: none;
@@ -2261,25 +2263,46 @@ footer.status .dot {
     pointer-events: none;
     will-change: transform;
   }
-  /* en foto, deslizar sustituye a las flechas; en vídeo se quedan (más
-     pequeñas, a los lados) porque ahí no hay gesto de deslizar */
+  /* deslizar sustituye a las flechas, en foto Y en vídeo (los dos llevan ya
+     el mismo gesto) */
   .viewer-nav {
     display: none;
   }
-  .viewer-media:has(video) .viewer-nav {
-    display: grid;
-    place-items: center;
-    width: 38px;
-    height: 38px;
-    top: auto;
-    bottom: 14px;
-    transform: none;
+
+  /* botón grande de play/pausa — solo aparece en pausa, como Fotos/YouTube */
+  .viewer-play {
+    pointer-events: none;
   }
-  .viewer-media:has(video) .viewer-nav.prev {
-    left: 10px;
+
+  /* barra de progreso propia del vídeo: fina, encima del degradado inferior.
+     Zona de toque más alta que su hilo visual (14 px) para no obligar a
+     acertar en una línea de 3 px con el dedo. */
+  .vm-scrub {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: 6px;
+    height: 14px;
+    display: flex;
+    align-items: center;
+    touch-action: none;
+    z-index: 2;
   }
-  .viewer-media:has(video) .viewer-nav.next {
-    right: 10px;
+  .vm-scrub::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 3px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.3);
+  }
+  .vm-scrub-fill {
+    position: relative;
+    height: 3px;
+    border-radius: 999px;
+    background: #fff;
+    pointer-events: none;
   }
 
   /* el panel de datos de escritorio y sus botones no se usan en móvil:
@@ -2309,6 +2332,13 @@ footer.status .dot {
     justify-content: flex-start;
     padding: calc(env(safe-area-inset-top) + 10px) 10px 28px;
     background: linear-gradient(to bottom, rgba(0, 0, 0, 0.55), transparent);
+    /* solo el botón debe responder al toque — el resto de la franja es
+       transparente de fondo pero, sin esto, seguía "tapando" cualquier
+       cosa que hubiera debajo en esa misma zona (p. ej. controles nativos) */
+    pointer-events: none;
+  }
+  .vm-top .vm-iconbtn {
+    pointer-events: auto;
   }
   /* barra inferior: tira de miniaturas + fila de píldoras, sobre negro sólido
      (igual que Fotos — un degradado se leería mal detrás de la tira) */
