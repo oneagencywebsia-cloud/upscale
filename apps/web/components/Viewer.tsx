@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AnimatePresence, animate, motion, useMotionValue } from "motion/react";
+import { AnimatePresence, animate, motion, useMotionValue, useTransform } from "motion/react";
 import type { AssetListItem } from "@upscale/shared";
 import { specRows } from "@/lib/format";
 
@@ -38,14 +38,30 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
   }, []);
   const [chromeVisible, setChromeVisible] = useState(true);
   const [sheetOpen, setSheetOpen] = useState(false);
-  // arrastre vertical de la imagen (para el gesto de cerrar deslizando)
+  // arrastre de la foto: vertical cierra el visor, horizontal pasa a la
+  // siguiente/anterior — y esta última DE VERDAD sigue al dedo en vivo, con la
+  // vecina asomando por el borde (como Fotos/Instagram), no un corte al soltar.
   const dragY = useMotionValue(0);
+  const dragX = useMotionValue(0);
+  // la vecina entra desde el borde opuesto según hacia dónde se arrastra;
+  // calc(...) es relativo al ancho de la propia imagen, no a la pantalla.
+  const nextPeekX = useTransform(dragX, (x) => `calc(100% + ${x}px)`);
+  const prevPeekX = useTransform(dragX, (x) => `calc(-100% + ${x}px)`);
+  // sensación de profundidad: según se arrastra, la foto actual se encoge y
+  // atenúa un pelín mientras la vecina gana tamaño y opacidad — así se siente
+  // que una empuja a la otra, no dos pegatinas planas deslizándose.
+  const dragAbs = useTransform(dragX, (x) => Math.abs(x));
+  const dragScale = useTransform(dragAbs, [0, 260], [1, 0.94], { clamp: true });
+  const dragOpacity = useTransform(dragAbs, [0, 260], [1, 0.9], { clamp: true });
+  const peekScale = useTransform(dragAbs, [0, 260], [0.94, 1], { clamp: true });
+  const peekOpacity = useTransform(dragAbs, [0, 260], [0.7, 1], { clamp: true });
   const gesture = useRef({ active: false, x0: 0, y0: 0, t0: 0, axis: null as null | "x" | "y" });
   useEffect(() => {
     setChromeVisible(true);
     setSheetOpen(false);
     dragY.set(0);
-  }, [a?.id, dragY]);
+    dragX.set(0);
+  }, [a?.id, dragY, dragX]);
 
   const [videoState, setVideoState] = useState<"loading" | "ready" | "error" | "slow">("loading");
   const [buffering, setBuffering] = useState(false);
@@ -129,7 +145,8 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
       g.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
     }
     if (g.axis === "y" && dy > 0) dragY.set(dy);
-  }, [dragY]);
+    else if (g.axis === "x") dragX.set(dx);
+  }, [dragY, dragX]);
   const onMediaPointerUp = useCallback(
     (e: React.PointerEvent) => {
       const g = gesture.current;
@@ -137,9 +154,23 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
       g.active = false;
       const dx = e.clientX - g.x0;
       const dy = e.clientY - g.y0;
-      const dt = Date.now() - g.t0;
+      const dt = Math.max(1, Date.now() - g.t0);
       if (g.axis === "x") {
-        if (Math.abs(dx) > 56 && dt < 650) go(dx < 0 ? 1 : -1);
+        // rápido y decidido (aunque no haya llegado muy lejos) O ha cruzado un
+        // tercio de la pantalla: se completa el paso. Si no, rebota a su sitio
+        // — igual que Fotos: "casi lo suelto" no cuenta como haberlo soltado.
+        const w = window.innerWidth;
+        const committed = (Math.abs(dx) > 60 && dt < 220) || Math.abs(dx) > w * 0.32;
+        const canGo = dx < 0 ? index !== null && index < assets.length - 1 : index !== null && index > 0;
+        if (committed && canGo) {
+          const dir = dx < 0 ? 1 : -1; // +1 = siguiente (se arrastró hacia la izquierda)
+          void animate(dragX, -dir * w, { type: "spring", stiffness: 380, damping: 38, velocity: (dx / dt) * 1000 }).then(() => {
+            dragX.set(0);
+            go(dir);
+          });
+        } else {
+          animate(dragX, 0, { type: "spring", stiffness: 500, damping: 34 });
+        }
       } else if (g.axis === "y") {
         if (dy > 110 || (dy > 44 && dt < 250)) onClose();
         else animate(dragY, 0, { type: "spring", stiffness: 420, damping: 34 });
@@ -147,7 +178,7 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
         setChromeVisible((v) => !v);
       }
     },
-    [go, onClose, dragY],
+    [go, onClose, dragY, dragX, index, assets.length],
   );
 
   useEffect(() => {
@@ -257,8 +288,9 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
                   )}
                 </>
               ) : (
-                <div
+                <motion.div
                   className="viewer-photo"
+                  style={{ x: dragX, scale: dragScale, opacity: dragOpacity }}
                   onPointerDown={isLive ? liveStart : onMediaPointerDown}
                   onPointerMove={isLive ? undefined : onMediaPointerMove}
                   onPointerUp={isLive ? liveStop : onMediaPointerUp}
@@ -294,7 +326,30 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
                       </span>
                     </>
                   )}
-                </div>
+                </motion.div>
+              )}
+              {/* la foto vecina asoma por el borde mientras se arrastra — solo
+                  móvil y solo entre fotos (nunca compite por el dedo con los
+                  controles nativos de un vídeo) */}
+              {mobile && a.kind === "photo" && !isLive && index !== null && index < assets.length - 1 && (
+                <motion.img
+                  className="vm-peek"
+                  style={{ x: nextPeekX, scale: peekScale, opacity: peekOpacity }}
+                  src={assets[index + 1]!.posterUrl ?? assets[index + 1]!.thumbUrl}
+                  alt=""
+                  aria-hidden="true"
+                  draggable={false}
+                />
+              )}
+              {mobile && a.kind === "photo" && !isLive && index !== null && index > 0 && (
+                <motion.img
+                  className="vm-peek"
+                  style={{ x: prevPeekX, scale: peekScale, opacity: peekOpacity }}
+                  src={assets[index - 1]!.posterUrl ?? assets[index - 1]!.thumbUrl}
+                  alt=""
+                  aria-hidden="true"
+                  draggable={false}
+                />
               )}
               {assets.length > 1 && (
                 <>

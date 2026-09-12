@@ -2210,7 +2210,8 @@ footer.status .dot {
 .vm-top,
 .vm-bottom,
 .vm-scrim,
-.vm-sheet {
+.vm-sheet,
+.vm-peek {
   display: none;
 }
 @media (max-width: 860px) {
@@ -2249,6 +2250,19 @@ footer.status .dot {
     touch-action: none;
     width: 100%;
     height: 100%;
+  }
+  /* la foto vecina, esperando fuera de pantalla hasta que el arrastre la
+     acerca — mismo tratamiento visual que la foto principal (letterbox negro) */
+  .vm-peek {
+    display: block;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+    pointer-events: none;
+    will-change: transform;
   }
   /* en foto, deslizar sustituye a las flechas; en vídeo se quedan (más
      pequeñas, a los lados) porque ahí no hay gesto de deslizar */
