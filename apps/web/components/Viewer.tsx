@@ -77,30 +77,6 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
     return () => clearTimeout(t);
   }, [a?.id, a?.kind]);
 
-  // Controles propios del vídeo en móvil (no los nativos del navegador): los
-  // nativos quedaban tapados por la barra inferior propia — la barra de
-  // reproducción no se veía — y capturaban el dedo entero, así que deslizar
-  // sobre un vídeo para pasar al siguiente no hacía nada. Con los propios se
-  // decide exactamente qué zona hace qué.
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [playing, setPlaying] = useState(true);
-  const [progress, setProgress] = useState(0); // 0..1
-  const scrubbing = useRef(false);
-  useEffect(() => setPlaying(true), [a?.id]);
-  const togglePlay = useCallback(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    if (v.paused) void v.play().catch(() => {});
-    else v.pause();
-  }, []);
-  const seekFromClientX = useCallback((clientX: number, el: HTMLElement) => {
-    const v = videoRef.current;
-    if (!v || !v.duration) return;
-    const r = el.getBoundingClientRect();
-    const frac = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
-    v.currentTime = frac * v.duration;
-    setProgress(frac);
-  }, []);
 
   // Mientras miras uno, se va pidiendo el arranque del siguiente y el anterior:
   // al pasar de uno a otro ya está en camino y la apertura se siente inmediata.
@@ -151,14 +127,16 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
   );
 
   // Gesto táctil del visor móvil: un solo dedo decide en marcha si es un toque
-  // (alterna las barras — y en vídeo, además, reproducir/pausar), un
-  // deslizamiento horizontal (siguiente/anterior) o vertical hacia abajo
-  // (cerrar) — igual que Fotos de iOS, en foto Y en vídeo. Solo en móvil y
-  // nunca sobre una Live Photo (ahí el dedo ya controla el mantener pulsado).
+  // (alterna las barras), un deslizamiento horizontal (siguiente/anterior) o
+  // vertical hacia abajo (cerrar) — igual que Fotos de iOS, en foto Y en
+  // vídeo. En vídeo, reproducir/pausar y buscar siguen siendo los controles
+  // NATIVOS del navegador (la barra típica de iPhone) — no se tocan, solo se
+  // les deja hueco debajo para que no queden tapados por la barra propia.
+  // Solo en móvil y nunca sobre una Live Photo (el dedo ya controla el
+  // mantener pulsado).
   const onTap = useCallback(() => {
     setChromeVisible((v) => !v);
-    if (a?.kind === "video") togglePlay();
-  }, [a?.kind, togglePlay]);
+  }, []);
   const onMediaPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (!mobile || isLive) return;
@@ -262,9 +240,11 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
             {/*
               El gesto táctil (deslizar/tocar) va en .viewer-photo Y en
               .viewer-video — nunca en un vídeo con los controles NATIVOS del
-              navegador (esos sí necesitan el dedo libre), pero aquí en móvil
-              el vídeo lleva controles propios (más abajo), así que el gesto
-              puede usar toda la superficie igual que en una foto.
+              navegador — la barra típica de iPhone, no una hecha a mano. El
+              gesto de deslizar convive con ella porque el vídeo deja hueco
+              libre debajo (ver .viewer-video en el CSS): la barra nativa
+              tiene su sitio propio, sin que mi barra inferior la tape, y el
+              resto de la superficie del vídeo sigue respondiendo al deslizar.
               El desplazamiento vertical para cerrar es de este contenedor
               entero (`dragY`), así se ve la foto/vídeo entero deslizándose.
             */}
@@ -280,51 +260,22 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
                 >
                   <motion.video
                     key={a.id}
-                    ref={videoRef}
                     src={`/api/media/${a.id}`}
                     poster={a.posterUrl ?? a.thumbUrl}
-                    controls={!mobile}
+                    controls
                     autoPlay
                     playsInline
                     preload="auto"
                     onLoadedData={() => setVideoState("ready")}
                     onCanPlay={() => { setVideoState("ready"); setBuffering(false); }}
-                    onPlaying={() => { setVideoState("ready"); setBuffering(false); setPlaying(true); }}
-                    onPause={() => setPlaying(false)}
+                    onPlaying={() => { setVideoState("ready"); setBuffering(false); }}
                     onWaiting={() => setBuffering(true)}
                     onStalled={() => setBuffering(true)}
-                    onTimeUpdate={(e) => {
-                      const v = e.currentTarget;
-                      if (v.duration) setProgress(v.currentTime / v.duration);
-                    }}
                     onError={() => setVideoState("error")}
                     initial={{ opacity: 0, scale: 0.94 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ type: "spring", stiffness: 260, damping: 26 }}
                   />
-                  {mobile && videoState === "ready" && !playing && (
-                    <div className="viewer-play" aria-hidden="true">
-                      <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-                    </div>
-                  )}
-                  {mobile && videoState === "ready" && (
-                    <div
-                      className="vm-scrub"
-                      onClick={(e) => e.stopPropagation()}
-                      onPointerDown={(e) => {
-                        e.stopPropagation();
-                        scrubbing.current = true;
-                        seekFromClientX(e.clientX, e.currentTarget);
-                      }}
-                      onPointerMove={(e) => {
-                        if (scrubbing.current) seekFromClientX(e.clientX, e.currentTarget);
-                      }}
-                      onPointerUp={() => (scrubbing.current = false)}
-                      onPointerCancel={() => (scrubbing.current = false)}
-                    >
-                      <div className="vm-scrub-fill" style={{ width: `${progress * 100}%` }} />
-                    </div>
-                  )}
                   {videoState === "ready" && buffering && (
                     <div className="viewer-buffering" aria-hidden="true">
                       <span className="viewer-spin" />

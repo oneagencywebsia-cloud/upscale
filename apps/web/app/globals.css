@@ -2213,17 +2213,25 @@ footer.status .dot {
     border-radius: 0;
     border: 0;
   }
-  /* la foto y el vídeo llevan el mismo gesto propio (deslizar/tocar): en
-     móvil el vídeo usa controles hechos a mano (más abajo), no los nativos
-     del navegador, así que puede compartir toda la superficie táctil igual
-     que una foto — sin ellos, el gesto tenía que dejarle el dedo libre al
-     <video> y deslizar sobre él no hacía nada. */
+  /* la foto y el vídeo llevan el mismo gesto propio (deslizar/tocar): el
+     deslizar convive con los controles NATIVOS del vídeo porque el propio
+     <video> deja de ser tan alto (ver más abajo) — el gesto no le quita el
+     dedo a la barra nativa, solo usa el resto de la superficie. */
   .viewer-photo,
   .viewer-video {
     touch-action: none;
     width: 100%;
     height: 100%;
     position: relative;
+  }
+  /* el vídeo NO llega hasta el fondo de la pantalla: deja debajo el hueco
+     exacto de mi barra inferior (carrete + píldoras) para que la barra
+     NATIVA del navegador (la típica de iPhone: play/pausa, tiempo, buscar)
+     tenga su sitio propio y no quede tapada por ella — antes el vídeo era
+     full-bleed y mi barra, por encima, la ocultaba entera. */
+  .viewer-video {
+    height: calc(100% - 150px - env(safe-area-inset-bottom));
+    align-self: start;
   }
   /* CLAVE contra el "teletransporte": antes el <img> no reservaba espacio
      hasta que la imagen terminaba de decodificar (tamaño natural 0x0 → salto
@@ -2267,42 +2275,6 @@ footer.status .dot {
      el mismo gesto) */
   .viewer-nav {
     display: none;
-  }
-
-  /* botón grande de play/pausa — solo aparece en pausa, como Fotos/YouTube */
-  .viewer-play {
-    pointer-events: none;
-  }
-
-  /* barra de progreso propia del vídeo: fina, encima del degradado inferior.
-     Zona de toque más alta que su hilo visual (14 px) para no obligar a
-     acertar en una línea de 3 px con el dedo. */
-  .vm-scrub {
-    position: absolute;
-    left: 12px;
-    right: 12px;
-    bottom: 6px;
-    height: 14px;
-    display: flex;
-    align-items: center;
-    touch-action: none;
-    z-index: 2;
-  }
-  .vm-scrub::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    height: 3px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.3);
-  }
-  .vm-scrub-fill {
-    position: relative;
-    height: 3px;
-    border-radius: 999px;
-    background: #fff;
-    pointer-events: none;
   }
 
   /* el panel de datos de escritorio y sus botones no se usan en móvil:
