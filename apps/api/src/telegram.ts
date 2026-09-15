@@ -173,6 +173,31 @@ async function downloadClients(want: number): Promise<TelegramClient[]> {
   return Array.from({ length: want }, (_, i) => use[i % use.length]!);
 }
 
+// BUG DE VERDAD, verificado con SHA-256: descargar un archivo y comparar su
+// hash contra el registrado en la BD daba un hash DISTINTO con el MISMO
+// tamaño en bytes — bytes mezclados, no un corte. Causa: downloadClients()
+// reparte los mismos clientes del pool a QUIEN LOS PIDA, sin ningún control
+// de "este ya está ocupado". Si dos operaciones a la vez (tu descarga y, por
+// ejemplo, el calentamiento de fondo, u otra descarga simultánea) piden
+// conexión al mismo tiempo, pueden acabar compartiendo el MISMO cliente — y
+// dos `iterDownload` corriendo A LA VEZ sobre la misma conexión mezclan sus
+// respuestas entre sí. Encaja exactamente con "milisegundos en blanco o se
+// repite un trozo": la ventana exacta donde dos descargas se pisaron.
+//
+// Arreglo: una cola POR CLIENTE. Cualquiera que quiera usar un cliente para
+// iterDownload pasa por aquí — si ese cliente ya está ocupado, espera su
+// turno; nunca hay dos iterDownload a la vez sobre el mismo cliente. Los
+// distintos clientes del pool SIGUEN yendo en paralelo entre sí (eso es lo
+// que suma ancho de banda de verdad) — esto solo impide el uso concurrente
+// del MISMO cliente, que es lo único que era inseguro.
+const clientQueue = new WeakMap<TelegramClient, Promise<unknown>>();
+function exclusive<T>(c: TelegramClient, fn: () => Promise<T>): Promise<T> {
+  const prev = clientQueue.get(c) ?? Promise.resolve();
+  const run = prev.then(fn, fn);
+  clientQueue.set(c, run.then(() => {}, () => {}));
+  return run;
+}
+
 /** Tira el pool (reconecta de cero en la próxima descarga). */
 function resetPool(): void {
   const dying = poolPromise;
@@ -370,17 +395,22 @@ export async function tgDownloadInbox(id: number, outPath: string, deadlineMs = 
     let written = 0;
     let lastAt = Date.now();
     try {
-      const iterOpts: Parameters<typeof c.iterDownload>[0] = { file: location, dcId: doc.dcId, requestSize: 512 * 1024 };
-      if (total) iterOpts.fileSize = bigInt(total);
-      for await (const chunk of c.iterDownload(iterOpts)) {
-        const now = Date.now();
-        if (now > deadline) throw new Error(`descarga > ${Math.round(deadlineMs / 1000)}s (msg ${id})`);
-        if (now - lastAt > 120_000) throw new Error(`sin datos de Telegram 120s (msg ${id})`);
-        lastAt = now;
-        const buf = Buffer.from(chunk as Uint8Array);
-        await new Promise<void>((res, rej) => ws.write(buf, (er) => (er ? rej(er) : res())));
-        written += buf.length;
-      }
+      // exclusive(): `c` es el cliente principal, compartido por medio backend
+      // — sin esto, otra operación usándolo A LA VEZ mezclaría sus bytes con
+      // los de esta descarga.
+      await exclusive(c, async () => {
+        const iterOpts: Parameters<typeof c.iterDownload>[0] = { file: location, dcId: doc.dcId, requestSize: 512 * 1024 };
+        if (total) iterOpts.fileSize = bigInt(total);
+        for await (const chunk of c.iterDownload(iterOpts)) {
+          const now = Date.now();
+          if (now > deadline) throw new Error(`descarga > ${Math.round(deadlineMs / 1000)}s (msg ${id})`);
+          if (now - lastAt > 120_000) throw new Error(`sin datos de Telegram 120s (msg ${id})`);
+          lastAt = now;
+          const buf = Buffer.from(chunk as Uint8Array);
+          await new Promise<void>((res, rej) => ws.write(buf, (er) => (er ? rej(er) : res())));
+          written += buf.length;
+        }
+      });
     } finally {
       await new Promise<void>((res) => ws.end(() => res()));
     }
@@ -483,18 +513,22 @@ export async function tgDownloadInboxHead(id: number, outPath: string, maxBytes:
   try {
     // sin `limit` (un límite no alineado a 4 KB da LIMIT_INVALID): iteramos en
     // trozos y cortamos el iterador en cuanto tenemos la cabecera que queríamos.
-    const iterOpts: Parameters<typeof c.iterDownload>[0] = {
-      file: location,
-      dcId: doc.dcId,
-      requestSize: 512 * 1024,
-    };
-    if (total) iterOpts.fileSize = bigInt(total);
-    for await (const chunk of c.iterDownload(iterOpts)) {
-      const buf = Buffer.from(chunk as Uint8Array);
-      await new Promise<void>((res, rej) => ws.write(buf, (er) => (er ? rej(er) : res())));
-      written += buf.length;
-      if (written >= want) break;
-    }
+    // exclusive(): `c` es el cliente principal compartido — ver la nota junto
+    // a la definición de exclusive() más arriba en este archivo.
+    await exclusive(c, async () => {
+      const iterOpts: Parameters<typeof c.iterDownload>[0] = {
+        file: location,
+        dcId: doc.dcId,
+        requestSize: 512 * 1024,
+      };
+      if (total) iterOpts.fileSize = bigInt(total);
+      for await (const chunk of c.iterDownload(iterOpts)) {
+        const buf = Buffer.from(chunk as Uint8Array);
+        await new Promise<void>((res, rej) => ws.write(buf, (er) => (er ? rej(er) : res())));
+        written += buf.length;
+        if (written >= want) break;
+      }
+    });
   } finally {
     await new Promise<void>((res) => ws.end(() => res()));
   }
@@ -766,8 +800,12 @@ async function tgDownloadParallel(
       const from = i * per;
       const to = Math.min(total, from + per);
       const c = clients[i]!;
+      // exclusive(): si `c` coincide con el de OTRO trozo (el pool puede ser
+      // más pequeño que nParts) o con alguna otra descarga en curso a la vez,
+      // esto pone en cola en vez de correr dos iterDownload a la vez sobre la
+      // misma conexión — que es justo lo que mezclaba bytes entre descargas.
       jobs.push(
-        (async () => {
+        exclusive(c, async () => {
           let pos = from;
           for await (const chunk of c.iterDownload({
             file: loc,
@@ -783,7 +821,7 @@ async function tgDownloadParallel(
             pos += w.length;
             if (pos >= to) break;
           }
-        })(),
+        }),
       );
     }
     await Promise.all(jobs);
@@ -1013,31 +1051,37 @@ async function fetchSubRange(
   const want = to - from;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      // cada trozo por SU conexión → suman ancho de banda de verdad
+      // cada trozo por SU conexión → suman ancho de banda de verdad. exclusive()
+      // asegura que, si esta MISMA conexión está en uso por otra cosa a la vez
+      // (otra descarga, el calentamiento de fondo…), esperamos nuestro turno en
+      // vez de correr los dos iterDownload a la vez y mezclar las respuestas.
       const c = attempt === 1 && client ? client : await getClient();
       const out = Buffer.allocUnsafe(want);
-      let dropped = 0;
-      let filled = 0;
-      for await (const chunk of c.iterDownload({
-        file: loc,
-        dcId,
-        offset: bigInt(alignedStart),
-        limit: Math.ceil((want + skip) / CHUNK) * CHUNK,
-        requestSize: CHUNK,
-      })) {
-        let buf = Buffer.from(chunk as Uint8Array);
-        if (dropped < skip) {
-          const d = Math.min(skip - dropped, buf.length);
-          dropped += d;
-          buf = buf.subarray(d);
+      const filled = await exclusive(c, async () => {
+        let dropped = 0;
+        let n = 0;
+        for await (const chunk of c.iterDownload({
+          file: loc,
+          dcId,
+          offset: bigInt(alignedStart),
+          limit: Math.ceil((want + skip) / CHUNK) * CHUNK,
+          requestSize: CHUNK,
+        })) {
+          let buf = Buffer.from(chunk as Uint8Array);
+          if (dropped < skip) {
+            const d = Math.min(skip - dropped, buf.length);
+            dropped += d;
+            buf = buf.subarray(d);
+          }
+          if (!buf.length) continue;
+          const room = want - n;
+          if (buf.length > room) buf = buf.subarray(0, room);
+          buf.copy(out, n);
+          n += buf.length;
+          if (n >= want) break;
         }
-        if (!buf.length) continue;
-        const room = want - filled;
-        if (buf.length > room) buf = buf.subarray(0, room);
-        buf.copy(out, filled);
-        filled += buf.length;
-        if (filled >= want) break;
-      }
+        return n;
+      });
       if (filled === want) return out;
       throw new Error(`subrango incompleto ${filled}/${want}`);
     } catch (e) {

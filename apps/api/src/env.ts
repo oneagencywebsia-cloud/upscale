@@ -75,4 +75,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.19.1-descargas-paralelas";
+export const VERSION = "0.19.2-integridad";
