@@ -1274,6 +1274,24 @@ export async function tgRead(
       // si el streaming directo falla, caemos a descargar entero y servir el rango
       console.error("[tg] streaming directo falló, uso caché completa:", (e as Error).message);
     }
+  } else {
+    // SIN rango (el botón "Descargar", que pide el archivo entero de una
+    // sola vez): antes esto esperaba a tener el ORIGINAL COMPLETO en disco
+    // antes de mandar el primer byte — para un vídeo de más de ~500 MB eso
+    // son más de un minuto en silencio, tiempo de sobra para que el proxy
+    // corte la conexión y el navegador vea un 503 "no disponible ahora
+    // mismo". Se sirve igual que el streaming de vídeo: en directo, por
+    // trozos, según van llegando — el primer byte sale enseguida y la
+    // descarga entera nunca depende de un único plazo límite.
+    try {
+      const total = await tgSize(key);
+      const { stream, totalSize } = await tgReadRangeLive(key, 0, total - 1);
+      warmCache(key, totalSize);
+      return { stream, size: totalSize, totalSize };
+    } catch (e) {
+      docCache.delete(key);
+      console.error("[tg] streaming directo (descarga completa) falló, uso caché completa:", (e as Error).message);
+    }
   }
 
   const full = await ensureCached(key);

@@ -1,10 +1,10 @@
-import { mkdir, rm, writeFile, stat } from "node:fs/promises";
+import { mkdir, rm, writeFile, stat, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { env } from "./env.js";
 import { query, one } from "./db.js";
 import { ingestLocalFile, regenerateDerivatives } from "./pipeline.js";
-import { makePreview } from "./media.js";
+import { makePreview, placeholderBroken } from "./media.js";
 import {
   tgInboxNewMedia,
   tgInboxStartId,
@@ -340,7 +340,7 @@ async function maintenance(log: FastifyBaseLoggerLike): Promise<void> {
   // ¿queda faena? el bucle no debe irse al ritmo lento con trabajo por hacer
   const q = await one<{ n: string }>(
     `select count(*) n from assets a
-       where deleted_at is null and stored = true
+       where deleted_at is null and stored = true and not unrecoverable
          and (
            (poster_jpg is null and not exists (select 1 from blob_refs br where br.key = a.poster_key))
            or (kind = 'video' and (width is null or duration_s is null)
@@ -493,7 +493,7 @@ async function backfillDerivatives(log: FastifyBaseLoggerLike): Promise<void> {
   const rows = (
     await query<BF>(
       `select id, kind, original_key, filename, bytes from assets a
-         where deleted_at is null and stored = true
+         where deleted_at is null and stored = true and not unrecoverable
            and (
              (poster_jpg is null
               -- ya descargado a Telegram por el barrido de descarga: no es que falte
@@ -753,14 +753,36 @@ async function offloadPosters(log: FastifyBaseLoggerLike): Promise<void> {
 /**
  * Se abandona el backfill de un asset tras 3 intentos. Para que no vuelva a
  * salir en el barrido:
- *  - si NO tiene póster (HEIC viejo ilegible): póster vacío (no null) como antes.
+ *  - si NO tiene póster (p. ej. le falta el índice `moov` — confirmado con
+ *    ffmpeg que el archivo llegó así de dañado desde su origen, ningún
+ *    reintento arregla eso): se marca `unrecoverable` para no volver a
+ *    intentarlo NUNCA, y se le pone una miniatura que lo diga claramente —
+ *    antes era un cuadro oscuro indistinguible de "aún cargando".
  *  - si SÍ tiene póster pero le faltan dimensiones (vídeo por cabecera cuyo
  *    original no se pudo bajar): 0 como centinela — la UI lo pinta "—" igual que
  *    null, pero deja de seleccionarse.
  */
 async function giveUpBackfill(id: string, hasPoster: boolean): Promise<void> {
   if (!hasPoster) {
-    await query("update assets set poster_jpg = decode('', 'hex') where id = $1", [id]).catch(() => {});
+    const tmp = join(env.TMP_DIR, `broken-${id}-${randomBytes(4).toString("hex")}.webp`);
+    try {
+      await mkdir(env.TMP_DIR, { recursive: true });
+      await placeholderBroken(tmp);
+      const img = await readFile(tmp);
+      await query(
+        "update assets set thumb_webp = $1, poster_jpg = $1, unrecoverable = true where id = $2",
+        [img, id],
+      );
+    } catch {
+      // si ni siquiera esto sale (disco lleno, etc.), al menos que no se
+      // vuelva a reintentar — con el cuadro oscuro de siempre es aceptable
+      await query(
+        "update assets set poster_jpg = decode('', 'hex'), unrecoverable = true where id = $1",
+        [id],
+      ).catch(() => {});
+    } finally {
+      await rm(tmp, { force: true }).catch(() => {});
+    }
   } else {
     await query(
       "update assets set width = coalesce(width, 0), height = coalesce(height, 0), duration_s = coalesce(duration_s, 0) where id = $1",

@@ -417,3 +417,24 @@ export async function placeholderThumb(out: string, kind: AssetKind): Promise<vo
     .webp({ quality: 60 })
     .toFile(out);
 }
+
+/**
+ * Miniatura para un archivo IRRECUPERABLE de verdad (p. ej. un vídeo al que
+ * le falta el índice `moov` — dañado desde su origen, antes de llegar aquí;
+ * confirmado con ffmpeg, ningún reintento lo arregla). A propósito distinta
+ * del cuadro oscuro normal (placeholderThumb): ese se confundía con "aún
+ * cargando" cuando en realidad no hay nada más que hacer con ese archivo.
+ */
+export async function placeholderBroken(out: string): Promise<void> {
+  const icon = Buffer.from(
+    `<svg width="640" height="640" xmlns="http://www.w3.org/2000/svg">
+       <circle cx="320" cy="320" r="88" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="12"/>
+       <path d="M320 270v76" stroke="rgba(255,255,255,0.6)" stroke-width="16" stroke-linecap="round"/>
+       <circle cx="320" cy="378" r="9" fill="rgba(255,255,255,0.6)"/>
+     </svg>`,
+  );
+  await sharp({ create: { width: 640, height: 640, channels: 3, background: { r: 46, g: 24, b: 24 } } })
+    .composite([{ input: icon }])
+    .webp({ quality: 60 })
+    .toFile(out);
+}

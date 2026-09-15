@@ -47,12 +47,13 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
       key = r?.k;
     }
     // peso de la BD: lo que decide si la biblioteca escala a millones de archivos
-    const db = await one<{ total: string; posters: string; thumbs: string; n: string; pend: string }>(
+    const db = await one<{ total: string; posters: string; thumbs: string; n: string; pend: string; rotos: string }>(
       `select pg_size_pretty(pg_total_relation_size('assets')) as total,
               pg_size_pretty(coalesce(sum(octet_length(poster_jpg)),0)) as posters,
               pg_size_pretty(coalesce(sum(octet_length(thumb_webp)),0)) as thumbs,
               count(*) as n,
-              count(*) filter (where octet_length(coalesce(poster_jpg,''::bytea)) > 4) as pend
+              count(*) filter (where octet_length(coalesce(poster_jpg,''::bytea)) > 4) as pend,
+              count(*) filter (where unrecoverable) as rotos
          from assets where deleted_at is null`,
     ).catch(() => null);
     // copias ligeras de reproducción: cuántas hechas / pendientes y cuánto ahorran
@@ -69,7 +70,16 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
         ? { listas: Number(pv.listas), pendientes: Number(pv.pend), pesoOriginales: pv.orig, pesoCopias: pv.prev }
         : null,
       bd: db
-        ? { tablaAssets: db.total, postersEnBd: db.posters, miniaturasEnBd: db.thumbs, archivos: Number(db.n), postersPorDescargar: Number(db.pend) }
+        ? {
+            tablaAssets: db.total,
+            postersEnBd: db.posters,
+            miniaturasEnBd: db.thumbs,
+            archivos: Number(db.n),
+            postersPorDescargar: Number(db.pend),
+            // dañados de origen (p. ej. sin átomo moov) — confirmado con ffmpeg,
+            // ningún reintento los arregla; se descargan bien pero sin vista previa
+            irrecuperables: Number(db.rotos),
+          }
         : null,
       ...(await tgDiag(key)),
     };
