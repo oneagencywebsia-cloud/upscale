@@ -384,9 +384,16 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
       // bitrate supera lo que da la conexión sostenida) y de paso se marca
       // para que la cola de generarPreviews() lo procese ANTES que el resto
       // — ver un vídeo con cortes ahora mismo lo salta al principio en vez
-      // de esperar su turno por orden de subida. Fire-and-forget: no debe
-      // retrasar ni un milisegundo la respuesta de reproducción.
-      query("update assets set preview_bump_at = now() where id = $1 and preview_key is null", [id]).catch(() => {});
+      // de esperar su turno por orden de subida. `greatest(preview_state,0)`
+      // además REABRE un vídeo que ya se había rendido (-1) tras agotar sus
+      // reintentos: si alguien lo está viendo con cortes AHORA, merece un
+      // intento nuevo — más aún tras reforzar hoy todo el pipeline (timeouts,
+      // comprobación de disco…) que pudo ser la causa de fallos previos.
+      // Fire-and-forget: no debe retrasar ni un milisegundo la reproducción.
+      query(
+        "update assets set preview_bump_at = now(), preview_state = greatest(preview_state, 0) where id = $1 and preview_key is null",
+        [id],
+      ).catch(() => {});
     }
     return reply.redirect(await signedUrl(paraVer, { expiresIn: 3600 }), 302);
   });
