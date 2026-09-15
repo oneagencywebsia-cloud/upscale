@@ -251,10 +251,11 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
       key = r?.k;
     }
     if (!key) return reply.code(404).send({ error: "no hay ningún vídeo sin copia lista que califique" });
-    // si estaba rendido (-1) lo reabre a 0: un bump manual es "quiero que se
-    // reintente esto ya", no tiene sentido dejarlo fuera de la cola.
+    // si estaba rendido (-1) lo reabre a 0, y preview_next_attempt_at = now()
+    // salta el backoff si ya había fallado antes: un bump manual es "quiero
+    // que se reintente esto YA", no "en su turno dentro de 30 min".
     const r = await one<{ id: string; preview_state: number }>(
-      `update assets set preview_bump_at = now(), preview_state = greatest(preview_state, 0)
+      `update assets set preview_bump_at = now(), preview_state = greatest(preview_state, 0), preview_next_attempt_at = now()
          where original_key = $1 and preview_key is null
          returning id, preview_state`,
       [key],

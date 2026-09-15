@@ -389,9 +389,13 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
       // reintentos: si alguien lo está viendo con cortes AHORA, merece un
       // intento nuevo — más aún tras reforzar hoy todo el pipeline (timeouts,
       // comprobación de disco…) que pudo ser la causa de fallos previos.
+      // `preview_next_attempt_at = now()` SALTA el backoff si ya había
+      // fallado antes: sin esto, "urgente" podía significar igualmente
+      // esperar hasta 30-1440 min si el vídeo estaba a mitad de su ciclo de
+      // reintentos — "urgente" tiene que significar AHORA, no "en su turno".
       // Fire-and-forget: no debe retrasar ni un milisegundo la reproducción.
       query(
-        "update assets set preview_bump_at = now(), preview_state = greatest(preview_state, 0) where id = $1 and preview_key is null",
+        "update assets set preview_bump_at = now(), preview_state = greatest(preview_state, 0), preview_next_attempt_at = now() where id = $1 and preview_key is null",
         [id],
       ).catch(() => {});
     }
