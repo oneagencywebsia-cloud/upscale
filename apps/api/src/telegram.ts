@@ -83,7 +83,20 @@ async function getClient(): Promise<TelegramClient> {
           env.TELEGRAM_API_HASH!,
           {
             connectionRetries: 3,
-            requestRetries: 2,
+            // BUG real encontrado (verificado en producción con el vídeo
+            // IMG_0276.MOV): "Request was unsuccessful 2 time(s)" es el
+            // propio mensaje de GramJS al agotar SUS reintentos internos de
+            // client.invoke() (getMessages, subidas...) ante un
+            // ServerError/RPC_CALL_FAIL/RPC_MCGET_FAIL — su propio log dice
+            // literalmente "Telegram is having internal issues" cuando pasa.
+            // Con solo 2 intentos (2s de espera entre cada uno, ~4s en
+            // total) cualquier hipo pasajero de los servidores de Telegram
+            // tumbaba la generación de la copia ligera entera. Subido a 6:
+            // más margen para que un problema transitorio del lado de
+            // Telegram se resuelva solo sin gastar los 8 intentos con
+            // backoff exponencial de generarPreviews() en fallos que no son
+            // culpa nuestra ni del archivo.
+            requestRetries: 6,
             timeout: 20, // seg. por respuesta
             // si Telegram pide esperar > 20s (FLOOD_WAIT), que lance error en vez
             // de dormir en silencio minutos; lo gestionamos nosotros (plan B: subir)
@@ -141,7 +154,10 @@ async function newPoolClient(label: string): Promise<TelegramClient> {
     new StringSession(env.TELEGRAM_SESSION!),
     env.TELEGRAM_API_ID!,
     env.TELEGRAM_API_HASH!,
-    { connectionRetries: 2, requestRetries: 2, timeout: 20, floodSleepThreshold: 20, autoReconnect: true },
+    // requestRetries subido de 2 a 6 — mismo motivo que en getClient(): un
+    // ServerError/RPC_CALL_FAIL transitorio de Telegram no debe agotar el
+    // presupuesto de reintentos de GramJS en solo ~4s.
+    { connectionRetries: 3, requestRetries: 6, timeout: 20, floodSleepThreshold: 20, autoReconnect: true },
   );
   c.setLogLevel("error" as never);
   await raceTimeout(c.connect(), 25_000, `connect ${label}`);
