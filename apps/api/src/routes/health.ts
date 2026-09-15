@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
 import type { FastifyInstance } from "fastify";
-import { ping, one } from "../db.js";
+import { ping, one, poolStats } from "../db.js";
 import { env, VERSION } from "../env.js";
-import { ingestSnapshot, ingestState, ingestTickNow, ingestSkipPending, ingestResume } from "../ingest.js";
+import { ingestSnapshot, ingestState, ingestTickNow, ingestSkipPending, ingestResume, previewWorkerMetrics } from "../ingest.js";
 
 function firstLine(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve) => {
@@ -56,18 +56,77 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
               count(*) filter (where unrecoverable) as rotos
          from assets where deleted_at is null`,
     ).catch(() => null);
-    // copias ligeras de reproducción: cuántas hechas / pendientes y cuánto ahorran
-    const pv = await one<{ listas: string; pend: string; orig: string | null; prev: string | null }>(
+    // copias ligeras de reproducción: cuántas hechas / pendientes y cuánto ahorran.
+    // "enEspera" = en backoff tras un fallo transitorio (no cuentan como backlog
+    // activo: ese hueco lo ocupa mientras tanto otro vídeo). "atascados" = con
+    // candado de "procesando" más viejo que el timeout — se autocuran solos en
+    // el próximo intento de reclamo (ver generarPreviews en ingest.ts), esto es
+    // solo el número visto en este instante. "rendidos" = agotaron los
+    // reintentos con backoff y se quedan viendo el original tal cual.
+    const workerMx = previewWorkerMetrics();
+    const pv = await one<{
+      listas: string;
+      pend: string;
+      enEspera: string;
+      atascados: string;
+      rendidos: string;
+      orig: string | null;
+      prev: string | null;
+    }>(
       `select count(*) filter (where preview_key is not null) as listas,
-              count(*) filter (where preview_key is null and preview_state >= 0) as pend,
+              count(*) filter (
+                where preview_key is null and preview_state >= 0 and preview_next_attempt_at <= now()
+                  and (preview_locked_at is null or preview_locked_at < now() - make_interval(mins => $1::int))
+              ) as pend,
+              count(*) filter (where preview_key is null and preview_state >= 0 and preview_next_attempt_at > now()) as "enEspera",
+              count(*) filter (where preview_locked_at is not null and preview_locked_at < now() - make_interval(mins => $1::int)) as atascados,
+              count(*) filter (where preview_state = -1 and preview_last_error is not null) as rendidos,
               pg_size_pretty(coalesce(sum(bytes) filter (where preview_key is not null),0)) as orig,
               pg_size_pretty(coalesce(sum(preview_bytes) filter (where preview_key is not null),0)) as prev
          from assets where kind = 'video' and deleted_at is null`,
+      [workerMx.candadoHuerfanoMin],
     ).catch(() => null);
+    // Salud de la tabla a escala: todo esto sale de catálogos/contadores que
+    // Postgres ya mantiene solo (pg_stat_user_tables / pg_statio_user_tables /
+    // pg_class) — coste O(1), NO recorre `assets` fila a fila. Sirve para ver
+    // venir el "se pone lento al crecer" antes de que duela: tabla hinchada
+    // (dead tuples sin vacuum), tamaño real de los BYTEA en TOAST, y si
+    // heap/índices siguen cayendo en caché o ya empiezan a ir a disco.
+    const salud = await one<{
+      n_live: string; n_dead: string; seq_scan: string; idx_scan: string | null;
+      last_autovacuum: Date | null; last_vacuum: Date | null; autovacuum_count: string;
+      heap_size: string; toast_size: string;
+      heap_hit: string; heap_read: string; idx_hit: string; idx_read: string;
+    }>(
+      `select s.n_live_tup::text as n_live, s.n_dead_tup::text as n_dead,
+              s.seq_scan::text as seq_scan, s.idx_scan::text as idx_scan,
+              s.last_autovacuum, s.last_vacuum, s.autovacuum_count::text as autovacuum_count,
+              pg_size_pretty(pg_relation_size('assets'::regclass)) as heap_size,
+              pg_size_pretty(coalesce(pg_total_relation_size(c.reltoastrelid),0)) as toast_size,
+              coalesce(io.heap_blks_hit,0)::text as heap_hit, coalesce(io.heap_blks_read,0)::text as heap_read,
+              coalesce(io.idx_blks_hit,0)::text as idx_hit, coalesce(io.idx_blks_read,0)::text as idx_read
+         from pg_stat_user_tables s
+         join pg_class c on c.oid = 'assets'::regclass
+         left join pg_statio_user_tables io on io.relid = s.relid
+        where s.relname = 'assets'`,
+    ).catch(() => null);
+    const hitRatio = (hit: string, read: string) => {
+      const h = Number(hit), r = Number(read);
+      return h + r > 0 ? Math.round((h / (h + r)) * 1000) / 10 : null; // %, null si aún no hay lecturas
+    };
     return {
       version: VERSION,
       copiasDeReproduccion: pv
-        ? { listas: Number(pv.listas), pendientes: Number(pv.pend), pesoOriginales: pv.orig, pesoCopias: pv.prev }
+        ? {
+            listas: Number(pv.listas),
+            pendientesAhora: Number(pv.pend),
+            enEsperaPorBackoff: Number(pv.enEspera),
+            atascadosPendientesDeAutocurar: Number(pv.atascados),
+            rendidosTrasReintentos: Number(pv.rendidos),
+            pesoOriginales: pv.orig,
+            pesoCopias: pv.prev,
+            worker: workerMx,
+          }
         : null,
       bd: db
         ? {
@@ -81,6 +140,22 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
             irrecuperables: Number(db.rotos),
           }
         : null,
+      saludBd: salud
+        ? {
+            filasVivas: Number(salud.n_live),
+            filasMuertas: Number(salud.n_dead), // muchas = autovacuum no da abasto
+            autovacuumEjecutado: Number(salud.autovacuum_count),
+            ultimoAutovacuum: salud.last_autovacuum,
+            ultimoVacuum: salud.last_vacuum,
+            seqScans: Number(salud.seq_scan), // si sube rápido = falta un índice en alguna query
+            idxScans: salud.idx_scan ? Number(salud.idx_scan) : 0,
+            tablaSinToast: salud.heap_size, // fila "normal" sin los BYTEA grandes
+            toast: salud.toast_size, // bytes reales de poster_jpg/thumb_webp en disco
+            cacheHitHeap: hitRatio(salud.heap_hit, salud.heap_read), // % — cayendo = la tabla ya no cabe en RAM
+            cacheHitIndices: hitRatio(salud.idx_hit, salud.idx_read),
+          }
+        : null,
+      pool: poolStats(), // conexiones vivas/libres/en espera — si "waiting" no baja de 0, el pool se queda corto
       ...(await tgDiag(key)),
     };
   });

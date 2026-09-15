@@ -123,23 +123,28 @@ async function getClient(): Promise<TelegramClient> {
 // eventos). Resultado: ~N MB/s, que es lo que hace que un 4K se reproduzca sin
 // tirones en vez de pararse cada 3 segundos.
 let poolPromise: Promise<TelegramClient[]> | null = null;
+const POOL_BASELINE = Math.max(1, Math.min(8, env.TG_DOWNLOAD_STREAMS));
+const POOL_MAX = Math.max(POOL_BASELINE, env.TG_POOL_MAX_CLIENTS);
+
+async function newPoolClient(label: string): Promise<TelegramClient> {
+  const c = new TelegramClient(
+    new StringSession(env.TELEGRAM_SESSION!),
+    env.TELEGRAM_API_ID!,
+    env.TELEGRAM_API_HASH!,
+    { connectionRetries: 2, requestRetries: 2, timeout: 20, floodSleepThreshold: 20, autoReconnect: true },
+  );
+  c.setLogLevel("error" as never);
+  await raceTimeout(c.connect(), 25_000, `connect ${label}`);
+  return c;
+}
 
 async function getPool(): Promise<TelegramClient[]> {
   if (!poolPromise) {
     poolPromise = (async () => {
-      const n = Math.max(1, Math.min(8, env.TG_DOWNLOAD_STREAMS));
       const made: TelegramClient[] = [];
-      for (let i = 0; i < n; i++) {
+      for (let i = 0; i < POOL_BASELINE; i++) {
         try {
-          const c = new TelegramClient(
-            new StringSession(env.TELEGRAM_SESSION!),
-            env.TELEGRAM_API_ID!,
-            env.TELEGRAM_API_HASH!,
-            { connectionRetries: 2, requestRetries: 2, timeout: 20, floodSleepThreshold: 20, autoReconnect: true },
-          );
-          c.setLogLevel("error" as never);
-          await raceTimeout(c.connect(), 25_000, `connect pool#${i}`);
-          made.push(c);
+          made.push(await newPoolClient(`pool#${i}`));
         } catch (e) {
           console.error(`[tg] pool#${i} no conectó:`, (e as Error).message);
           break; // con los que haya vamos servidos; el resto cae al cliente principal
@@ -160,17 +165,104 @@ async function getPool(): Promise<TelegramClient[]> {
   }
 }
 
-/** N clientes para repartir N trozos. Si el pool falla, todos son el principal. */
+// ------------------- crecimiento del pool bajo demanda -------------------
+// FALLO REAL encontrado: el pool tenía tamaño FIJO = TG_DOWNLOAD_STREAMS (p. ej.
+// 6) y downloadClients() repartía ESOS MISMOS 6 clientes entre CUALQUIERA que
+// pidiera descarga — un vídeo, dos vídeos a la vez, o un vídeo + una miniatura.
+// Con el mutex exclusive() (necesario: sin él, dos iterDownload a la vez sobre
+// el mismo cliente mezclan bytes), esto significaba que la SEGUNDA reproducción
+// simultánea heredaba clientes YA ocupados por la primera y hacía cola detrás
+// de un usuario que nada tiene que ver — la corrección de un bug de bytes
+// mezclados reintrodujo un cuello de botella de rendimiento con varios
+// usuarios a la vez. Arreglo: el pool CRECE (una conexión nueva por hueco que
+// falte) hasta TG_POOL_MAX_CLIENTS cuando la demanda supera lo que hay libre,
+// y se encoge solo si un cliente de más lleva minutos sin usarse.
+const busyClients = new Set<TelegramClient>();
+const poolLastUsed = new WeakMap<TelegramClient, number>();
+let growLock: Promise<unknown> = Promise.resolve();
+
+/** Añade UNA conexión más al pool si aún no se llegó al tope. Serializado
+ *  (growLock) para que varias llamadas a la vez no disparen de golpe más
+ *  conexiones de las que caben en TG_POOL_MAX_CLIENTS. */
+function growPool(): Promise<TelegramClient | null> {
+  const p = growLock.then(async () => {
+    const pool = await getPool().catch(() => [] as TelegramClient[]);
+    if (pool.length >= POOL_MAX) return null;
+    try {
+      const c = await newPoolClient(`pool#${pool.length} (bajo demanda)`);
+      pool.push(c);
+      console.error(`[tg] pool creció a ${pool.length}/${POOL_MAX} conexiones (demanda concurrente)`);
+      return c;
+    } catch (e) {
+      console.error("[tg] no se pudo ampliar el pool:", (e as Error).message);
+      return null;
+    }
+  });
+  growLock = p.catch(() => {}); // que un fallo no atasque el siguiente intento
+  return p;
+}
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([p, new Promise<null>((r) => setTimeout(() => r(null), ms))]);
+}
+
+/** Encoge el pool: cierra clientes por encima del tamaño base que llevan
+ *  varios minutos sin usarse. No toca los TG_DOWNLOAD_STREAMS de base ni
+ *  ningún cliente ocupado ahora mismo. */
+const POOL_IDLE_MS = 5 * 60_000;
+async function reapIdlePoolClients(): Promise<void> {
+  if (!poolPromise) return;
+  try {
+    const pool = await poolPromise;
+    const now = Date.now();
+    for (let i = pool.length - 1; i >= POOL_BASELINE; i--) {
+      const c = pool[i]!;
+      if (busyClients.has(c)) continue;
+      const last = poolLastUsed.get(c) ?? 0;
+      if (now - last > POOL_IDLE_MS) {
+        pool.splice(i, 1);
+        c.disconnect().catch(() => {});
+      }
+    }
+  } catch {
+    /* sin pool todavía, nada que encoger */
+  }
+}
+setInterval(() => {
+  reapIdlePoolClients().catch(() => {});
+}, 60_000).unref();
+
+/**
+ * N clientes para repartir N trozos de UNA descarga. Da prioridad a clientes
+ * LIBRES; si no hay suficientes y el pool no está al tope, abre conexiones
+ * nuevas (con un plazo corto para no bloquear la petición si la conexión
+ * tarda) antes de recurrir a repartir los mismos clientes entre sí.
+ */
 async function downloadClients(want: number): Promise<TelegramClient[]> {
   let pool: TelegramClient[];
   try {
     pool = await getPool();
   } catch {
-    pool = [await getClient()];
+    return [await getClient()];
   }
-  const live = pool.filter((c) => c.connected !== false);
-  const use = live.length ? live : [await getClient()];
-  return Array.from({ length: want }, (_, i) => use[i % use.length]!);
+  const idle = pool.filter((c) => c.connected !== false && !busyClients.has(c));
+  const result: TelegramClient[] = idle.slice(0, want);
+
+  if (result.length < want && pool.length < POOL_MAX) {
+    const need = Math.min(want - result.length, POOL_MAX - pool.length);
+    for (let i = 0; i < need; i++) {
+      const c = await withTimeout(growPool(), 4000);
+      if (c) result.push(c);
+      else break; // el resto seguirá conectando en 2º plano para la próxima llamada
+    }
+  }
+
+  if (result.length < want) {
+    const live = pool.filter((c) => c.connected !== false);
+    const use = live.length ? live : [await getClient()];
+    for (let i = result.length; i < want; i++) result.push(use[i % use.length]!);
+  }
+  return result.length ? result : [await getClient()];
 }
 
 // BUG DE VERDAD, verificado con SHA-256: descargar un archivo y comparar su
@@ -193,7 +285,17 @@ async function downloadClients(want: number): Promise<TelegramClient[]> {
 const clientQueue = new WeakMap<TelegramClient, Promise<unknown>>();
 function exclusive<T>(c: TelegramClient, fn: () => Promise<T>): Promise<T> {
   const prev = clientQueue.get(c) ?? Promise.resolve();
-  const run = prev.then(fn, fn);
+  const marked = async () => {
+    busyClients.add(c);
+    poolLastUsed.set(c, Date.now());
+    try {
+      return await fn();
+    } finally {
+      poolLastUsed.set(c, Date.now());
+      busyClients.delete(c);
+    }
+  };
+  const run = prev.then(marked, marked);
   clientQueue.set(c, run.then(() => {}, () => {}));
   return run;
 }
@@ -202,6 +304,8 @@ function exclusive<T>(c: TelegramClient, fn: () => Promise<T>): Promise<T> {
 function resetPool(): void {
   const dying = poolPromise;
   poolPromise = null;
+  growLock = Promise.resolve();
+  busyClients.clear();
   dying?.then((cs) => cs.forEach((c) => c.disconnect().catch(() => {}))).catch(() => {});
 }
 
@@ -1038,6 +1142,26 @@ async function docLocationFresh(
 
 const CHUNK = 512 * 1024; // requestSize: múltiplo de 4096, máx 512 KB
 
+// ------------------------- FLOOD_WAIT en la descarga -------------------------
+// GramJS ya duerme SOLO cuando el FLOOD_WAIT pedido es <= floodSleepThreshold
+// (20 s, ver getClient/newPoolClient) — para eso no hace falta nada aquí. El
+// caso que SÍ llegaba roto: un FLOOD_WAIT > 20 s salía como excepción de
+// iterDownload y el reintento de abajo (antes: 150-450 ms de espera) volvía a
+// llamar a Telegram CASI AL INSTANTE, dentro de la misma ventana de bloqueo →
+// fallaba otra vez, agotaba los 3 intentos en menos de 1 s y tiraba abajo el
+// trozo (y con él, en tgReadRangeLive, la respuesta HTTP entera aunque ya
+// llevara cabecera + bytes enviados al navegador). Ahora se detecta el
+// FLOOD_WAIT, se espera el tiempo que Telegram pide (con un tope para no
+// colgar la petición indefinidamente) y NO cuenta contra el presupuesto de
+// reintentos por fallo real de red.
+let lastFloodWait: { at: number; seconds: number } | null = null;
+function floodWaitSeconds(e: unknown): number | null {
+  const msg = e instanceof Error ? e.message : String(e);
+  const m = /wait of (\d+) seconds|flood_wait[_ ]?(\d+)/i.exec(msg);
+  if (!m) return null;
+  return Number(m[1] ?? m[2]) || null;
+}
+
 /** Baja [from, to) de un documento con reintentos. Devuelve exactamente to-from bytes. */
 async function fetchSubRange(
   loc: Api.InputDocumentFileLocation,
@@ -1049,13 +1173,20 @@ async function fetchSubRange(
   const alignedStart = Math.floor(from / CHUNK) * CHUNK;
   const skip = from - alignedStart;
   const want = to - from;
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  const MAX_NET_ATTEMPTS = 3;
+  const MAX_FLOOD_ATTEMPTS = 3;
+  let netAttempt = 0;
+  let floodAttempt = 0;
+  for (;;) {
     try {
       // cada trozo por SU conexión → suman ancho de banda de verdad. exclusive()
       // asegura que, si esta MISMA conexión está en uso por otra cosa a la vez
       // (otra descarga, el calentamiento de fondo…), esperamos nuestro turno en
       // vez de correr los dos iterDownload a la vez y mezclar las respuestas.
-      const c = attempt === 1 && client ? client : await getClient();
+      // En el primer intento se usa el cliente que nos tocó del pool; en
+      // reintentos (de red o tras un FLOOD_WAIT) probamos con OTRO cliente del
+      // pool si hay uno libre, en vez de machacar siempre el mismo.
+      const c = netAttempt === 0 && floodAttempt === 0 && client ? client : (await downloadClients(1))[0]!;
       const out = Buffer.allocUnsafe(want);
       const filled = await exclusive(c, async () => {
         let dropped = 0;
@@ -1085,11 +1216,21 @@ async function fetchSubRange(
       if (filled === want) return out;
       throw new Error(`subrango incompleto ${filled}/${want}`);
     } catch (e) {
-      if (attempt === 3) throw e;
-      await new Promise((r) => setTimeout(r, 150 * attempt));
+      const waitSecs = floodWaitSeconds(e);
+      if (waitSecs != null) {
+        floodAttempt++;
+        lastFloodWait = { at: Date.now(), seconds: waitSecs };
+        if (floodAttempt > MAX_FLOOD_ATTEMPTS) throw e;
+        const capped = Math.min(waitSecs, 30); // tope: no colgar el HTTP para siempre
+        console.error(`[tg] FLOOD_WAIT ${waitSecs}s en subrango, espero ${capped}s (intento ${floodAttempt}/${MAX_FLOOD_ATTEMPTS})`);
+        await new Promise((r) => setTimeout(r, capped * 1000));
+        continue; // no cuenta contra netAttempt: no es un fallo de red
+      }
+      netAttempt++;
+      if (netAttempt >= MAX_NET_ATTEMPTS) throw e;
+      await new Promise((r) => setTimeout(r, 150 * netAttempt));
     }
   }
-  throw new Error("subrango: sin datos");
 }
 
 async function tgReadRangeLive(
@@ -1142,7 +1283,27 @@ async function tgReadRangeLive(
 
     try {
       for (let i = 0; i < nParts; i++) {
-        const buf = await inflight.get(i)!;
+        let buf: Buffer;
+        try {
+          buf = await inflight.get(i)!;
+        } catch (e) {
+          // Último intento antes de tirar TODA la respuesta HTTP (que para este
+          // punto ya puede llevar cabecera + varios MB enviados al navegador:
+          // es exactamente el "vídeo a medio cargar" que se reportó). Causa más
+          // probable de un fallo que sobrevive a los reintentos de
+          // fetchSubRange: el fileReference caducó a mitad de un vídeo largo
+          // (varios minutos de descarga). Se refresca la localización del
+          // documento y se repite ESTE trozo, exacto mismo rango, con un
+          // cliente nuevo — así no se duplican ni desordenan bytes.
+          inflight.delete(i);
+          docCache.delete(key);
+          console.error(`[tg] trozo ${i} falló (${(e as Error).message}), reintento final con fileReference fresco`);
+          const fresh = await docLocation(key);
+          const from = start + i * PART;
+          const to = Math.min(end + 1, from + PART);
+          const c2 = (await downloadClients(1))[0];
+          buf = await fetchSubRange(fresh.loc, fresh.dcId, from, to, c2);
+        }
         inflight.delete(i);
         // OJO: se refresca en CADA trozo, no solo una vez al principio. Una
         // descarga de 571 MB puede tardar varios minutos — si esto solo se
@@ -1172,10 +1333,22 @@ export async function tgDiag(sampleKey?: string): Promise<Record<string, unknown
   const out: Record<string, unknown> = {};
   try {
     const pool = await getPool();
-    out.conexionesDescarga = { pedidas: env.TG_DOWNLOAD_STREAMS, activas: pool.filter((c) => c.connected !== false).length };
+    const vivas = pool.filter((c) => c.connected !== false);
+    out.conexionesDescarga = {
+      streamsPorDescarga: env.TG_DOWNLOAD_STREAMS, // cuántas usa UNA reproducción/descarga
+      poolBase: POOL_BASELINE,
+      poolMax: POOL_MAX, // tope al que puede CRECER el pool con varios usuarios a la vez
+      poolActual: pool.length,
+      activas: vivas.length,
+      ocupadasAhora: pool.filter((c) => busyClients.has(c)).length, // en medio de un iterDownload ahora mismo
+    };
   } catch (e) {
     out.conexionesDescarga = { error: (e as Error).message };
   }
+
+  out.floodWait = lastFloodWait
+    ? { ...lastFloodWait, hace: `${Math.round((Date.now() - lastFloodWait.at) / 1000)}s` }
+    : null;
 
   try {
     const medir = async (dir: string) => {

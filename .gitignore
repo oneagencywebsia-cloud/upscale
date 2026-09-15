@@ -23,3 +23,4 @@ apps/web/public/swe-worker-*.js
 packages/*/src/*.js
 
 .firecrawl/
+.claude/

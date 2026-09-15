@@ -25,20 +25,51 @@ const base = z.object({
   TELEGRAM_CHANNEL_ID: z.string().optional(),
   TG_CACHE_DIR: z.string().default("./tg-cache"),
   TG_CACHE_MAX_MB: z.coerce.number().default(2048),
-  /** Conexiones simultáneas de descarga a Telegram. Telegram limita CADA conexión
-   *  a ~1 MB/s; los clientes oficiales abren varias. 4 = ~4 MB/s (suficiente para
-   *  4K). Subir a 6-8 si la red del VPS da para más; bajar si sale FLOOD_WAIT. */
-  // 4 se quedaba corto en cuanto había más de una cosa a la vez (dos
-  // descargas grandes en paralelo medidas a ~0,6 MB/s cada una, compartiendo
-  // el mismo pool con la reproducción y el calentamiento de fondo). Puede
-  // subirse hasta 8 por variable de entorno si el VPS aguanta más.
+  /** Conexiones EN PARALELO que usa UNA sola descarga/reproducción (ventana
+   *  deslizante de tgReadRangeLive / tgDownloadParallel). Telegram limita CADA
+   *  conexión a ~1 MB/s; los clientes oficiales abren varias. 6 = ~6 MB/s por
+   *  vídeo, de sobra para 4K/60 HDR (bitrates típicos 5-15 Mb/s ≈ 0,6-2 MB/s).
+   *  Subir a 8 si la red del VPS da para más; bajar si sale FLOOD_WAIT. */
+  // Tope 8: no es un límite de ancho de banda (para eso está TG_POOL_MAX_CLIENTS,
+  // ver abajo) sino de RIESGO — cada conexión extra en la ventana de UN solo
+  // archivo es una petición más por segundo contra la MISMA cuenta, y
+  // FLOOD_WAIT lo aplica Telegram por cuenta/método, no por conexión: pasado
+  // cierto punto, más "streams" por archivo no suma MB/s, solo acerca el
+  // FLOOD_WAIT. Con miles de archivos y varios usuarios a la vez, la palanca
+  // real de rendimiento es TG_POOL_MAX_CLIENTS (más descargas EN PARALELO),
+  // no más streams dentro de una descarga que ya va sobrada para su bitrate.
   TG_DOWNLOAD_STREAMS: z.coerce.number().min(1).max(8).default(6),
+  /** Tope de conexiones de descarga que el pool puede llegar a abrir EN TOTAL,
+   *  sumando TODAS las descargas/reproducciones simultáneas (no solo los
+   *  TG_DOWNLOAD_STREAMS de una). El pool arranca con TG_DOWNLOAD_STREAMS
+   *  conexiones y CRECE bajo demanda (una nueva por hueco que falte) hasta
+   *  este tope cuando hay más de una reproducción/descarga a la vez — así el
+   *  mutex por-cliente (necesario para no mezclar bytes de dos descargas sobre
+   *  la misma conexión) no obliga a dos usuarios distintos a hacer cola
+   *  detrás del mismo puñado de clientes. Se reduce solo cuando lleva minutos
+   *  sin uso. Cada conexión son unos pocos MB de RAM; súbelo si el VPS tiene
+   *  ancho de banda y RAM de sobra para más usuarios concurrentes.
+   */
+  TG_POOL_MAX_CLIENTS: z.coerce.number().min(1).max(64).default(24),
 
   // Ingesta desde Telegram: manda un vídeo "como archivo" a este chat y entra
   // en la biblioteca sin recomprimir. Por defecto "me" = Mensajes guardados.
   TELEGRAM_INBOX: z.string().default("me"),
   INGEST_USER_ID: z.string().optional(), // Supabase user id al que se asignan los archivos
   INGEST_POLL_SECONDS: z.coerce.number().default(10),
+  /** Tope real de Telegram para un documento: 2 GB en cuentas normales, 4 GB con
+   *  Telegram Premium. Es un muro de Telegram, no algo que podamos ampliar desde
+   *  aquí — solo sirve para decidir con criterio cuándo NO tiene sentido reintentar
+   *  una re-subida (recuperación pesada de un original) y para diagnósticos claros.
+   *  Cambiar a "true" si la cuenta de TELEGRAM_SESSION pasa a Premium.
+   *  Ver también MAX_UPLOAD_BYTES en routes/assets.ts (misma cuenta, mismo tope;
+   *  hoy hardcodeado a 2 GB ahí — conviene alinearlo con esta misma variable si se
+   *  toca uno de los dos). */
+  TELEGRAM_ACCOUNT_PREMIUM: z
+    .string()
+    .optional()
+    .default("false")
+    .transform((v) => /^(1|true|yes)$/i.test(v.trim())),
 
   R2_ENDPOINT: z.string().url().optional(),
   R2_BUCKET: z.string().optional(),
@@ -75,4 +106,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.19.5-videos-largos";
+export const VERSION = "0.20.0-escala-tb";

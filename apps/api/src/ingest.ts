@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile, stat, readFile } from "node:fs/promises";
+import { mkdir, rm, writeFile, stat, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { env } from "./env.js";
@@ -32,6 +32,45 @@ const HEAD_BYTES = 8 * 1024 * 1024;
 /** Cola: en los MP4/MOV del iPhone el índice `moov` (duración, resolución, fps,
  *  códec) va AL FINAL. Sin esto ffprobe no lee nada y el vídeo entra sin datos. */
 const TAIL_BYTES = 6 * 1024 * 1024;
+
+/** Tope real de Telegram para un documento (ver env.ts). Por encima de esto, la
+ *  re-subida de un original (recuperación pesada) está condenada a fallar — no
+ *  es un fallo nuestro reintentable, es un muro de Telegram. */
+const TELEGRAM_FILE_CEILING_BYTES = (env.TELEGRAM_ACCOUNT_PREMIUM ? 4 : 2) * 1024 * 1024 * 1024;
+
+/**
+ * Timeout que escala con el tamaño en vez de un número fijo — un vídeo de horas
+ * en 4K pesa varios GB y a la única conexión que usa Telegram por descarga
+ * (~1 MB/s, ver TG_DOWNLOAD_STREAMS en env.ts) tarda bastante más que los pocos
+ * minutos fijos que había antes. Con `mbPerSec` conservador y margen x1.5 para
+ * red lenta/reintentos internos; techo duro para que ni un archivo enorme cuelgue
+ * el proceso para siempre. Mismo criterio que ya usa generarPreviews() al subir
+ * la copia de reproducción (allí el tamaño está acotado por diseño y por eso el
+ * timeout es fijo a 60 min; aquí el ORIGINAL no tiene ese tope, así que escala).
+ */
+function scaledTimeoutMs(bytes: number, minMs: number, mbPerSec = 1, safetyFactor = 1.5): number {
+  const bytesPerSec = mbPerSec * 1024 * 1024;
+  const est = bytes > 0 ? (bytes / bytesPerSec) * 1000 * safetyFactor : 0;
+  return Math.max(minMs, Math.min(est, 6 * 60 * 60_000)); // techo duro: 6 h
+}
+
+/**
+ * Hueco libre en TMP_DIR frente a lo que hace falta (con margen). Antes de bajar
+ * un original de posiblemente varios GB a un temporal, mejor comprobar y aplazar
+ * con un aviso claro que quedarse sin disco a mitad de la descarga — mismo
+ * criterio que el statfs ya usado en generarPreviews() antes de transcodificar.
+ */
+async function hasDiskSpaceFor(neededBytes: number): Promise<boolean> {
+  try {
+    const { statfs } = await import("node:fs/promises");
+    const fsStat = await statfs(env.TMP_DIR);
+    const libres = fsStat.bavail * fsStat.bsize;
+    const necesarios = neededBytes * 1.2 + 512 * 1024 * 1024; // colchón fijo de 512 MB
+    return libres >= necesarios;
+  } catch {
+    return true; // si statfs falla (sistema de archivos raro), no bloqueamos
+  }
+}
 
 /**
  * Vigila el inbox de Telegram (Mensajes guardados por defecto). Cada archivo
@@ -227,13 +266,29 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
             "leer cabecera+cola de Telegram",
           );
         } else {
+          // preflight de disco: esta rama SÍ baja el archivo entero (fotos de
+          // cualquier tamaño, o vídeos pequeños) — con ProRAW/panorámicas puede
+          // ser bastante más que unos pocos MB. Mejor aplazar con un aviso claro
+          // que quedarse sin espacio a mitad de la descarga. No cuenta como
+          // fallo del mensaje: se reintenta en cuanto haya hueco.
+          if (it.bytes > 0 && !(await hasDiskSpaceFor(it.bytes))) {
+            ingestState.lastTickError = `msg ${it.id}: sin espacio en disco suficiente para ${Math.round(it.bytes / 1e6)} MB, se aplaza`;
+            log.warn({ id: it.id, bytes: it.bytes }, "ingesta: sin espacio en disco, se aplaza");
+            continue; // NO avanzamos lastId: se reintenta la próxima vuelta
+          }
+          const dlTimeout = scaledTimeoutMs(it.bytes, 11 * 60_000);
           ingestState.lastStep = `descargando msg ${it.id} (${Math.round(it.bytes / 1e6)} MB)`;
           log.info({ id: it.id, filename: it.filename, bytes: it.bytes, userId }, "ingesta: descargando de Telegram");
-          dl = await withTimeout(tgDownloadInbox(it.id, tmp), 11 * 60_000, "descargar de Telegram");
+          dl = await withTimeout(tgDownloadInbox(it.id, tmp, dlTimeout), dlTimeout + 30_000, "descargar de Telegram");
         }
         const t1 = Date.now();
         log.info({ id: it.id, bytes: dl, downloadMs: t1 - t0, headOnly }, "ingesta: descargado, procesando");
         ingestState.lastStep = `procesando msg ${it.id}`;
+        // headOnly: hash de 4 MB + ffprobe de 14 MB en disco → 4 min de sobra.
+        // Sin headOnly (fotos grandes, ProRAW/DNG) se lee el archivo ENTERO para
+        // el hash: escala por si acaso, aunque en disco local es rápido — mejor
+        // sobrar margen que abortar una foto de 500 MB a mitad de hashear.
+        const procTimeout = headOnly ? 4 * 60_000 : scaledTimeoutMs(it.bytes, 4 * 60_000, 30, 2);
         const res = await withTimeout(
           ingestLocalFile({
             userId,
@@ -248,7 +303,7 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
             onStep: (s) => { ingestState.lastStep = `msg ${it.id}: ${s}`; },
             log,
           }),
-          4 * 60_000,
+          procTimeout,
           "crear la fila del asset",
         );
         const t2 = Date.now();
@@ -316,6 +371,11 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
  * ir sacando los pósters de Postgres a Telegram.
  */
 async function maintenance(log: FastifyBaseLoggerLike): Promise<void> {
+  // autocuración: restos en disco de un worker que murió a mitad de faena
+  // (OOM-kill, redeploy). Barato (throttled a 1 vuelta cada 30 min) y corre
+  // SIEMPRE, incluso con reproducción activa — es solo un listado de directorio.
+  await limpiarTemporalesHuerfanos(log).catch((e) => log.warn(e, "limpieza de temporales huérfanos"));
+
   // guardar originales pendientes es prioritario (son reenvíos, no gastan banda)
   await storePending(log).catch((e) => log.warn(e, "barrido de guardado"));
 
@@ -352,6 +412,43 @@ async function maintenance(log: FastifyBaseLoggerLike): Promise<void> {
   ingestState.chores = q ? Number(q.n) : 0;
 }
 
+/**
+ * Restos huérfanos en TMP_DIR de un worker que murió a mitad de faena
+ * (OOM-kill, redeploy). Normalmente el propio código los borra en su
+ * `finally`, pero eso NO se ejecuta si el proceso es matado en seco a media
+ * descarga/transcodificación. Sin esto, a escala de TB esos restos (pueden
+ * ser el original ENTERO de un vídeo de varios GB, ver generarPreviews) se
+ * acumulan para siempre y se comen el disco — justo lo que el preflight de
+ * espacio está intentando evitar. Umbral: más viejo que el timeout más largo
+ * del sistema (ffmpeg interno: 180 min, media.ts; descarga de un original
+ * enorme: hasta 6h, ver scaledTimeoutMs) + margen amplio, para no tocar nada
+ * que pueda seguir legítimamente en curso.
+ */
+const TMP_HUERFANO_MS = 7 * 60 * 60 * 1000; // 7h
+const TMP_SWEEP_CADA_MS = 30 * 60 * 1000; // no listar el directorio en cada vuelta
+let lastTmpSweep = 0;
+async function limpiarTemporalesHuerfanos(log: FastifyBaseLoggerLike): Promise<void> {
+  if (Date.now() - lastTmpSweep < TMP_SWEEP_CADA_MS) return;
+  lastTmpSweep = Date.now();
+  const nombres = await readdir(env.TMP_DIR).catch(() => [] as string[]);
+  let borrados = 0;
+  for (const nombre of nombres) {
+    // prefijos usados por tick/storePending/backfillDerivatives/generarPreviews/offloadPosters
+    if (!/^(tg|store|bf|prev|off)-/.test(nombre)) continue;
+    const ruta = join(env.TMP_DIR, nombre);
+    try {
+      const st = await stat(ruta);
+      if (Date.now() - st.mtimeMs > TMP_HUERFANO_MS) {
+        await rm(ruta, { force: true });
+        borrados++;
+      }
+    } catch {
+      /* pudo borrarlo el propio proceso justo ahora: no pasa nada */
+    }
+  }
+  if (borrados) log.warn({ borrados }, "limpieza: restos huérfanos de un worker muerto retirados de TMP_DIR");
+}
+
 interface FastifyBaseLoggerLike {
   info: (o: unknown, m?: string) => void;
   warn: (o: unknown, m?: string) => void;
@@ -384,8 +481,9 @@ async function storePending(log: FastifyBaseLoggerLike): Promise<void> {
     filename: string;
     src_msg_id: string | null;
     thumb_ok: boolean;
+    bytes: string | null;
   }>(
-    `select id, kind, original_key, filename, src_msg_id, (thumb_webp is not null) as thumb_ok
+    `select id, kind, original_key, filename, src_msg_id, (thumb_webp is not null) as thumb_ok, bytes
        from assets where not stored and deleted_at is null order by uploaded_at asc limit 4`,
   );
   if (!pend.rows.length) {
@@ -403,21 +501,49 @@ async function storePending(log: FastifyBaseLoggerLike): Promise<void> {
       continue;
     }
     const n = (await kvNum(fkey)) + 1;
+    const bytes = Number(a.bytes) || 0;
+    // Por encima del tope real de Telegram (ver env.ts), la recuperación pesada
+    // (descargar + volver a SUBIR el original) está condenada: re-subir bajo la
+    // MISMA cuenta no puede superar su propio límite. El reenvío (forward) no
+    // re-sube nada — es server-side — así que SÍ sigue siendo viable sin límite
+    // de tamaño. Para estos archivos nunca escalamos a la vía pesada: solo
+    // reintentamos el reenvío (el resto de la lógica de abandono a los 8
+    // intentos sigue aplicando igual más abajo).
+    const heavyEligible = bytes === 0 || bytes <= TELEGRAM_FILE_CEILING_BYTES;
     let tmp: string | null = null;
     let heavy = false;
     try {
       // 1º el reenvío (instantáneo, server-side). Si falla, se recupera de
       // verdad: descargar el original del inbox y subirlo al almacén.
-      if (n <= 2) {
+      if (n <= 2 || !heavyEligible) {
+        if (!heavyEligible && n > 2) {
+          ingestState.lastStep = `"${a.filename}" (${Math.round(bytes / 1e6)} MB) supera el tope de Telegram para re-subir; solo reenvío`;
+        }
         await withTimeout(tgPutByForward(a.original_key, srcId), 18_000, "reenviar original");
       } else {
+        // preflight de disco: el original puede pesar varios GB (vídeo de
+        // horas en 4K) — mismo criterio que generarPreviews antes de bajarlo
+        // entero. Si no cabe, se aplaza SIN contar como intento fallido del
+        // archivo (no es su culpa) y se reintenta en cuanto haya hueco.
+        if (!(await hasDiskSpaceFor(bytes))) {
+          ingestState.lastTickError = `guardar "${a.filename}": sin espacio en disco para ${Math.round(bytes / 1e6)} MB, se aplaza`;
+          log.warn({ id: a.id, bytes }, "asset: sin espacio en disco para recuperación pesada, se aplaza");
+          continue;
+        }
         heavy = true;
         ingestState.lastStep = `recuperando "${a.filename}" (descarga + subida)`;
         await mkdir(env.TMP_DIR, { recursive: true });
         tmp = join(env.TMP_DIR, `store-${a.id}-${randomBytes(4).toString("hex")}`);
-        const got = await withTimeout(tgDownloadInbox(srcId, tmp, 8 * 60_000), 9 * 60_000, "descargar del inbox");
+        // timeouts que escalan con el tamaño real (bytes): un fijo de 8-9 min
+        // bastaba para clips cortos pero cortaba en seco un original de horas
+        // a mitad de descarga o de subida. ~1 MB/s de bajada (una sola conexión,
+        // igual que en tgDownloadInbox) y ~2 MB/s de subida (tgPut usa varios
+        // workers) con margen para reintentos internos.
+        const dlTimeout = scaledTimeoutMs(bytes, 8 * 60_000, 1);
+        const upTimeout = scaledTimeoutMs(bytes, 8 * 60_000, 2, 2);
+        const got = await withTimeout(tgDownloadInbox(srcId, tmp, dlTimeout), dlTimeout + 30_000, "descargar del inbox");
         if (!got) throw new Error("descarga vacía");
-        await withTimeout(tgPut(a.original_key, tmp), 8 * 60_000, "subir original");
+        await withTimeout(tgPut(a.original_key, tmp), upTimeout, "subir original");
         if (!a.thumb_ok) {
           await regenerateDerivatives(a.id, a.kind, tmp).catch((e) =>
             log.warn({ id: a.id, err: (e as Error)?.message }, "no se pudo regenerar la miniatura"),
@@ -567,13 +693,99 @@ async function backfillDerivatives(log: FastifyBaseLoggerLike): Promise<void> {
     }
   }
 }
+
+/**
+ * Cuántos intentos con fallo REAL (no problemas de disco, que no cuentan)
+ * antes de rendirse con la copia ligera de un vídeo. No se marca
+ * `unrecoverable`: el original sigue intacto y reproducible, solo que sin
+ * copia ligera se verá con tirones si la subida del VPS es lenta.
+ *
+ * Antes eran 3 intentos SIN espera entre ellos (~1 min de reloj real) — a
+ * escala de miles de vídeos largos, un fallo transitorio (red, OOM-kill a
+ * mitad de una transcodificación de horas) se confundía sistemáticamente con
+ * "este archivo nunca podrá tener copia ligera". Con backoff exponencial
+ * (ver `backoffMinutes`) 8 intentos cubren más de 2 días de reintentos
+ * espaciados antes de rendirse — tiempo de sobra para que un problema
+ * pasajero (disco, red, carga del VPS) se resuelva solo.
+ */
+const PREVIEW_MAX_ATTEMPTS = Math.max(3, Number(process.env.PREVIEW_MAX_ATTEMPTS) || 8);
+
+/**
+ * Un candado `preview_locked_at` más viejo que esto se considera huérfano
+ * (el worker murió a mitad de faena: OOM-kill, redeploy) y el vídeo vuelve a
+ * la cola solo, sin intervención manual. Bastante por encima del timeout
+ * interno de ffmpeg (180 min, media.ts) + margen para la descarga previa del
+ * original completo (puede ser de varios GB).
+ */
+const PREVIEW_LOCK_TIMEOUT_MIN = Math.max(60, Number(process.env.PREVIEW_LOCK_TIMEOUT_MIN) || 240);
+
+/**
+ * Cuántos workers de copias de reproducción corren a la vez. CADA uno ya usa
+ * varios hilos internamente (media.ts: Math.max(2, cpus-1) para el propio
+ * ffmpeg), así que subir esto MULTIPLICA el consumo de CPU/RAM de golpe: en
+ * un VPS modesto, 2-3 vídeos 4K largos transcodificando a la vez puede agotar
+ * la RAM o dejar a los dos sin avanzar (thrashing). Por defecto 1: el backlog
+ * se vacía uno a uno pero de forma ESTABLE, que es lo que importa a escala de
+ * miles de archivos. Configurable con PREVIEW_WORKER_CONCURRENCY solo si el
+ * VPS tiene CPU/RAM de sobra.
+ */
+const PREVIEW_WORKER_CONCURRENCY = Math.max(1, Math.min(4, Number(process.env.PREVIEW_WORKER_CONCURRENCY) || 1));
+
+/**
+ * Espera creciente antes de reintentar un vídeo que falló (minutos), para no
+ * martillear un archivo que no va a poder procesarse hasta que cambien las
+ * condiciones (disco, red, carga). Mientras espera, el resto del backlog
+ * (vídeos más nuevos o que aún no han fallado) sigue avanzando por delante —
+ * es la cola la que prioriza sola lo que SÍ puede progresar ahora mismo.
+ */
+function backoffMinutes(attempt: number): number {
+  const escalones = [2, 8, 30, 120, 360, 720, 1440]; // 2min..24h
+  return escalones[Math.min(Math.max(attempt, 1) - 1, escalones.length - 1)] ?? 2880; // tope 48h
+}
+
+/**
+ * Métricas ligeras EN MEMORIA del worker de copias de reproducción, leídas
+ * por /v1/diag/storage. Se resetean si el proceso reinicia a propósito: para
+ * saber si el sistema va sobrado o ahogado AHORA importa lo reciente, no un
+ * histórico acumulado desde siempre.
+ */
+const previewDurationsMs: number[] = [];
+function recordPreviewDuration(ms: number): void {
+  previewDurationsMs.push(ms);
+  if (previewDurationsMs.length > 20) previewDurationsMs.shift();
+}
+export function previewWorkerMetrics(): {
+  concurrenciaConfigurada: number;
+  intentosMaxAntesDeRendirse: number;
+  candadoHuerfanoMin: number;
+  duracionMediaRecienteMs: number | null;
+  muestras: number;
+} {
+  const avgMs = previewDurationsMs.length
+    ? Math.round(previewDurationsMs.reduce((s, x) => s + x, 0) / previewDurationsMs.length)
+    : null;
+  return {
+    concurrenciaConfigurada: PREVIEW_WORKER_CONCURRENCY,
+    intentosMaxAntesDeRendirse: PREVIEW_MAX_ATTEMPTS,
+    candadoHuerfanoMin: PREVIEW_LOCK_TIMEOUT_MIN,
+    duracionMediaRecienteMs: avgMs,
+    muestras: previewDurationsMs.length,
+  };
+}
+
 /**
  * Genera la copia LIGERA de reproducción de los vídeos que no caben por el tubo.
  * El ORIGINAL no se toca: sigue intacto en Telegram y es lo único que se
  * descarga. Esto solo alimenta al reproductor de la app.
  *
- * Uno cada vez y solo en reposo: transcodificar consume CPU y ancho de banda.
- * Devuelve true si hizo (o intentó) algo, false si no había nada pendiente.
+ * Reclamo atómico con `for update skip locked`: permite correr varios workers
+ * (PREVIEW_WORKER_CONCURRENCY) sin que dos procesen el mismo vídeo a la vez, y
+ * de paso libera solo los candados huérfanos de un worker que murió a mitad
+ * de faena (ver PREVIEW_LOCK_TIMEOUT_MIN) — autocuración sin cron aparte.
+ *
+ * Orden: más nuevos primero Y solo los que ya pueden reintentarse
+ * (preview_next_attempt_at <= now()) — el backoff de uno que está fallando no
+ * bloquea a los demás. Devuelve true si hizo (o intentó) algo.
  */
 async function generarPreviews(log: FastifyBaseLoggerLike): Promise<boolean> {
   // Solo vídeos que de verdad no caben por el tubo (~2,3 MB/s):
@@ -588,15 +800,26 @@ async function generarPreviews(log: FastifyBaseLoggerLike): Promise<boolean> {
     preview_state: number;
     duration_s: number | null;
   }>(
-    `select id, original_key, filename, bytes, preview_state, duration_s from assets
-       where kind = 'video' and stored = true and deleted_at is null
-         and preview_key is null and preview_state >= 0
-         and (
-           (duration_s is not null and duration_s > 0 and bytes::float8 / duration_s > 1400000)
-           or ((duration_s is null or duration_s = 0) and bytes > 45 * 1024 * 1024)
-         )
-       order by uploaded_at desc limit 1`,
-  ).catch(() => null);
+    `update assets set preview_locked_at = now()
+       where id = (
+         select id from assets
+           where kind = 'video' and stored = true and deleted_at is null
+             and preview_key is null and preview_state >= 0
+             and preview_next_attempt_at <= now()
+             and (preview_locked_at is null or preview_locked_at < now() - make_interval(mins => ${PREVIEW_LOCK_TIMEOUT_MIN}))
+             and (
+               (duration_s is not null and duration_s > 0 and bytes::float8 / duration_s > 1400000)
+               or ((duration_s is null or duration_s = 0) and bytes > 45 * 1024 * 1024)
+             )
+           order by uploaded_at desc
+           for update skip locked
+           limit 1
+       )
+       returning id, original_key, filename, bytes, preview_state, duration_s`,
+  ).catch((e) => {
+    log.warn(e, "preview: fallo reclamando trabajo de la cola");
+    return null;
+  });
   if (!a) {
     // nada que necesite copia: marca como "no hace falta" lo que quede colgado
     await query(
@@ -607,11 +830,13 @@ async function generarPreviews(log: FastifyBaseLoggerLike): Promise<boolean> {
     return false;
   }
 
-  if (a.preview_state >= 3) {
-    await query("update assets set preview_state = -1 where id = $1", [a.id]).catch(() => {});
+  if (a.preview_state >= PREVIEW_MAX_ATTEMPTS) {
+    await query("update assets set preview_state = -1, preview_locked_at = null where id = $1", [a.id]).catch(() => {});
     return true; // se rinde: se seguirá viendo el original (con sus tirones)
   }
-  await query("update assets set preview_state = preview_state + 1 where id = $1", [a.id]).catch(() => {});
+  const intento = a.preview_state + 1;
+  await query("update assets set preview_state = $2 where id = $1", [a.id, intento]).catch(() => {});
+  const startedAt = Date.now();
 
   const stamp = randomBytes(4).toString("hex");
   const out = join(env.TMP_DIR, `prev-${a.id}-${stamp}.mp4`);
@@ -637,8 +862,14 @@ async function generarPreviews(log: FastifyBaseLoggerLike): Promise<boolean> {
           { f: a.filename, libresMb: Math.round(libres / 1e6), necesariosMb: Math.round(necesarios / 1e6) },
           "preview: sin espacio en disco suficiente, se aplaza",
         );
-        // no se cuenta como intento fallido del archivo — es el disco, no él
-        await query("update assets set preview_state = greatest(0, preview_state - 1) where id = $1", [a.id]).catch(() => {});
+        // no se cuenta como intento fallido del archivo — es el disco, no él.
+        // Aun así se aplaza un rato (no 20s): si el disco sigue lleno en la
+        // siguiente vuelta no tiene sentido volver a comprobarlo enseguida, y
+        // así el hueco lo ocupa mientras tanto otro vídeo del backlog.
+        await query(
+          "update assets set preview_state = greatest(0, preview_state - 1), preview_next_attempt_at = now() + interval '5 minutes', preview_locked_at = null where id = $1",
+          [a.id],
+        ).catch(() => {});
         return true;
       }
     } catch {
@@ -664,20 +895,42 @@ async function generarPreviews(log: FastifyBaseLoggerLike): Promise<boolean> {
     // margen amplio también aquí: la copia de un vídeo de horas puede pesar
     // varios GB, y es preferible tardar a rendirse a mitad de la subida.
     await withTimeout(tgPut(key, out), 60 * 60_000, "subir preview");
-    await query("update assets set preview_key = $1, preview_bytes = $2, preview_state = 0 where id = $3", [
-      key,
-      size,
-      a.id,
-    ]);
+    await query(
+      "update assets set preview_key = $1, preview_bytes = $2, preview_state = 0, preview_next_attempt_at = now(), preview_locked_at = null, preview_last_error = null where id = $3",
+      [key, size, a.id],
+    );
+    recordPreviewDuration(Date.now() - startedAt);
     log.info(
       { f: a.filename, origMb: Math.round(Number(a.bytes) / 1e6), prevMb: Math.round(size / 1e6) },
       "preview: lista",
     );
   } catch (e) {
-    log.warn({ f: a.filename, err: (e as Error)?.message }, "preview: falló");
+    const emsg = (e as Error)?.message ?? String(e);
+    log.warn({ f: a.filename, intento, err: emsg }, "preview: falló");
+    if (intento >= PREVIEW_MAX_ATTEMPTS) {
+      // se rinde YA (no hace falta esperar a la próxima vuelta para detectarlo):
+      // se seguirá viendo el original, con sus tirones si pesa mucho.
+      await query(
+        "update assets set preview_state = -1, preview_locked_at = null, preview_last_error = $2 where id = $1",
+        [a.id, emsg.slice(0, 500)],
+      ).catch(() => {});
+    } else {
+      const esperaMin = backoffMinutes(intento);
+      await query(
+        "update assets set preview_next_attempt_at = now() + make_interval(mins => $2), preview_locked_at = null, preview_last_error = $3 where id = $1",
+        [a.id, esperaMin, emsg.slice(0, 500)],
+      ).catch(() => {});
+      log.info({ f: a.filename, intento, esperaMin }, "preview: reintento con backoff");
+    }
   } finally {
     unpin?.();
     await rm(out, { force: true }).catch(() => {});
+    // red de seguridad: cualquier camino de salida que no haya limpiado ya el
+    // candado (p. ej. un throw antes de llegar al catch de arriba, aunque no
+    // debería) lo libera aquí. Idempotente y barato.
+    await query("update assets set preview_locked_at = null where id = $1 and preview_locked_at is not null", [
+      a.id,
+    ]).catch(() => {});
   }
   return true;
 }
@@ -876,13 +1129,20 @@ export function startInboxIngest(log: FastifyBaseLoggerLike): void {
  * Una copia cada vez. Se aparta si hay alguien reproduciendo (CPU + banda para
  * quien está mirando). Reintenta cada 20 s cuando hay trabajo, cada 5 min si no.
  */
-let previewRunning = false;
 function startPreviewWorker(log: FastifyBaseLoggerLike): void {
   if (env.STORAGE_DRIVER !== "telegram") return;
+  log.info({ concurrencia: PREVIEW_WORKER_CONCURRENCY }, "worker de copias de reproducción: arrancando");
+  for (let slot = 0; slot < PREVIEW_WORKER_CONCURRENCY; slot++) {
+    startPreviewSlot(log, slot);
+  }
+}
+
+function startPreviewSlot(log: FastifyBaseLoggerLike, slot: number): void {
+  let busy = false;
   const loop = async () => {
     let huboTrabajo = false;
-    if (!previewRunning && !streamingActivo() && Date.now() >= pausedUntil) {
-      previewRunning = true;
+    if (!busy && !streamingActivo() && Date.now() >= pausedUntil) {
+      busy = true;
       try {
         huboTrabajo = await generarPreviews(log).then(
           () => true,
@@ -892,12 +1152,14 @@ function startPreviewWorker(log: FastifyBaseLoggerLike): void {
           },
         );
       } finally {
-        previewRunning = false;
+        busy = false;
       }
     }
     setTimeout(() => void loop(), (huboTrabajo ? 20 : 300) * 1000);
   };
-  setTimeout(() => void loop(), 15_000);
+  // arranque escalonado entre slots: evita que, si hay backlog, todos pidan
+  // trabajo en el mismo instante justo al arrancar el proceso.
+  setTimeout(() => void loop(), 15_000 + slot * 4000);
 }
 
 /** Fuerza una vuelta de ingesta ahora (para el endpoint de diagnóstico). */
