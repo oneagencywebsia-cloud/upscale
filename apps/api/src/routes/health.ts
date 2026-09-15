@@ -36,14 +36,20 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
   // ?key=orig/... para medir con un original concreto; si no, coge el último vídeo.
   app.get("/v1/diag/storage", async (req) => {
     const { tgDiag } = await import("../telegram.js");
-    const q = req.query as { key?: string; mb?: string };
+    const q = req.query as { key?: string; mb?: string; big?: string };
     let key = q.key;
     const sampleMb = q.mb ? Math.max(8, Math.min(500, Number(q.mb) || 0)) : undefined;
     if (!key) {
+      // ?big=1: el vídeo más pesado de verdad (para probar sostenida con algo
+      // de cientos de MB), en vez del último subido (que puede ser pequeño).
       const r = await one<{ k: string }>(
-        `select original_key k from assets
-           where kind = 'video' and stored = true and deleted_at is null
-           order by uploaded_at desc limit 1`,
+        q.big
+          ? `select original_key k from assets
+               where kind = 'video' and stored = true and deleted_at is null
+               order by bytes desc limit 1`
+          : `select original_key k from assets
+               where kind = 'video' and stored = true and deleted_at is null
+               order by uploaded_at desc limit 1`,
       ).catch(() => null);
       key = r?.k;
     }
