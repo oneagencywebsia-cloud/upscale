@@ -118,4 +118,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.21.6-urgente-salta-backoff";
+export const VERSION = "0.21.7-verificado";
