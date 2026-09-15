@@ -106,4 +106,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.20.3-diag-video-grande";
+export const VERSION = "0.20.4-diag-streaming";

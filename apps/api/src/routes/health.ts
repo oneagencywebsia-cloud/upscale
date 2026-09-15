@@ -36,9 +36,8 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
   // ?key=orig/... para medir con un original concreto; si no, coge el último vídeo.
   app.get("/v1/diag/storage", async (req) => {
     const { tgDiag } = await import("../telegram.js");
-    const q = req.query as { key?: string; mb?: string; big?: string };
+    const q = req.query as { key?: string; big?: string };
     let key = q.key;
-    const sampleMb = q.mb ? Math.max(8, Math.min(500, Number(q.mb) || 0)) : undefined;
     if (!key) {
       // ?big=1: el vídeo más pesado de verdad (para probar sostenida con algo
       // de cientos de MB), en vez del último subido (que puede ser pequeño).
@@ -163,8 +162,49 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
           }
         : null,
       pool: poolStats(), // conexiones vivas/libres/en espera — si "waiting" no baja de 0, el pool se queda corto
-      ...(await tgDiag(key, sampleMb)),
+      ...(await tgDiag(key)),
     };
+  });
+
+  // Prueba de velocidad SOSTENIDA por el camino REAL de una descarga (mismo
+  // generador con ventana deslizante que /v1/blob/*), transmitiendo una línea
+  // JSON por muestra (cada ~3s) a medida que se produce — NO se espera a
+  // tenerlo todo antes de responder, porque el proxy delante de la API corta
+  // la conexión si no ve ningún byte salir durante ~30s, y una prueba de
+  // cientos de MB tarda mucho más que eso. ?mb=N (por defecto 300, máx 2000).
+  // ?big=1 usa el vídeo más pesado de la biblioteca; ?key=orig/... uno concreto.
+  app.get("/v1/diag/speedtest", async (req, reply) => {
+    const { tgSustainedSpeedTest } = await import("../telegram.js");
+    const q = req.query as { key?: string; big?: string; mb?: string };
+    let key = q.key;
+    if (!key) {
+      const r = await one<{ k: string }>(
+        q.big
+          ? `select original_key k from assets
+               where kind = 'video' and stored = true and deleted_at is null
+               order by bytes desc limit 1`
+          : `select original_key k from assets
+               where kind = 'video' and stored = true and deleted_at is null
+               order by uploaded_at desc limit 1`,
+      ).catch(() => null);
+      key = r?.k;
+    }
+    if (!key) return reply.code(404).send({ error: "no hay ningún vídeo para probar" });
+    const mb = Math.max(8, Math.min(2000, Number(q.mb) || 300));
+
+    reply.header("Content-Type", "application/x-ndjson");
+    reply.header("Cache-Control", "no-cache");
+    reply.raw.writeHead(200, reply.getHeaders() as Record<string, string>);
+    reply.raw.write(JSON.stringify({ key, mb }) + "\n");
+    try {
+      for await (const m of tgSustainedSpeedTest(key, mb)) {
+        reply.raw.write(JSON.stringify(m) + "\n");
+      }
+    } catch (e) {
+      reply.raw.write(JSON.stringify({ error: (e as Error).message }) + "\n");
+    }
+    reply.raw.end();
+    return reply;
   });
 
   // diagnóstico de la ingesta desde Telegram (sin datos sensibles)
