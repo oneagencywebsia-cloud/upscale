@@ -75,4 +75,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.19.2-integridad";
+export const VERSION = "0.19.3-prioridad-descarga";

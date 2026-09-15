@@ -1131,6 +1131,14 @@ async function tgReadRangeLive(
         const buf = await cur;
         inflight.delete(i);
         launch(i + STREAMS); // al liberarse una conexión, entra el siguiente trozo
+        // OJO: se refresca en CADA trozo, no solo una vez al principio. Una
+        // descarga de 571 MB puede tardar varios minutos — si esto solo se
+        // marcaba al empezar, a los 20s "streamingActivo()" volvía a decir
+        // que no había nadie mirando, y el mantenimiento de fondo (calentar
+        // arranques, generar copias…) volvía a competir por las MISMAS
+        // conexiones durante el resto de la descarga, dejándola a un ritmo
+        // de caracol el resto del tiempo.
+        lastLiveReadAt = Date.now();
         yield buf;
       }
     } catch (e) {
