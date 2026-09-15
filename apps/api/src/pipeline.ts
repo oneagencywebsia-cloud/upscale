@@ -147,9 +147,22 @@ export async function regenerateDerivatives(
             [info.width, info.height, info.codec, id],
           );
         } else {
+          // BUG real: esta reparación (backfillDerivatives → aquí) completaba
+          // resolución/códec pero NUNCA duración/fps/bitrate — aunque el
+          // ffprobe de arriba SÍ los consigue en la reparación igual que en la
+          // ingesta normal. Resultado: el vídeo queda con "Resolución" bien
+          // pero "Fotogramas"/"Bitrate"/"Duración" en "—" para siempre, porque
+          // el backfill nunca los vuelve a intentar una vez width/height están
+          // rellenos (backfillDerivatives solo mira "width is null or
+          // duration_s is null" — si width ya quedó puesto en un intento
+          // anterior pero duration_s seguía sin poder escribirse, esta rama sí
+          // se ejecuta de nuevo, pero antes de este fix no rellenaba nada).
           await query(
-            "update assets set width = coalesce(width, $1), height = coalesce(height, $2), codec = coalesce(codec, $3) where id = $4",
-            [info.width, info.height, info.codec, id],
+            `update assets set
+               width = coalesce(width, $1), height = coalesce(height, $2), codec = coalesce(codec, $3),
+               duration_s = coalesce(duration_s, $4), fps = coalesce(fps, $5), video_bitrate = coalesce(video_bitrate, $6)
+             where id = $7`,
+            [info.width, info.height, info.codec, info.durationS, info.fps, info.videoBitrate, id],
           );
         }
       }
