@@ -263,6 +263,21 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true, key, id: r.id, preview_state: r.preview_state };
   });
 
+  // TEMPORAL: inspección directa del estado real de un asset (solo campos de
+  // la cola de previews, nada sensible) — para verificar sin adivinar.
+  app.get("/v1/diag/asset/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const r = await one(
+      `select id, filename, bytes, duration_s, preview_key is not null as tiene_preview,
+              preview_state, preview_locked_at, preview_next_attempt_at, preview_bump_at,
+              preview_last_error, extract(epoch from now() - preview_locked_at) as candado_hace_s
+         from assets where id = $1`,
+      [id],
+    ).catch((e) => ({ error: (e as Error).message }));
+    if (!r) return reply.code(404).send({ error: "no existe" });
+    return r;
+  });
+
   // diagnóstico de la ingesta desde Telegram (sin datos sensibles)
   app.get("/v1/ingest/status", async () => {
     const lastId = await one<{ v: string }>("select v from kv where k = 'ingest:last_id'").catch(() => null);

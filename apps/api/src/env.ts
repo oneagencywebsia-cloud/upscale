@@ -118,4 +118,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.21.3-reabre-rendidos";
+export const VERSION = "0.21.4-diag-asset";
