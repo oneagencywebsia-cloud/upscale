@@ -21,6 +21,7 @@ import {
   tgEnsureHead,
   tieneArranque,
   pinCachedFile,
+  headsBudgetCount,
 } from "./telegram.js";
 
 /** Vídeos/archivos por encima de esto: se ingiere solo la cabecera (rápido) y el
@@ -950,11 +951,19 @@ async function generarPreviews(log: FastifyBaseLoggerLike): Promise<boolean> {
  */
 const bootAt = Date.now();
 async function precargarArranques(log: FastifyBaseLoggerLike): Promise<number> {
+  // Antes esto miraba solo los 60 vídeos más recientes: en una biblioteca de
+  // miles de archivos (el objetivo de escala de TB), CUALQUIER vídeo fuera de
+  // esa ventana pequeña y arbitraria pagaba siempre el camino "frío" al
+  // abrirlo (resolver documento + primer trozo en directo). El presupuesto de
+  // disco de la caché de arranques (headsBudgetCount(), ver telegram.ts) YA es
+  // el límite real de cuántos caben — dejamos que sea ESE el límite, no un
+  // número fijo, para cubrir tantos vídeos como el disco configurado permita.
   const rows = (
     await query<{ original_key: string; filename: string }>(
       `select original_key, filename from assets
          where kind = 'video' and stored = true and deleted_at is null
-         order by captured_at desc limit 60`,
+         order by captured_at desc limit $1`,
+      [Math.max(60, Math.min(5000, headsBudgetCount()))],
     ).catch(() => ({ rows: [] as { original_key: string; filename: string }[] }))
   ).rows;
 

@@ -123,7 +123,17 @@ async function getClient(): Promise<TelegramClient> {
 // eventos). Resultado: ~N MB/s, que es lo que hace que un 4K se reproduzca sin
 // tirones en vez de pararse cada 3 segundos.
 let poolPromise: Promise<TelegramClient[]> | null = null;
-const POOL_BASELINE = Math.max(1, Math.min(8, env.TG_DOWNLOAD_STREAMS));
+// Mínimo de conexiones SIEMPRE conectadas (no bajo demanda): abrir una conexión
+// nueva es un handshake MTProto de red (típicamente unos cientos de ms, hasta
+// 25s en el peor caso, ver newPoolClient) — si TODAS las conexiones ya
+// abiertas están ocupadas cuando llega una petición nueva, esa espera cae
+// justo en el camino crítico de "abrir un archivo", amenazando el objetivo de
+// <2s. Con varias reproducciones/descargas simultáneas a escala de TB, tener
+// de sobra conexiones YA abiertas y listas (más que solo las que usa una
+// descarga) es lo que evita ese coste casi siempre. TG_POOL_WARM_MIN sube
+// este mínimo por encima de TG_DOWNLOAD_STREAMS sin tocar cuántas usa CADA
+// descarga individual.
+const POOL_BASELINE = Math.max(1, Math.min(8, env.TG_DOWNLOAD_STREAMS), env.TG_POOL_WARM_MIN);
 const POOL_MAX = Math.max(POOL_BASELINE, env.TG_POOL_MAX_CLIENTS);
 
 async function newPoolClient(label: string): Promise<TelegramClient> {
@@ -335,6 +345,15 @@ const isDerivative = (key: string) => key.endsWith("/thumb.webp") || key.endsWit
 const HEAD_CACHE_BYTES = 6 * 1024 * 1024;
 const HEADS_DIR = () => join(env.TG_CACHE_DIR, "heads");
 const headPath = (key: string) => join(HEADS_DIR(), createHash("sha1").update(key).digest("hex"));
+const HEADS_BUDGET_BYTES = () => Math.max(300, Math.floor(env.TG_CACHE_MAX_MB / 4)) * 1024 * 1024;
+/** Cuántos arranques caben de verdad en el presupuesto de disco configurado —
+ *  usado para no limitar la precarga a una ventana pequeña y arbitraria
+ *  (60 vídeos) cuando la biblioteca tiene miles: el presupuesto de disco YA es
+ *  el límite real, así que dejamos que precargarArranques() considere tantos
+ *  candidatos como quepan de verdad. */
+export function headsBudgetCount(): number {
+  return Math.floor(HEADS_BUDGET_BYTES() / HEAD_CACHE_BYTES);
+}
 
 function cachePath(key: string): string {
   const hash = createHash("sha1").update(key).digest("hex");
@@ -401,7 +420,7 @@ async function pruneCache(): Promise<void> {
   await pruneDir(THUMB_DIR(), DERIV_CACHE_BYTES());
   // los arranques son pequeños y son LO que hace que el play sea inmediato:
   // presupuesto propio para que el trasiego de vídeos grandes no los expulse
-  await pruneDir(HEADS_DIR(), Math.max(300, Math.floor(env.TG_CACHE_MAX_MB / 4)) * 1024 * 1024);
+  await pruneDir(HEADS_DIR(), HEADS_BUDGET_BYTES());
 }
 
 // ------------------------------- API pública -------------------------------
@@ -1078,18 +1097,41 @@ export function warmCache(key: string, totalBytes: number): void {
  * Descarga SOLO el rango pedido directamente de Telegram (sin bajar el archivo
  * entero). Así un vídeo empieza a reproducirse en cuanto llega el primer trozo.
  */
-// Cache corta de la localización del documento: durante la reproducción de un
-// vídeo el navegador pide decenas de rangos; sin esto haríamos un getMessages
-// (ida y vuelta a Telegram) por cada rango.
+// Cache de la localización del documento: durante la reproducción de un vídeo
+// el navegador pide decenas de rangos; sin esto haríamos un getMessages (ida y
+// vuelta a Telegram) por cada rango. A escala de TB con miles de vídeos
+// distintos, un caché de solo 50 entradas (el tamaño anterior) se vaciaba
+// constantemente — CUALQUIER vídeo que no fuera de los ~50 más recientemente
+// abiertos pagaba esa ida y vuelta extra en el camino crítico de "abrir un
+// vídeo", justo lo que amenaza el objetivo de <2s. Subido a 5000 (unos pocos
+// cientos de bytes cada una: irrelevante en RAM) y con desalojo REALMENTE LRU
+// (antes desalojaba por orden de INSERCIÓN, no de USO — una entrada reciente
+// podía ser la primera en caer si otras se reinsertaban después).
 const docCache = new Map<string, { loc: Api.InputDocumentFileLocation; total: number; dcId?: number; at: number }>();
+const DOC_CACHE_MAX = 5000;
 const docInflight = new Map<string, Promise<{ loc: Api.InputDocumentFileLocation; total: number; dcId?: number }>>();
-const DOC_TTL = 90_000; // el fileReference caduca; 90 s va sobrado para un vídeo
+// El fileReference de Telegram dura bastante más que los 90s anteriores (ese
+// valor era innecesariamente conservador y forzaba re-resoluciones de sobra).
+// Es seguro alargarlo: si una referencia realmente caduca antes de tiempo,
+// fetchSubRange/tgReadRangeLive YA la detectan como fallo, borran esta
+// entrada y reintentan con una fresca — el TTL solo decide cuánto se AHORRA
+// en el caso normal, nunca compromete la corrección.
+const DOC_TTL = 20 * 60_000;
+
+function docCacheTouch(key: string, v: { loc: Api.InputDocumentFileLocation; total: number; dcId?: number; at: number }): void {
+  docCache.delete(key); // reinsertar mueve la clave al final del Map → orden de uso, no de inserción
+  docCache.set(key, v);
+  while (docCache.size > DOC_CACHE_MAX) docCache.delete(docCache.keys().next().value!);
+}
 
 async function docLocation(
   key: string,
 ): Promise<{ loc: Api.InputDocumentFileLocation; total: number; dcId?: number }> {
   const hit = docCache.get(key);
-  if (hit && Date.now() - hit.at < DOC_TTL) return { loc: hit.loc, total: hit.total, dcId: hit.dcId };
+  if (hit && Date.now() - hit.at < DOC_TTL) {
+    docCacheTouch(key, hit); // refresca la posición LRU en cada uso, no solo al crear
+    return { loc: hit.loc, total: hit.total, dcId: hit.dcId };
+  }
 
   // varios rangos en paralelo al abrir un vídeo → una sola resolución
   const flying = docInflight.get(key);
@@ -1117,7 +1159,7 @@ async function docLocationFresh(
     if (!a?.src_msg_id) throw new Error("blob no registrado");
     const r = await tgInboxDocLocation(Number(a.src_msg_id));
     const t = r.total || Number(a.bytes);
-    docCache.set(key, { loc: r.loc, total: t, dcId: r.dcId, at: Date.now() });
+    docCacheTouch(key, { loc: r.loc, total: t, dcId: r.dcId, at: Date.now() });
     return { loc: r.loc, total: t, dcId: r.dcId };
   }
 
@@ -1135,8 +1177,7 @@ async function docLocationFresh(
     thumbSize: "",
   });
   const dcId = doc.dcId;
-  docCache.set(key, { loc, total, dcId, at: Date.now() });
-  if (docCache.size > 50) docCache.delete(docCache.keys().next().value!);
+  docCacheTouch(key, { loc, total, dcId, at: Date.now() });
   return { loc, total, dcId };
 }
 
@@ -1251,8 +1292,20 @@ export async function tgReadRangeLive(
   // Ahora el primer byte sale en ~1 s y el caudal es continuo.
   async function* gen(): AsyncGenerator<Buffer> {
     const STREAMS = Math.max(1, Math.min(8, env.TG_DOWNLOAD_STREAMS));
-    const PART = 1024 * 1024; // trozo pequeño = primer byte pronto
-    const nParts = Math.ceil(wantLen / PART);
+    const PART = 1024 * 1024;
+    // El PRIMER trozo va aparte y más pequeño (256 KB): a ~1 MB/s por conexión,
+    // 1 MB entero puede ser ~1s solo para el primer byte — sumado a resolver
+    // la localización del documento y conseguir una conexión libre, arriesga
+    // el objetivo de "abrir cualquier archivo en <2s". Con 256 KB el primer
+    // byte sale en ~0,25s en el peor caso realista, y a partir del segundo
+    // trozo se vuelve a 1 MB (menos "costuras" = más eficiente en régimen).
+    const FIRST_PART = Math.min(256 * 1024, wantLen);
+    const partRange = (i: number): [number, number] => {
+      if (i === 0) return [start, start + FIRST_PART];
+      const from = start + FIRST_PART + (i - 1) * PART;
+      return [from, Math.min(end + 1, from + PART)];
+    };
+    const nParts = FIRST_PART >= wantLen ? 1 : 1 + Math.ceil((wantLen - FIRST_PART) / PART);
     const clients = await downloadClients(Math.min(nParts, STREAMS));
 
     // CLAVE para el rendimiento real: lanzar el SIGUIENTE trozo de una conexión
@@ -1267,8 +1320,7 @@ export async function tgReadRangeLive(
     const inflight = new Map<number, Promise<Buffer>>();
     const launch = (i: number): void => {
       if (i >= nParts || inflight.has(i)) return;
-      const from = start + i * PART;
-      const to = Math.min(end + 1, from + PART);
+      const [from, to] = partRange(i);
       const p = fetchSubRange(loc, dcId, from, to, clients[i % clients.length]);
       inflight.set(i, p);
       // en cuanto ESTA conexión libere (bien o mal), ya puede coger el
@@ -1299,8 +1351,7 @@ export async function tgReadRangeLive(
           docCache.delete(key);
           console.error(`[tg] trozo ${i} falló (${(e as Error).message}), reintento final con fileReference fresco`);
           const fresh = await docLocation(key);
-          const from = start + i * PART;
-          const to = Math.min(end + 1, from + PART);
+          const [from, to] = partRange(i);
           const c2 = (await downloadClients(1))[0];
           buf = await fetchSubRange(fresh.loc, fresh.dcId, from, to, c2);
         }

@@ -51,6 +51,14 @@ const base = z.object({
    *  ancho de banda y RAM de sobra para más usuarios concurrentes.
    */
   TG_POOL_MAX_CLIENTS: z.coerce.number().min(1).max(64).default(24),
+  /** Mínimo de conexiones SIEMPRE conectadas y listas, aunque nadie las esté
+   *  usando (no bajo demanda como TG_POOL_MAX_CLIENTS). Objetivo: abrir
+   *  cualquier archivo, aunque nunca se haya abierto antes, en <2s — para eso
+   *  no puede depender de un handshake MTProto nuevo en el camino crítico si
+   *  ya hay varias reproducciones/descargas ocupando las conexiones base.
+   *  Cada conexión ociosa cuesta poca RAM; súbelo si esperas muchos usuarios
+   *  concurrentes y quieres margen de sobra siempre listo. */
+  TG_POOL_WARM_MIN: z.coerce.number().min(1).max(32).default(10),
 
   // Ingesta desde Telegram: manda un vídeo "como archivo" a este chat y entra
   // en la biblioteca sin recomprimir. Por defecto "me" = Mensajes guardados.
@@ -106,4 +114,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.20.5-diag-signedurl";
+export const VERSION = "0.21.0-arranque-menos-2s";
