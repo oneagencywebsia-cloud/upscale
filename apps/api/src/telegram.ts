@@ -1114,23 +1114,36 @@ async function tgReadRangeLive(
     const nParts = Math.ceil(wantLen / PART);
     const clients = await downloadClients(Math.min(nParts, STREAMS));
 
+    // CLAVE para el rendimiento real: lanzar el SIGUIENTE trozo de una conexión
+    // en cuanto ESA conexión termina — no cuando el consumidor (el bucle de
+    // abajo) llega a ese índice. Antes, si el trozo 2 tardaba un poco más de
+    // lo normal (variación de red normal y corriente), las conexiones 3, 4 y 5
+    // —aunque llevaran RATO libres— se quedaban paradas sin pedir nada más,
+    // porque `launch(i+STREAMS)` solo se llamaba dentro del bucle secuencial,
+    // al llegar a cada índice por orden. Un solo trozo lento frenaba a las
+    // demás conexiones enteras — así de fácil se caía de 12-17 MB/s en una
+    // ráfaga corta a menos de 1 MB/s sostenido en una descarga larga.
     const inflight = new Map<number, Promise<Buffer>>();
     const launch = (i: number): void => {
       if (i >= nParts || inflight.has(i)) return;
       const from = start + i * PART;
       const to = Math.min(end + 1, from + PART);
       const p = fetchSubRange(loc, dcId, from, to, clients[i % clients.length]);
-      p.catch(() => {}); // evita "unhandled rejection" si otro trozo falla antes
       inflight.set(i, p);
+      // en cuanto ESTA conexión libere (bien o mal), ya puede coger el
+      // siguiente trozo que le toque — sin esperar a que el consumidor
+      // secuencial llegue hasta aquí.
+      p.then(
+        () => launch(i + STREAMS),
+        () => launch(i + STREAMS),
+      );
     };
     for (let i = 0; i < Math.min(nParts, STREAMS); i++) launch(i);
 
     try {
       for (let i = 0; i < nParts; i++) {
-        const cur = inflight.get(i)!;
-        const buf = await cur;
+        const buf = await inflight.get(i)!;
         inflight.delete(i);
-        launch(i + STREAMS); // al liberarse una conexión, entra el siguiente trozo
         // OJO: se refresca en CADA trozo, no solo una vez al principio. Una
         // descarga de 571 MB puede tardar varios minutos — si esto solo se
         // marcaba al empezar, a los 20s "streamingActivo()" volvía a decir
