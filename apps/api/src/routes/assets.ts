@@ -379,6 +379,15 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     // VPS da ~2,3 MB/s y un 4K/60 pide ~6,2, así que el original se atasca.
     // Las descargas (/original, el ZIP, originalUrl) NUNCA pasan por aquí.
     const paraVer = r.preview_key ?? r.original_key;
+    if (r.kind === "video" && !r.preview_key) {
+      // Sin copia ligera todavía: se sirve el original (puede cortarse si el
+      // bitrate supera lo que da la conexión sostenida) y de paso se marca
+      // para que la cola de generarPreviews() lo procese ANTES que el resto
+      // — ver un vídeo con cortes ahora mismo lo salta al principio en vez
+      // de esperar su turno por orden de subida. Fire-and-forget: no debe
+      // retrasar ni un milisegundo la respuesta de reproducción.
+      query("update assets set preview_bump_at = now() where id = $1 and preview_key is null", [id]).catch(() => {});
+    }
     return reply.redirect(await signedUrl(paraVer, { expiresIn: 3600 }), 302);
   });
 

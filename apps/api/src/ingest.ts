@@ -788,7 +788,7 @@ export function previewWorkerMetrics(): {
  * (preview_next_attempt_at <= now()) — el backoff de uno que está fallando no
  * bloquea a los demás. Devuelve true si hizo (o intentó) algo.
  */
-async function generarPreviews(log: FastifyBaseLoggerLike): Promise<boolean> {
+async function generarPreviews(log: FastifyBaseLoggerLike, soloUrgentes = false): Promise<boolean> {
   // Solo vídeos que de verdad no caben por el tubo (~2,3 MB/s):
   //  - bitrate conocido y > 1,4 MB/s, o
   //  - ingerido por cabecera (sin duración) y > 45 MB → casi seguro 4K pesado.
@@ -812,7 +812,13 @@ async function generarPreviews(log: FastifyBaseLoggerLike): Promise<boolean> {
                (duration_s is not null and duration_s > 0 and bytes::float8 / duration_s > 1400000)
                or ((duration_s is null or duration_s = 0) and bytes > 45 * 1024 * 1024)
              )
-           order by uploaded_at desc
+             ${soloUrgentes ? "and preview_bump_at is not null" : ""}
+           -- prioridad: cualquier vídeo que alguien esté viendo AHORA MISMO sin
+           -- copia ligera (preview_bump_at, marcado por /v1/assets/:id/stream)
+           -- salta al principio de la cola, por delante del orden normal de
+           -- subida — así unos cortes se resuelven mientras el usuario sigue
+           -- viéndolo, en vez de esperar su turno detrás de todo el backlog.
+           order by (preview_bump_at is not null) desc, coalesce(preview_bump_at, uploaded_at) desc
            for update skip locked
            limit 1
        )
@@ -1142,21 +1148,36 @@ function startPreviewWorker(log: FastifyBaseLoggerLike): void {
   if (env.STORAGE_DRIVER !== "telegram") return;
   log.info({ concurrencia: PREVIEW_WORKER_CONCURRENCY }, "worker de copias de reproducción: arrancando");
   for (let slot = 0; slot < PREVIEW_WORKER_CONCURRENCY; slot++) {
-    startPreviewSlot(log, slot);
+    startPreviewSlot(log, slot, false);
   }
+  // Carril URGENTE aparte, dedicado en exclusiva a vídeos marcados por
+  // /v1/assets/:id/stream (preview_bump_at) — alguien viéndolos AHORA con
+  // cortes porque no tienen copia ligera todavía.
+  //
+  // BUG REAL que esto arregla: los carriles normales se apartan por completo
+  // mientras streamingActivo() es true (para no robarle ancho de banda a quien
+  // está mirando). Pero eso crea un bloqueo circular exacto para este caso:
+  // el vídeo necesita su copia ligera para dejar de cortarse, y esa copia
+  // nunca se genera PRECISAMENTE mientras alguien lo está viendo — que es
+  // cuando más falta hace. El carril urgente ignora streamingActivo() a
+  // propósito: descargar el original para transcodificarlo competirá algo de
+  // ancho de banda con la reproducción en curso durante un rato, pero es la
+  // única forma de que esos cortes se resuelvan de verdad en vez de repetirse
+  // para siempre cada vez que se abre ese vídeo.
+  startPreviewSlot(log, PREVIEW_WORKER_CONCURRENCY, true);
 }
 
-function startPreviewSlot(log: FastifyBaseLoggerLike, slot: number): void {
+function startPreviewSlot(log: FastifyBaseLoggerLike, slot: number, urgente: boolean): void {
   let busy = false;
   const loop = async () => {
     let huboTrabajo = false;
-    if (!busy && !streamingActivo() && Date.now() >= pausedUntil) {
+    if (!busy && (urgente || !streamingActivo()) && Date.now() >= pausedUntil) {
       busy = true;
       try {
-        huboTrabajo = await generarPreviews(log).then(
+        huboTrabajo = await generarPreviews(log, urgente).then(
           () => true,
           (e) => {
-            log.warn(e, "worker de copias de reproducción");
+            log.warn(e, urgente ? "worker urgente de copias de reproducción" : "worker de copias de reproducción");
             return false;
           },
         );
@@ -1164,7 +1185,11 @@ function startPreviewSlot(log: FastifyBaseLoggerLike, slot: number): void {
         busy = false;
       }
     }
-    setTimeout(() => void loop(), (huboTrabajo ? 20 : 300) * 1000);
+    // el carril urgente reintenta rápido siempre (5s) — tiene que reaccionar
+    // enseguida a un vídeo recién marcado, no esperar los 300s de reposo del
+    // carril normal, que no busca nada urgente.
+    const esperaS = urgente ? 5 : huboTrabajo ? 20 : 300;
+    setTimeout(() => void loop(), esperaS * 1000);
   };
   // arranque escalonado entre slots: evita que, si hay backlog, todos pidan
   // trabajo en el mismo instante justo al arrancar el proceso.

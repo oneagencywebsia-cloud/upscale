@@ -27,9 +27,13 @@ const base = z.object({
   TG_CACHE_MAX_MB: z.coerce.number().default(2048),
   /** Conexiones EN PARALELO que usa UNA sola descarga/reproducción (ventana
    *  deslizante de tgReadRangeLive / tgDownloadParallel). Telegram limita CADA
-   *  conexión a ~1 MB/s; los clientes oficiales abren varias. 6 = ~6 MB/s por
-   *  vídeo, de sobra para 4K/60 HDR (bitrates típicos 5-15 Mb/s ≈ 0,6-2 MB/s).
-   *  Subir a 8 si la red del VPS da para más; bajar si sale FLOOD_WAIT. */
+   *  conexión a ~1 MB/s en el mejor caso, pero en la práctica medida (ver
+   *  /v1/diag/speedtest) el rendimiento por conexión varía bastante con la
+   *  carga. Un vídeo 4K/60 HDR real puede pedir 6+ MB/s sostenidos — con solo
+   *  6 streams eso está justo en el límite y cualquier bajón momentáneo hace
+   *  que el original (sin copia ligera todavía) se corte al reproducir. 8 es
+   *  el tope ya soportado por TG_POOL_WARM_MIN/TG_POOL_MAX_CLIENTS: sube el
+   *  margen sin coste extra real. Bajar si sale FLOOD_WAIT con frecuencia. */
   // Tope 8: no es un límite de ancho de banda (para eso está TG_POOL_MAX_CLIENTS,
   // ver abajo) sino de RIESGO — cada conexión extra en la ventana de UN solo
   // archivo es una petición más por segundo contra la MISMA cuenta, y
@@ -38,7 +42,7 @@ const base = z.object({
   // FLOOD_WAIT. Con miles de archivos y varios usuarios a la vez, la palanca
   // real de rendimiento es TG_POOL_MAX_CLIENTS (más descargas EN PARALELO),
   // no más streams dentro de una descarga que ya va sobrada para su bitrate.
-  TG_DOWNLOAD_STREAMS: z.coerce.number().min(1).max(8).default(6),
+  TG_DOWNLOAD_STREAMS: z.coerce.number().min(1).max(8).default(8),
   /** Tope de conexiones de descarga que el pool puede llegar a abrir EN TOTAL,
    *  sumando TODAS las descargas/reproducciones simultáneas (no solo los
    *  TG_DOWNLOAD_STREAMS de una). El pool arranca con TG_DOWNLOAD_STREAMS
@@ -114,4 +118,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.21.0-arranque-menos-2s";
+export const VERSION = "0.21.1-cola-preview-urgente";
