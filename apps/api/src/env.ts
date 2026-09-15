@@ -106,4 +106,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.20.0-escala-tb";
+export const VERSION = "0.20.1-diag-sostenido";

@@ -36,8 +36,9 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
   // ?key=orig/... para medir con un original concreto; si no, coge el último vídeo.
   app.get("/v1/diag/storage", async (req) => {
     const { tgDiag } = await import("../telegram.js");
-    const q = req.query as { key?: string };
+    const q = req.query as { key?: string; mb?: string };
     let key = q.key;
+    const sampleMb = q.mb ? Math.max(8, Math.min(500, Number(q.mb) || 0)) : undefined;
     if (!key) {
       const r = await one<{ k: string }>(
         `select original_key k from assets
@@ -156,7 +157,7 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
           }
         : null,
       pool: poolStats(), // conexiones vivas/libres/en espera — si "waiting" no baja de 0, el pool se queda corto
-      ...(await tgDiag(key)),
+      ...(await tgDiag(key, sampleMb)),
     };
   });
 

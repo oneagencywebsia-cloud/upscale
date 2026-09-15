@@ -1233,7 +1233,7 @@ async function fetchSubRange(
   }
 }
 
-async function tgReadRangeLive(
+export async function tgReadRangeLive(
   key: string,
   start: number,
   end: number,
@@ -1329,7 +1329,7 @@ async function tgReadRangeLive(
  * velocidad real (baja 8 MB de un original y mide MB/s). Sirve para saber si el
  * pool está funcionando y si la caché es persistente o se borra en cada deploy.
  */
-export async function tgDiag(sampleKey?: string): Promise<Record<string, unknown>> {
+export async function tgDiag(sampleKey?: string, sampleMb?: number): Promise<Record<string, unknown>> {
   const out: Record<string, unknown> = {};
   try {
     const pool = await getPool();
@@ -1380,10 +1380,11 @@ export async function tgDiag(sampleKey?: string): Promise<Record<string, unknown
 
   if (sampleKey) {
     try {
-      const { loc, total, dcId } = await docLocation(sampleKey);
-      const want = Math.min(8 * 1024 * 1024, total);
+      const total = await tgSize(sampleKey);
+      const want = Math.min((sampleMb ?? 8) * 1024 * 1024, total);
       const nParts = Math.max(1, Math.ceil(want / (1024 * 1024)));
       const clients = await downloadClients(Math.min(nParts, env.TG_DOWNLOAD_STREAMS));
+      const { loc, dcId } = await docLocation(sampleKey);
       const t0 = Date.now();
       await Promise.all(
         Array.from({ length: nParts }, (_, i) =>
@@ -1394,6 +1395,45 @@ export async function tgDiag(sampleKey?: string): Promise<Record<string, unknown
       out.velocidad = { key: sampleKey, mb: +(want / 1e6).toFixed(1), segundos: +secs.toFixed(2), mbps: +(want / 1e6 / secs).toFixed(2) };
     } catch (e) {
       out.velocidad = { error: (e as Error).message };
+    }
+
+    // Prueba SOSTENIDA por el camino REAL de una descarga (tgReadRangeLive, el
+    // mismo generador con ventana deslizante que usa /v1/blob/*), con muestras
+    // de velocidad cada ~3s — a diferencia de la prueba de arriba (una ráfaga
+    // corta de 8 MB con Promise.all), esto reproduce de verdad "descargar un
+    // archivo entero de cientos de MB" y deja ver si la velocidad se mantiene
+    // o se degrada con el tiempo (indicio de limitación de Telegram por cuenta/
+    // sesión, no arreglable con más conexiones locales).
+    if (sampleMb && sampleMb > 8) {
+      try {
+        const total = await tgSize(sampleKey);
+        const wantBytes = Math.min(sampleMb * 1024 * 1024, total);
+        const { stream } = await tgReadRangeLive(sampleKey, 0, wantBytes - 1);
+        const t0 = Date.now();
+        let bytes = 0;
+        let lastSampleAt = t0;
+        let lastSampleBytes = 0;
+        const muestras: { s: number; mbps: number }[] = [];
+        for await (const chunk of stream as AsyncIterable<Buffer>) {
+          bytes += chunk.length;
+          const now = Date.now();
+          if (now - lastSampleAt >= 3000) {
+            const mbps = (bytes - lastSampleBytes) / 1e6 / ((now - lastSampleAt) / 1000);
+            muestras.push({ s: +((now - t0) / 1000).toFixed(1), mbps: +mbps.toFixed(2) });
+            lastSampleAt = now;
+            lastSampleBytes = bytes;
+          }
+        }
+        const secs = (Date.now() - t0) / 1000;
+        out.velocidadSostenida = {
+          mb: +(bytes / 1e6).toFixed(1),
+          segundos: +secs.toFixed(2),
+          mbpsMedia: +(bytes / 1e6 / secs).toFixed(2),
+          muestrasCada3s: muestras,
+        };
+      } catch (e) {
+        out.velocidadSostenida = { error: (e as Error).message };
+      }
     }
   }
   return out;
