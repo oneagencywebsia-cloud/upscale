@@ -230,6 +230,31 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
     return { key, url: await signedUrl(key, { expiresIn: 600 }) };
   });
 
+  // TEMPORAL: fuerza preview_bump_at en un vídeo concreto (sin copia lista)
+  // para verificar en vivo que el carril urgente de generarPreviews() lo
+  // recoge de verdad, incluso simulando que hay "reproducción activa". Quitar
+  // una vez confirmado — no debe quedar accesible sin auth a largo plazo.
+  app.post("/v1/diag/bump", async (req, reply) => {
+    const q = req.query as { key?: string; big?: string };
+    let key = q.key;
+    if (!key) {
+      const r = await one<{ k: string }>(
+        `select original_key k from assets
+           where kind = 'video' and stored = true and deleted_at is null and preview_key is null
+             and duration_s is not null and duration_s > 0 and bytes::float8 / duration_s > 1400000
+           order by ${q.big ? "bytes" : "uploaded_at"} desc limit 1`,
+      ).catch(() => null);
+      key = r?.k;
+    }
+    if (!key) return reply.code(404).send({ error: "no hay ningún vídeo sin copia lista que califique" });
+    const r = await one<{ id: string; preview_state: number }>(
+      "update assets set preview_bump_at = now() where original_key = $1 and preview_key is null returning id, preview_state",
+      [key],
+    ).catch(() => null);
+    if (!r) return reply.code(404).send({ error: "no se pudo marcar (ya tiene copia o no existe)" });
+    return { ok: true, key, id: r.id, preview_state: r.preview_state };
+  });
+
   // diagnóstico de la ingesta desde Telegram (sin datos sensibles)
   app.get("/v1/ingest/status", async () => {
     const lastId = await one<{ v: string }>("select v from kv where k = 'ingest:last_id'").catch(() => null);

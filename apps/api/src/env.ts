@@ -118,4 +118,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.21.1-cola-preview-urgente";
+export const VERSION = "0.21.2-diag-bump";
