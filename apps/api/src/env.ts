@@ -106,4 +106,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.20.4-diag-streaming";
+export const VERSION = "0.20.5-diag-signedurl";

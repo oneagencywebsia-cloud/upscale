@@ -207,6 +207,29 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
     return reply;
   });
 
+  // URL firmada real (la MISMA que genera la app) para un original concreto —
+  // sirve para reproducir exactamente lo que descarga un usuario y verificar
+  // el archivo con ffmpeg/ffprobe fuera de la app. ?key=orig/... o ?big=1.
+  app.get("/v1/diag/signedurl", async (req, reply) => {
+    const { signedUrl } = await import("../storage.js");
+    const q = req.query as { key?: string; big?: string };
+    let key = q.key;
+    if (!key) {
+      const r = await one<{ k: string }>(
+        q.big
+          ? `select original_key k from assets
+               where kind = 'video' and stored = true and deleted_at is null
+               order by bytes desc limit 1`
+          : `select original_key k from assets
+               where kind = 'video' and stored = true and deleted_at is null
+               order by uploaded_at desc limit 1`,
+      ).catch(() => null);
+      key = r?.k;
+    }
+    if (!key) return reply.code(404).send({ error: "no hay ningún vídeo" });
+    return { key, url: await signedUrl(key, { expiresIn: 600 }) };
+  });
+
   // diagnóstico de la ingesta desde Telegram (sin datos sensibles)
   app.get("/v1/ingest/status", async () => {
     const lastId = await one<{ v: string }>("select v from kv where k = 'ingest:last_id'").catch(() => null);
