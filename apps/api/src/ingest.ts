@@ -580,8 +580,15 @@ async function generarPreviews(log: FastifyBaseLoggerLike): Promise<boolean> {
   //  - bitrate conocido y > 1,4 MB/s, o
   //  - ingerido por cabecera (sin duración) y > 45 MB → casi seguro 4K pesado.
   // Un clip corto y ligero se reproduce bien con el original: no se transcodifica.
-  const a = await one<{ id: string; original_key: string; filename: string; bytes: string; preview_state: number }>(
-    `select id, original_key, filename, bytes, preview_state from assets
+  const a = await one<{
+    id: string;
+    original_key: string;
+    filename: string;
+    bytes: string;
+    preview_state: number;
+    duration_s: number | null;
+  }>(
+    `select id, original_key, filename, bytes, preview_state, duration_s from assets
        where kind = 'video' and stored = true and deleted_at is null
          and preview_key is null and preview_state >= 0
          and (
@@ -614,21 +621,49 @@ async function generarPreviews(log: FastifyBaseLoggerLike): Promise<boolean> {
     log.info({ f: a.filename, mb: Math.round(Number(a.bytes) / 1e6) }, "preview: empieza");
     await mkdir(env.TMP_DIR, { recursive: true });
 
+    // Comprobación de disco ANTES de empezar. Un original de horas puede
+    // pesar decenas de GB — mejor fallar rápido y con un aviso claro que
+    // quedarse sin espacio a mitad de una descarga/conversión que puede durar
+    // horas (dejaría archivos a medias y el contenedor podría venirse abajo).
+    // Margen generoso: el original (para poder leerlo entero) + la copia de
+    // salida (una fracción del original) + un colchón fijo.
+    try {
+      const { statfs } = await import("node:fs/promises");
+      const fsStat = await statfs(env.TMP_DIR);
+      const libres = fsStat.bavail * fsStat.bsize;
+      const necesarios = Number(a.bytes) * 1.3 + 1024 * 1024 * 1024;
+      if (libres < necesarios) {
+        log.warn(
+          { f: a.filename, libresMb: Math.round(libres / 1e6), necesariosMb: Math.round(necesarios / 1e6) },
+          "preview: sin espacio en disco suficiente, se aplaza",
+        );
+        // no se cuenta como intento fallido del archivo — es el disco, no él
+        await query("update assets set preview_state = greatest(0, preview_state - 1) where id = $1", [a.id]).catch(() => {});
+        return true;
+      }
+    } catch {
+      /* si statfs falla (sistema de archivos raro), se sigue e intenta igual */
+    }
+
     // hace falta el original ENTERO: ffmpeg tiene que decodificarlo todo. En
-    // un vídeo de 20 min esto pueden ser varios GB — más que TODA la caché —
-    // así que se protege de que el limpiador lo expulse mientras se usa (si
-    // no, se autoborraba nada más descargarse y cada intento volvía a bajar
-    // el original entero desde cero, sin avanzar nunca).
-    const src = await tgEnsureLocal(a.original_key, 4);
+    // un vídeo largo esto pueden ser varios GB — más que TODA la caché — así
+    // que se protege de que el limpiador lo expulse mientras se usa (si no,
+    // se autoborraba nada más descargarse y cada intento volvía a bajar el
+    // original entero desde cero, sin avanzar nunca). 8 conexiones (el máximo)
+    // para esta descarga: solo ocurre cuando no hay nadie viendo nada
+    // (streamingActivo() en reposo), así que no le quita banda a nadie.
+    const src = await tgEnsureLocal(a.original_key, 8);
     unpin = pinCachedFile(src);
-    await makePreview(src, out);
+    await makePreview(src, out, { durationS: a.duration_s ?? undefined });
 
     const { size } = await stat(out);
     if (!size) throw new Error("preview vacía");
 
     const m = a.original_key.match(/^orig\/(.+)\.[a-z0-9]+$/i);
     const key = `prev/${m?.[1] ?? a.id}.mp4`;
-    await withTimeout(tgPut(key, out), 20 * 60_000, "subir preview");
+    // margen amplio también aquí: la copia de un vídeo de horas puede pesar
+    // varios GB, y es preferible tardar a rendirse a mitad de la subida.
+    await withTimeout(tgPut(key, out), 60 * 60_000, "subir preview");
     await query("update assets set preview_key = $1, preview_bytes = $2, preview_state = 0 where id = $3", [
       key,
       size,

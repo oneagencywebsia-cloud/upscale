@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process";
+import { cpus } from "node:os";
 import { createWriteStream } from "node:fs";
 import { extname } from "node:path";
 import sharp from "sharp";
@@ -381,7 +382,23 @@ export const makePoster = extractFrame;
  *  - `-threads 2` deja CPU libre para que la app siga respondiendo.
  *  - se conserva la orientación y los fps originales (se siente igual de fluido).
  */
-export async function makePreview(src: string, out: string, maxH = 1080): Promise<void> {
+/**
+ * `durationS`: cuanto más largo el original, más pesa cada segundo de espera
+ * — a partir de 20 min se cambia a "ultrafast" (bastante más rápido, la copia
+ * ligera pesa algo más pero sigue siendo una fracción del original) porque
+ * para un vídeo de horas el tiempo hasta tenerla lista importa más que
+ * ahorrar unos MB. Los hilos se calculan según los núcleos reales de la
+ * máquina (dejando uno libre para que la app no se quede sin CPU) en vez de
+ * un número fijo que podía quedarse corto o largo según el VPS.
+ */
+export async function makePreview(
+  src: string,
+  out: string,
+  opts: { maxH?: number; durationS?: number } = {},
+): Promise<void> {
+  const maxH = opts.maxH ?? 1080;
+  const preset = (opts.durationS ?? 0) > 20 * 60 ? "ultrafast" : "veryfast";
+  const threads = Math.max(2, cpus().length - 1);
   await run(
     env.FFMPEG_PATH,
     [
@@ -389,7 +406,7 @@ export async function makePreview(src: string, out: string, maxH = 1080): Promis
       "-i", src,
       "-vf", `scale='if(gt(ih,${maxH}),-2,iw)':'min(${maxH},ih)':flags=fast_bilinear`,
       "-c:v", "libx264",
-      "-preset", "veryfast",
+      "-preset", preset,
       "-crf", "23",
       "-maxrate", "5M",
       "-bufsize", "10M",
@@ -398,15 +415,14 @@ export async function makePreview(src: string, out: string, maxH = 1080): Promis
       "-c:a", "aac",
       "-b:a", "128k",
       "-movflags", "+faststart",
-      "-threads", "3",
+      "-threads", String(threads),
       out,
     ],
-    // Un vídeo de 20 min en 4K puede tardar bastante en "veryfast" con pocos
-    // hilos — 90 min de margen. Corre en su propio worker en 2º plano (ver
-    // startPreviewWorker en ingest.ts), así que un margen amplio no bloquea
-    // nada más: es preferible a que se dé por vencido a mitad de camino y
-    // haya que empezar de cero en el siguiente intento.
-    { maxBuffer: 8 * 1024 * 1024, timeout: 90 * 60_000 },
+    // Un vídeo largo en 4K puede tardar bastante incluso así — margen amplio.
+    // Corre en su propio worker en 2º plano (ver startPreviewWorker en
+    // ingest.ts), así que un margen amplio no bloquea nada más: es preferible
+    // a que se dé por vencido a mitad de camino y haya que empezar de cero.
+    { maxBuffer: 8 * 1024 * 1024, timeout: 180 * 60_000 },
   );
 }
 
