@@ -1283,10 +1283,16 @@ export async function tgRead(
     // mismo". Se sirve igual que el streaming de vídeo: en directo, por
     // trozos, según van llegando — el primer byte sale enseguida y la
     // descarga entera nunca depende de un único plazo límite.
+    // OJO: sin warmCache aquí a propósito. En la reproducción SÍ tiene
+    // sentido (se pide un trocito y se cachea el resto por si acaso) pero en
+    // una descarga completa el archivo ENTERO ya se está retransmitiendo en
+    // directo — cachearlo TAMBIÉN en paralelo es descargarlo dos veces a la
+    // vez, compitiendo por las mismas conexiones del pool consigo mismo.
+    // Verificado en producción: dos descargas de 571 MB y 310 MB a la vez
+    // caían a ~0,6 MB/s cada una por esto exactamente.
     try {
       const total = await tgSize(key);
       const { stream, totalSize } = await tgReadRangeLive(key, 0, total - 1);
-      warmCache(key, totalSize);
       return { stream, size: totalSize, totalSize };
     } catch (e) {
       docCache.delete(key);

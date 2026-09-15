@@ -28,7 +28,11 @@ const base = z.object({
   /** Conexiones simultáneas de descarga a Telegram. Telegram limita CADA conexión
    *  a ~1 MB/s; los clientes oficiales abren varias. 4 = ~4 MB/s (suficiente para
    *  4K). Subir a 6-8 si la red del VPS da para más; bajar si sale FLOOD_WAIT. */
-  TG_DOWNLOAD_STREAMS: z.coerce.number().min(1).max(8).default(4),
+  // 4 se quedaba corto en cuanto había más de una cosa a la vez (dos
+  // descargas grandes en paralelo medidas a ~0,6 MB/s cada una, compartiendo
+  // el mismo pool con la reproducción y el calentamiento de fondo). Puede
+  // subirse hasta 8 por variable de entorno si el VPS aguanta más.
+  TG_DOWNLOAD_STREAMS: z.coerce.number().min(1).max(8).default(6),
 
   // Ingesta desde Telegram: manda un vídeo "como archivo" a este chat y entra
   // en la biblioteca sin recomprimir. Por defecto "me" = Mensajes guardados.
@@ -71,4 +75,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.19.0-auditoria";
+export const VERSION = "0.19.1-descargas-paralelas";
