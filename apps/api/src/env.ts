@@ -26,22 +26,25 @@ const base = z.object({
   TG_CACHE_DIR: z.string().default("./tg-cache"),
   TG_CACHE_MAX_MB: z.coerce.number().default(2048),
   /** Conexiones EN PARALELO que usa UNA sola descarga/reproducción (ventana
-   *  deslizante de tgReadRangeLive / tgDownloadParallel). Telegram limita CADA
-   *  conexión a ~1 MB/s en el mejor caso, pero en la práctica medida (ver
-   *  /v1/diag/speedtest) el rendimiento por conexión varía bastante con la
-   *  carga. Un vídeo 4K/60 HDR real puede pedir 6+ MB/s sostenidos — con solo
-   *  6 streams eso está justo en el límite y cualquier bajón momentáneo hace
-   *  que el original (sin copia ligera todavía) se corte al reproducir. 8 es
-   *  el tope ya soportado por TG_POOL_WARM_MIN/TG_POOL_MAX_CLIENTS: sube el
-   *  margen sin coste extra real. Bajar si sale FLOOD_WAIT con frecuencia. */
-  // Tope 8: no es un límite de ancho de banda (para eso está TG_POOL_MAX_CLIENTS,
-  // ver abajo) sino de RIESGO — cada conexión extra en la ventana de UN solo
-  // archivo es una petición más por segundo contra la MISMA cuenta, y
-  // FLOOD_WAIT lo aplica Telegram por cuenta/método, no por conexión: pasado
-  // cierto punto, más "streams" por archivo no suma MB/s, solo acerca el
-  // FLOOD_WAIT. Con miles de archivos y varios usuarios a la vez, la palanca
-  // real de rendimiento es TG_POOL_MAX_CLIENTS (más descargas EN PARALELO),
-  // no más streams dentro de una descarga que ya va sobrada para su bitrate.
+   *  deslizante de tgReadRangeLive / tgDownloadParallel).
+   *
+   *  MEDIDO EN PRODUCCIÓN (2026-09-16, /v1/diag/speedtest?streams=N, prueba
+   *  sostenida ~50-60s, dos vídeos distintos): 8, 16, 24 y 32 streams dan
+   *  TODOS lo mismo, 3.3-3.9 MB/s de media sostenida — subir el número de
+   *  conexiones NO aumenta el caudal real ni un poco. Conclusión: Telegram no
+   *  limita por conexión (como se pensaba antes) sino por CUENTA, de forma
+   *  sostenida — abrir más conexiones desde este mismo proceso solo reparte
+   *  el mismo techo de ancho de banda entre más streams, nunca lo supera.
+   *  Las ráfagas cortas (unos MB en <1s) SÍ llegan a 10-19 MB/s: es margen de
+   *  arranque de Telegram antes de aplicar el límite sostenido, no señal de
+   *  que más streams vaya a mantener esa velocidad en una descarga larga.
+   *
+   *  Por eso se queda en 8 (probado: ni FLOOD_WAIT extra ni beneficio real
+   *  subiéndolo). Las dos únicas vías con margen real de mejora de verdad son
+   *  (a) Telegram Premium en la cuenta (puede tener un techo de cuenta más
+   *  alto — sin verificar) o (b) repartir la descarga entre VARIAS cuentas de
+   *  Telegram distintas en paralelo (cada una con su propio techo de cuenta),
+   *  que es un cambio de arquitectura mayor, no solo un número aquí. */
   TG_DOWNLOAD_STREAMS: z.coerce.number().min(1).max(32).default(8),
   /** Tope de conexiones de descarga que el pool puede llegar a abrir EN TOTAL,
    *  sumando TODAS las descargas/reproducciones simultáneas (no solo los
@@ -54,7 +57,7 @@ const base = z.object({
    *  sin uso. Cada conexión son unos pocos MB de RAM; súbelo si el VPS tiene
    *  ancho de banda y RAM de sobra para más usuarios concurrentes.
    */
-  TG_POOL_MAX_CLIENTS: z.coerce.number().min(1).max(64).default(36),
+  TG_POOL_MAX_CLIENTS: z.coerce.number().min(1).max(64).default(24),
   /** Mínimo de conexiones SIEMPRE conectadas y listas, aunque nadie las esté
    *  usando (no bajo demanda como TG_POOL_MAX_CLIENTS). Objetivo: abrir
    *  cualquier archivo, aunque nunca se haya abierto antes, en <2s — para eso
@@ -118,4 +121,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.21.9-diag-streams";
+export const VERSION = "0.21.10-techo-medido";
