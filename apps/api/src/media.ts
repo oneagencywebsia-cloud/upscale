@@ -413,7 +413,14 @@ export async function makePreview(
       "-profile:v", "high",
       "-pix_fmt", "yuv420p", // compatible con todo (el HDR de 10 bits no lo lee Safari)
       "-c:a", "aac",
-      "-b:a", "128k",
+      // 192k en vez de 128k: la copia ligera es la única re-codificación de
+      // TODO el sistema (el original que se guarda y se descarga nunca pasa
+      // por ffmpeg, se sube tal cual) — pero mientras alguien la esté VIENDO
+      // (bitrate del original demasiado alto para reproducir en directo), el
+      // audio no debe sonar peor de lo razonable. 192k es prácticamente
+      // transparente para AAC estéreo y sigue siendo un coste insignificante
+      // frente al vídeo (maxrate 5M): unos 8 KB/s más, nada a esta escala.
+      "-b:a", "192k",
       "-movflags", "+faststart",
       "-threads", String(threads),
       out,

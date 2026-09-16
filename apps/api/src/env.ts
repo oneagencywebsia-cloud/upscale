@@ -118,4 +118,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.21.7-verificado";
+export const VERSION = "0.21.8-audio-192k";
