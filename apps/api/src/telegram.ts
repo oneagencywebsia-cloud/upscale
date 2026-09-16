@@ -16,6 +16,16 @@ import { query, one } from "./db.js";
  * se conserva. Los Live Photos se guardan como dos objetos (HEIC + MOV).
  */
 
+/** Tope real de Telegram para un documento: 2 GB en cuentas normales, 4 GB con
+ *  Premium (esta cuenta es gratuita). Es un muro de Telegram, no algo que
+ *  podamos ampliar — decide cuándo un original hay que trocearlo en varios
+ *  mensajes (ver putSplit en storage.ts) y cuándo una re-subida de
+ *  recuperación está condenada a fallar (ver ingest.ts). */
+export const TELEGRAM_FILE_CEILING_BYTES = (env.TELEGRAM_ACCOUNT_PREMIUM ? 4 : 2) * 1024 * 1024 * 1024;
+/** Tamaño de cada parte al trocear un original por encima del tope — con
+ *  margen de seguridad (10%) bajo el límite real de Telegram. */
+export const PART_SIZE_BYTES = Math.floor(TELEGRAM_FILE_CEILING_BYTES * 0.9);
+
 let clientPromise: Promise<TelegramClient> | null = null;
 let channelEntity: Api.TypeInputPeer | null = null;
 let inboxCb: (() => void) | null = null;
@@ -772,7 +782,10 @@ export async function tgPutByForward(key: string, inboxMsgId: number, filePath?:
 }
 
 /** Sube el archivo como documento (bytes exactos) y registra key -> message_id. */
-export async function tgPut(key: string, filePath: string): Promise<void> {
+/** Núcleo compartido de "subir UN archivo local como UN documento de
+ *  Telegram, con reintentos" — lo usan tanto tgPut (un archivo = una key)
+ *  como tgPutPart (una parte de un archivo troceado). */
+async function sendOneDocument(filePath: string, caption: string): Promise<{ messageId: number; bytes: number }> {
   const channel = await getChannel();
   const { size } = await stat(filePath);
   // pocos "workers": 16 conexiones en paralelo disparaban FLOOD_WAIT y colgaban
@@ -785,9 +798,9 @@ export async function tgPut(key: string, filePath: string): Promise<void> {
     try {
       const c = await getClient();
       msg = await raceTimeout(
-        c.sendFile(channel, { file: filePath, forceDocument: true, caption: key, workers }),
+        c.sendFile(channel, { file: filePath, forceDocument: true, caption, workers }),
         Math.max(90_000, Math.round((size / (150 * 1024)) * 1000)), // ~150 KB/s mínimo por intento
-        `sendFile ${key} (intento ${attempt})`,
+        `sendFile ${caption} (intento ${attempt})`,
       );
       lastErr = null;
       break;
@@ -799,19 +812,34 @@ export async function tgPut(key: string, filePath: string): Promise<void> {
     }
   }
   if (lastErr || !msg) throw lastErr ?? new Error("sendFile no devolvió mensaje");
+  return { messageId: Number((msg as Api.Message).id), bytes: size };
+}
 
-  const messageId = Number((msg as Api.Message).id);
+export async function tgPut(key: string, filePath: string): Promise<void> {
+  const { messageId, bytes } = await sendOneDocument(filePath, key);
   await query(
     `insert into blob_refs (key, tg_message_id, bytes) values ($1,$2,$3)
      on conflict (key) do update set tg_message_id = excluded.tg_message_id, bytes = excluded.bytes`,
-    [key, messageId, size],
+    [key, messageId, bytes],
   );
 
   // si es pequeño, lo dejamos ya en caché para no volver a bajarlo
-  if (size <= CACHE_INLINE_LIMIT) {
+  if (bytes <= CACHE_INLINE_LIMIT) {
     await mkdir(env.TG_CACHE_DIR, { recursive: true });
     await pipe(createReadStream(filePath), createWriteStream(cachePath(key))).catch(() => {});
   }
+}
+
+/** Sube UNA parte (de un original troceado por superar el tope de Telegram,
+ *  ver putSplit en storage.ts) como su propio documento, registrada en
+ *  blob_parts bajo la MISMA key lógica + su índice. */
+export async function tgPutPart(key: string, index: number, filePath: string): Promise<void> {
+  const { messageId, bytes } = await sendOneDocument(filePath, `${key}#${index}`);
+  await query(
+    `insert into blob_parts (key, part_index, tg_message_id, bytes) values ($1,$2,$3,$4)
+     on conflict (key, part_index) do update set tg_message_id = excluded.tg_message_id, bytes = excluded.bytes`,
+    [key, index, messageId, bytes],
+  );
 }
 
 async function pipe(rs: NodeJS.ReadableStream, ws: NodeJS.WritableStream): Promise<void> {
@@ -856,18 +884,29 @@ export async function tgInboxDocLocation(
 }
 
 export async function tgDelete(key: string): Promise<void> {
-  const row = await one<{ tg_message_id: string }>("select tg_message_id from blob_refs where key = $1", [key]);
-  if (row) {
+  const parts = await resolveParts(key);
+  if (parts.length) {
+    // troceado: borra TODOS los mensajes de Telegram de todas las partes
     const c = await getClient();
     const channel = await getChannel();
-    await c.deleteMessages(channel, [Number(row.tg_message_id)], { revoke: true }).catch(() => {});
+    await c.deleteMessages(channel, parts.map((p) => p.msgId), { revoke: true }).catch(() => {});
+    await query("delete from blob_parts where key = $1", [key]).catch(() => {});
+  } else {
+    const row = await one<{ tg_message_id: string }>("select tg_message_id from blob_refs where key = $1", [key]);
+    if (row) {
+      const c = await getClient();
+      const channel = await getChannel();
+      await c.deleteMessages(channel, [Number(row.tg_message_id)], { revoke: true }).catch(() => {});
+    }
+    await query("delete from blob_refs where key = $1", [key]).catch(() => {});
   }
-  await query("delete from blob_refs where key = $1", [key]).catch(() => {});
   await rm(cachePath(key), { force: true }).catch(() => {});
 }
 
 /** Tamaño en bytes registrado para una key (sin tocar Telegram). */
 export async function tgSize(key: string): Promise<number> {
+  const parts = await resolveParts(key);
+  if (parts.length) return parts.reduce((s, p) => s + p.bytes, 0);
   const row = await one<{ bytes: string }>("select bytes from blob_refs where key = $1", [key]);
   if (row) return Number(row.bytes);
   // miniatura / póster en BD
@@ -917,6 +956,65 @@ async function messageForKey(key: string): Promise<Api.Message> {
  * clientes oficiales de Telegram). Escrituras posicionadas en el archivo. Sin
  * recompresión — son los mismos bytes, solo que en trozos simultáneos.
  */
+/**
+ * Descarga UN documento MTProto ya resuelto (loc/dcId/total) a un file handle
+ * ABIERTO, escribiendo en `baseOffset + posición-dentro-del-documento` — así
+ * sirve tanto para un archivo normal (baseOffset=0, todo el fichero) como
+ * para UNA parte de un original troceado (baseOffset = dónde empieza esa
+ * parte dentro del archivo lógico completo, ver ensureCached).
+ */
+async function downloadDocToFile(
+  fh: import("node:fs/promises").FileHandle,
+  loc: Api.InputDocumentFileLocation,
+  dcId: number | undefined,
+  total: number,
+  baseOffset: number,
+  streams: number,
+  isBackground: boolean,
+): Promise<void> {
+  const REQ = 512 * 1024;
+  const per = Math.max(REQ, Math.ceil(total / streams / REQ) * REQ);
+  const nParts = Math.ceil(total / per);
+  // una conexión por trozo (pool) → el ancho de banda SUMA de verdad
+  const clients = await downloadClients(nParts);
+  const jobs: Promise<void>[] = [];
+  for (let i = 0; i < nParts; i++) {
+    const from = i * per;
+    const to = Math.min(total, from + per);
+    const c = clients[i]!;
+    // exclusive(): si `c` coincide con el de OTRO trozo (el pool puede ser
+    // más pequeño que nParts) o con alguna otra descarga en curso a la vez,
+    // esto pone en cola en vez de correr dos iterDownload a la vez sobre la
+    // misma conexión — que es justo lo que mezclaba bytes entre descargas.
+    jobs.push(
+      exclusive(c, async () => {
+        let pos = from;
+        for await (const chunk of c.iterDownload({
+          file: loc,
+          dcId,
+          offset: bigInt(from),
+          limit: to - from,
+          requestSize: REQ,
+        })) {
+          const buf = Buffer.from(chunk as Uint8Array);
+          if (!buf.length) continue;
+          const w = pos + buf.length > to ? buf.subarray(0, to - pos) : buf;
+          await fh.write(w, 0, w.length, baseOffset + pos);
+          pos += w.length;
+          if (pos >= to) break;
+          // cede el paso si alguien está viendo algo AHORA — se re-evalúa
+          // en CADA trozo, así que si el visionado empieza a MITAD de esta
+          // descarga de fondo (p. ej. el usuario abre el vídeo justo
+          // mientras se genera su copia ligera), se frena de inmediato, y
+          // recupera velocidad sola en cuanto el visionado termina.
+          if (isBackground && viendoAlgoActivamente()) await new Promise((r) => setTimeout(r, 400));
+        }
+      }),
+    );
+  }
+  await Promise.all(jobs);
+}
+
 async function tgDownloadParallel(
   msg: Api.Message,
   outPath: string,
@@ -951,47 +1049,7 @@ async function tgDownloadParallel(
   const fh = await open(outPath, "w");
   try {
     await fh.truncate(total);
-    const REQ = 512 * 1024;
-    const per = Math.max(REQ, Math.ceil(total / streams / REQ) * REQ);
-    const nParts = Math.ceil(total / per);
-    // una conexión por trozo (pool) → el ancho de banda SUMA de verdad
-    const clients = await downloadClients(nParts);
-    const jobs: Promise<void>[] = [];
-    for (let i = 0; i < nParts; i++) {
-      const from = i * per;
-      const to = Math.min(total, from + per);
-      const c = clients[i]!;
-      // exclusive(): si `c` coincide con el de OTRO trozo (el pool puede ser
-      // más pequeño que nParts) o con alguna otra descarga en curso a la vez,
-      // esto pone en cola en vez de correr dos iterDownload a la vez sobre la
-      // misma conexión — que es justo lo que mezclaba bytes entre descargas.
-      jobs.push(
-        exclusive(c, async () => {
-          let pos = from;
-          for await (const chunk of c.iterDownload({
-            file: loc,
-            dcId,
-            offset: bigInt(from),
-            limit: to - from,
-            requestSize: REQ,
-          })) {
-            const buf = Buffer.from(chunk as Uint8Array);
-            if (!buf.length) continue;
-            const w = pos + buf.length > to ? buf.subarray(0, to - pos) : buf;
-            await fh.write(w, 0, w.length, pos);
-            pos += w.length;
-            if (pos >= to) break;
-            // cede el paso si alguien está viendo algo AHORA — se re-evalúa
-            // en CADA trozo, así que si el visionado empieza a MITAD de esta
-            // descarga de fondo (p. ej. el usuario abre el vídeo justo
-            // mientras se genera su copia ligera), se frena de inmediato, y
-            // recupera velocidad sola en cuanto el visionado termina.
-            if (isBackground && viendoAlgoActivamente()) await new Promise((r) => setTimeout(r, 400));
-          }
-        }),
-      );
-    }
-    await Promise.all(jobs);
+    await downloadDocToFile(fh, loc, dcId, total, 0, streams, isBackground);
   } finally {
     await fh.close();
   }
@@ -1008,11 +1066,29 @@ async function ensureCached(key: string, streams = 4): Promise<string> {
   let job = downloading.get(key);
   if (!job) {
     job = (async () => {
-      const msg = await messageForKey(key);
       await mkdir(env.TG_CACHE_DIR, { recursive: true });
       const tmp = `${cp}.${randomBytes(6).toString("hex")}.dl`;
       try {
-        await tgDownloadParallel(msg, tmp, streams);
+        const parts = await resolveParts(key);
+        if (parts.length) {
+          // troceado: cada parte va a su offset dentro del MISMO fichero de
+          // salida, en orden — para quien lo lee después es un solo archivo.
+          const total = parts.reduce((s, p) => s + p.bytes, 0);
+          const { open } = await import("node:fs/promises");
+          const fh = await open(tmp, "w");
+          try {
+            await fh.truncate(total);
+            for (const p of parts) {
+              const { loc, dcId } = await docLocationPart(key, p.index, p.msgId);
+              await downloadDocToFile(fh, loc, dcId, p.bytes, p.start, streams, true);
+            }
+          } finally {
+            await fh.close();
+          }
+        } else {
+          const msg = await messageForKey(key);
+          await tgDownloadParallel(msg, tmp, streams);
+        }
         await rm(cp, { force: true }).catch(() => {});
         await rename(tmp, cp);
         pruneCache();
@@ -1264,21 +1340,73 @@ async function docLocationFresh(
   }
 
   const total = Number(row.bytes);
+  const { loc, dcId } = await resolveMessageLocation(Number(row.tg_message_id));
+  docCacheTouch(key, { loc, total, dcId, at: Date.now() });
+  return { loc, total, dcId };
+}
+
+/** Resuelve un tg_message_id concreto a su ubicación MTProto (documento +
+ *  dcId) — núcleo compartido por docLocationFresh (blob_refs, un archivo) y
+ *  docLocationPart (blob_parts, una parte de un archivo troceado). */
+async function resolveMessageLocation(messageId: number): Promise<{ loc: Api.InputDocumentFileLocation; dcId?: number }> {
   const c = await getClient();
   const channel = await getChannel();
-  const [msg] = await c.getMessages(channel, { ids: [Number(row.tg_message_id)] });
+  const [msg] = await c.getMessages(channel, { ids: [messageId] });
   const doc = msg?.document as Api.Document | undefined;
   if (!doc) throw new Error("mensaje sin documento");
-
   const loc = new Api.InputDocumentFileLocation({
     id: doc.id,
     accessHash: doc.accessHash,
     fileReference: doc.fileReference,
     thumbSize: "",
   });
-  const dcId = doc.dcId;
-  docCacheTouch(key, { loc, total, dcId, at: Date.now() });
-  return { loc, total, dcId };
+  return { loc, dcId: doc.dcId };
+}
+
+/** Filas de blob_parts de un original troceado, en orden, con el offset
+ *  GLOBAL (dentro del archivo lógico completo) en el que empieza cada una.
+ *  Array vacío = key no troceada (camino de blob_refs de SIEMPRE). */
+async function resolveParts(
+  key: string,
+): Promise<{ index: number; msgId: number; bytes: number; start: number }[]> {
+  const rows = await query<{ part_index: number; tg_message_id: string; bytes: string }>(
+    "select part_index, tg_message_id, bytes from blob_parts where key = $1 order by part_index",
+    [key],
+  );
+  if (!rows.rows.length) return [];
+  let acc = 0;
+  return rows.rows.map((r) => {
+    const start = acc;
+    const bytes = Number(r.bytes);
+    acc += bytes;
+    return { index: r.part_index, msgId: Number(r.tg_message_id), bytes, start };
+  });
+}
+
+/** docLocation, pero para UNA parte de un original troceado — misma caché
+ *  LRU/TTL (docCache/docInflight), clave compuesta para no chocar con la key
+ *  lógica ni entre partes distintas. */
+async function docLocationPart(
+  key: string,
+  index: number,
+  msgId: number,
+): Promise<{ loc: Api.InputDocumentFileLocation; dcId?: number }> {
+  const cacheKey = `${key}#p${index}`;
+  const hit = docCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < DOC_TTL) {
+    docCacheTouch(cacheKey, hit);
+    return { loc: hit.loc, dcId: hit.dcId };
+  }
+  const flying = docInflight.get(cacheKey);
+  if (flying) return flying;
+  const job = (async () => {
+    const { loc, dcId } = await resolveMessageLocation(msgId);
+    const entry = { loc, total: 0, dcId, at: Date.now() }; // total: no aplica aquí, ya se sabe por blob_parts.bytes
+    docCacheTouch(cacheKey, entry);
+    return entry;
+  })().finally(() => docInflight.delete(cacheKey));
+  docInflight.set(cacheKey, job);
+  return job;
 }
 
 const CHUNK = 512 * 1024; // requestSize: múltiplo de 4096, máx 512 KB
@@ -1374,15 +1502,29 @@ async function fetchSubRange(
   }
 }
 
-export async function tgReadRangeLive(
-  key: string,
+/**
+ * Núcleo real de la lectura en directo: dado un documento YA resuelto
+ * (loc/dcId/total), sirve [start,end] en trozos con ventana deslizante.
+ * Extraído de lo que antes era el cuerpo entero de tgReadRangeLive — MISMO
+ * código, MISMO comportamiento, solo parametrizado para poder usarlo tanto
+ * con un archivo normal (blob_refs, un documento) como con UNA parte de un
+ * original troceado (blob_parts) sin duplicar el generador.
+ *
+ * `refresh`/`invalidate` desacoplan el "fileReference caducó, repite con uno
+ * fresco" de CUÁL key hay que invalidar — el llamante (tgReadRangeLive) sabe
+ * si esto es la key entera o una parte concreta.
+ */
+function tgReadRangeLoc(
+  loc: Api.InputDocumentFileLocation,
+  dcId: number | undefined,
+  total: number,
   start: number,
   end: number,
-  streamsOverride?: number,
-  isDownload = false,
-): Promise<{ stream: Readable; totalSize: number }> {
-  lastLiveReadAt = Date.now(); // el mantenimiento se aparta mientras esto pase
-  const { loc, total, dcId } = await docLocation(key);
+  streamsOverride: number | undefined,
+  isDownload: boolean,
+  refresh: () => Promise<{ loc: Api.InputDocumentFileLocation; dcId?: number }>,
+  invalidate: () => void,
+): { stream: Readable; totalSize: number } {
   const wantLen = end - start + 1;
 
   // El rango se baja en trozos PEQUEÑOS (1 MB) con una VENTANA DESLIZANTE de N
@@ -1461,9 +1603,8 @@ export async function tgReadRangeLive(
           // documento y se repite ESTE trozo, exacto mismo rango, con un
           // cliente nuevo — así no se duplican ni desordenan bytes.
           inflight.delete(i);
-          docCache.delete(key);
           console.error(`[tg] trozo ${i} falló (${(e as Error).message}), reintento final con fileReference fresco`);
-          const fresh = await docLocation(key);
+          const fresh = await refresh();
           const [from, to] = partRange(i);
           const c2 = (await downloadClients(1))[0];
           buf = await fetchSubRange(fresh.loc, fresh.dcId, from, to, c2);
@@ -1481,12 +1622,64 @@ export async function tgReadRangeLive(
         yield buf;
       }
     } catch (e) {
-      docCache.delete(key); // fileReference fresco al siguiente intento
+      invalidate(); // fileReference fresco al siguiente intento
       throw e;
     }
   }
 
   return { stream: Readable.from(gen()), totalSize: total };
+}
+
+/**
+ * Lee [start,end] de `key` en directo. Si `key` es un archivo normal (el
+ * caso de SIEMPRE, blob_refs), delega tal cual en tgReadRangeLoc — cero
+ * cambio de comportamiento. Si `key` está TROCEADO (blob_parts, un original
+ * que superó el tope de Telegram al subirlo), reparte el rango pedido entre
+ * las partes que toca y las concatena en orden, cada una por su propia
+ * tgReadRangeLoc — para quien lee, es un único archivo continuo.
+ */
+export async function tgReadRangeLive(
+  key: string,
+  start: number,
+  end: number,
+  streamsOverride?: number,
+  isDownload = false,
+): Promise<{ stream: Readable; totalSize: number }> {
+  lastLiveReadAt = Date.now(); // el mantenimiento se aparta mientras esto pase
+  const parts = await resolveParts(key);
+
+  if (!parts.length) {
+    // camino de SIEMPRE — sin cambios, es el 100% de los archivos hasta hoy
+    const { loc, total, dcId } = await docLocation(key);
+    return tgReadRangeLoc(
+      loc, dcId, total, start, end, streamsOverride, isDownload,
+      async () => { docCache.delete(key); const fresh = await docLocation(key); return { loc: fresh.loc, dcId: fresh.dcId }; },
+      () => docCache.delete(key),
+    );
+  }
+
+  // troceado: qué partes toca [start,end] y con qué offset LOCAL en cada una
+  const total = parts.reduce((s, p) => s + p.bytes, 0);
+  const touched = parts.filter((p) => start < p.start + p.bytes && end >= p.start);
+  async function* genMulti(): AsyncGenerator<Buffer> {
+    for (const p of touched) {
+      const { loc, dcId } = await docLocationPart(key, p.index, p.msgId);
+      const localStart = Math.max(0, start - p.start);
+      const localEnd = Math.min(p.bytes - 1, end - p.start);
+      const cacheKey = `${key}#p${p.index}`;
+      const { stream } = tgReadRangeLoc(
+        loc, dcId, p.bytes, localStart, localEnd, streamsOverride, isDownload,
+        async () => { docCache.delete(cacheKey); return docLocationPart(key, p.index, p.msgId); },
+        () => docCache.delete(cacheKey),
+      );
+      for await (const chunk of stream as AsyncIterable<Buffer>) {
+        lastLiveReadAt = Date.now();
+        if (!isDownload) lastViewReadAt = Date.now();
+        yield chunk;
+      }
+    }
+  }
+  return { stream: Readable.from(genMulti()), totalSize: total };
 }
 
 /**

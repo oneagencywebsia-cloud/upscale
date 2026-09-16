@@ -3,7 +3,7 @@ import { rm, stat, readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { query, one } from "./db.js";
-import { put } from "./storage.js";
+import { put, putSplit } from "./storage.js";
 import { probe, sharpThumb, extractFrame, imagePoster, placeholderThumb, extFor, mimeFor, safeIso } from "./media.js";
 import { env } from "./env.js";
 
@@ -392,11 +392,20 @@ export async function ingestLocalFile(opts: {
         log.warn({ err: (e as Error)?.message }, "forward al almacén no salió; subo el archivo");
       }
     }
-    await put(originalKey, filePath, mime);
+    // putSplit: si el original supera el tope de Telegram por documento
+    // (2/4 GB), lo trocea en varias partes automáticamente — invisible para
+    // el resto del pipeline, sigue siendo UN original_key/bytes.
+    await putSplit(originalKey, filePath, mime, size);
   })();
 
-  // la miniatura va a la BD (más abajo); aquí solo el original
-  await withTimeout(storeOriginal, 12 * 60_000, "guardar original en el almacén");
+  // la miniatura va a la BD (más abajo); aquí solo el original.
+  // El timeout escala con el tamaño: un original troceado en varias partes
+  // (putSplit, >2GB) puede tardar bastante más que los 12 min fijos de
+  // antes — con 45GB en ~25 partes subidas una a una, 12 min se queda
+  // corto de sobra. ~3 MB/s conservador de subida + margen x1.5; techo
+  // duro de 6h para que ni un original gigantesco cuelgue el proceso.
+  const storeTimeoutMs = Math.max(12 * 60_000, Math.min(6 * 60 * 60_000, (size / (3 * 1024 * 1024)) * 1000 * 1.5));
+  await withTimeout(storeOriginal, storeTimeoutMs, "guardar original en el almacén");
 
   const inserted = await one<{ id: string }>(
     `insert into assets

@@ -121,4 +121,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.21.14-generacion-cede-paso";
+export const VERSION = "0.22.0-troceado-tb";

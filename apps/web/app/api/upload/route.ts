@@ -5,7 +5,14 @@ import { sameOrigin, forbidden } from "@/lib/guard";
 const API = process.env.UPSCALE_API_URL ?? "http://localhost:8080";
 
 export const runtime = "nodejs";
-export const maxDuration = 800;
+// Un original ya no está limitado a 2GB (se trocea automáticamente al
+// guardarlo, ver putSplit en la API) — un archivo de decenas de GB puede
+// tardar bastante en subir según el ancho de banda de SUBIDA del usuario
+// (nada que ver con la descarga desde Telegram, tramo totalmente distinto).
+// Nota: maxDuration es una config específica de Vercel Serverless Functions;
+// en este despliegue autoalojado (Docker/EasyPanel) no tiene efecto — se deja
+// documentado por si algún día se despliega ahí.
+export const maxDuration = 21_600; // 6h
 
 /**
  * Sube un archivo (navegador o Atajo de iOS). El cliente manda el binario crudo

@@ -17,12 +17,18 @@ import { startInboxIngest } from "./ingest.js";
 const app = Fastify({
   logger: { level: process.env.LOG_LEVEL ?? "info" },
   // Los cuerpos JSON son minúsculos; las subidas van por el parser "*" (stream
-  // crudo, sin bufferizar) y validan su tamaño con sizeLimiter. Aun así dejamos
-  // un techo generoso por si Fastify cambia el trato del parser crudo.
-  bodyLimit: 3 * 1024 * 1024 * 1024,
+  // crudo, sin bufferizar) y validan su tamaño con sizeLimiter (MAX_UPLOAD_BYTES
+  // en routes/assets.ts). Este techo tiene que ser AL MENOS ese mismo límite —
+  // si no, Fastify corta la petición antes de que sizeLimiter llegue a verla.
+  // 200 GB: un original ya no está limitado al tope de Telegram por documento
+  // (putSplit lo trocea en varias partes automáticamente al guardarlo).
+  bodyLimit: 200 * 1024 * 1024 * 1024,
   trustProxy: true,
-  // subidas grandes: hasta 20 min por petición; keepAlive largo para el proxy
-  requestTimeout: 20 * 60_000,
+  // subidas MUY grandes (decenas de GB) pueden tardar bastante según el ancho
+  // de banda de SUBIDA del usuario (nada que ver con el techo de descarga de
+  // Telegram, que es un tramo totalmente distinto) — margen amplio en vez de
+  // cortar una subida que va avanzando pero despacio.
+  requestTimeout: 6 * 60 * 60_000,
   keepAliveTimeout: 75_000,
   disableRequestLogging: false,
 });

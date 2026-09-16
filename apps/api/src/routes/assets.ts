@@ -4,7 +4,12 @@ import { pipeline } from "node:stream/promises";
 import { Transform, type Readable } from "node:stream";
 import { createHash } from "node:crypto";
 
-const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB (tope de documento de Telegram)
+// El tope YA NO es el de Telegram (2/4 GB por documento) — putSplit() trocea
+// automáticamente un original más grande en varias partes al guardarlo (ver
+// storage.ts/telegram.ts). El límite real ahora es el disco del VPS, que se
+// comprueba antes de aceptar el cuerpo (ver el preflight con statfs abajo).
+// 200 GB como techo absoluto, solo para tener alguna cota razonable.
+const MAX_UPLOAD_BYTES = 200 * 1024 * 1024 * 1024;
 const MAX_LIVE_BYTES = 512 * 1024 * 1024;
 
 /** Transform que aborta el stream si se superan `limit` bytes (evita llenar el disco). */
@@ -123,13 +128,34 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
       const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const tmpOrig = join(env.TMP_DIR, `${stamp}.upload`);
 
+      // Preflight de disco: el original llega ENTERO a TMP_DIR antes de
+      // trocearlo/procesarlo (un vídeo de 1h a 4K/60 puede ser 20-45 GB) —
+      // mejor rechazar YA, con un mensaje claro, que quedarse sin espacio a
+      // mitad de la subida. Solo si el cliente manda Content-Length (siempre
+      // en subidas normales); si no, se confía en sizeLimiter como antes.
+      const declaredLen = Number(h["content-length"]) || 0;
+      if (declaredLen > 0) {
+        try {
+          const { statfs } = await import("node:fs/promises");
+          const fsStat = await statfs(env.TMP_DIR);
+          const libres = fsStat.bavail * fsStat.bsize;
+          const necesarios = declaredLen * 1.15 + 512 * 1024 * 1024; // margen para el troceado temporal
+          if (libres < necesarios) {
+            req.log.warn({ userId, declaredLen, libres }, "subida: sin espacio en disco suficiente");
+            return reply.code(507).send({ error: `no hay espacio en disco suficiente para un archivo de ${Math.round(declaredLen / 1e9)} GB` });
+          }
+        } catch {
+          /* si statfs falla (sistema de archivos raro), no bloqueamos */
+        }
+      }
+
       try {
         try {
           await pipeline(req.body as Readable, sizeLimiter(MAX_UPLOAD_BYTES), createWriteStream(tmpOrig));
         } catch (e) {
           await rm(tmpOrig, { force: true });
           if ((e as { code?: string })?.code === "PAYLOAD_TOO_LARGE") {
-            return reply.code(413).send({ error: "el archivo supera el límite de 2 GB" });
+            return reply.code(413).send({ error: "el archivo supera el límite máximo admitido" });
           }
           throw e;
         }

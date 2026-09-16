@@ -22,6 +22,7 @@ import {
   tieneArranque,
   pinCachedFile,
   headsBudgetCount,
+  TELEGRAM_FILE_CEILING_BYTES,
 } from "./telegram.js";
 
 /** Vídeos/archivos por encima de esto: se ingiere solo la cabecera (rápido) y el
@@ -33,11 +34,6 @@ const HEAD_BYTES = 8 * 1024 * 1024;
 /** Cola: en los MP4/MOV del iPhone el índice `moov` (duración, resolución, fps,
  *  códec) va AL FINAL. Sin esto ffprobe no lee nada y el vídeo entra sin datos. */
 const TAIL_BYTES = 6 * 1024 * 1024;
-
-/** Tope real de Telegram para un documento (ver env.ts). Por encima de esto, la
- *  re-subida de un original (recuperación pesada) está condenada a fallar — no
- *  es un fallo nuestro reintentable, es un muro de Telegram. */
-const TELEGRAM_FILE_CEILING_BYTES = (env.TELEGRAM_ACCOUNT_PREMIUM ? 4 : 2) * 1024 * 1024 * 1024;
 
 /**
  * Timeout que escala con el tamaño en vez de un número fijo — un vídeo de horas

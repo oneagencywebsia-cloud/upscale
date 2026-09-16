@@ -1,6 +1,6 @@
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, stat, rename, copyFile, rm } from "node:fs/promises";
-import { dirname, join, normalize, sep } from "node:path";
+import { dirname, join, normalize, sep, basename } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Readable } from "node:stream";
@@ -69,6 +69,34 @@ export async function put(key: string, filePath: string, contentType: string): P
     return tgPut(key, filePath);
   }
   return putLocal(key, filePath);
+}
+
+/**
+ * Como put(), pero trocea el original si supera el tope de Telegram por
+ * documento (2 GB / 4 GB Premium) — un vídeo de 1h a 4K/60 HEVC del iPhone
+ * puede pesar 20-45 GB, muy por encima. Cada parte se sube como su propio
+ * mensaje (tgPutPart); el resto de la app lo sigue viendo como UN solo
+ * archivo — la reconstrucción es transparente en la capa de lectura
+ * (tgReadRangeLive/ensureCached en telegram.ts). Solo aplica a
+ * STORAGE_DRIVER=telegram: local/R2 no tienen ese tope por archivo.
+ */
+export async function putSplit(key: string, filePath: string, contentType: string, size: number): Promise<void> {
+  if (env.STORAGE_DRIVER !== "telegram") return put(key, filePath, contentType);
+  const { tgPutPart, TELEGRAM_FILE_CEILING_BYTES, PART_SIZE_BYTES } = await import("./telegram.js");
+  if (size <= TELEGRAM_FILE_CEILING_BYTES) return put(key, filePath, contentType); // camino de SIEMPRE
+
+  const n = Math.ceil(size / PART_SIZE_BYTES);
+  for (let i = 0; i < n; i++) {
+    const start = i * PART_SIZE_BYTES;
+    const end = Math.min(size, start + PART_SIZE_BYTES);
+    const tmp = join(env.TMP_DIR, `${basename(filePath)}.part${i}`);
+    await pipeline(createReadStream(filePath, { start, end: end - 1 }), createWriteStream(tmp));
+    try {
+      await tgPutPart(key, i, tmp);
+    } finally {
+      await rm(tmp, { force: true }).catch(() => {});
+    }
+  }
 }
 
 /**

@@ -62,6 +62,12 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
               count(*) filter (where unrecoverable) as rotos
          from assets where deleted_at is null`,
     ).catch(() => null);
+    // originales troceados (superaron el tope de Telegram por documento y se
+    // subieron en varias partes, ver putSplit/blob_parts) — para comprobar
+    // en producción que el troceado se está usando de verdad.
+    const troceados = await one<{ n: string; partes: string }>(
+      `select count(distinct key) as n, count(*) as partes from blob_parts`,
+    ).catch(() => null);
     // copias ligeras de reproducción: cuántas hechas / pendientes y cuánto ahorran.
     // "enEspera" = en backoff tras un fallo transitorio (no cuentan como backlog
     // activo: ese hueco lo ocupa mientras tanto otro vídeo). "atascados" = con
@@ -144,6 +150,7 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
             // dañados de origen (p. ej. sin átomo moov) — confirmado con ffmpeg,
             // ningún reintento los arregla; se descargan bien pero sin vista previa
             irrecuperables: Number(db.rotos),
+            originalesTroceados: troceados ? { archivos: Number(troceados.n), partes: Number(troceados.partes) } : null,
           }
         : null,
       saludBd: salud
