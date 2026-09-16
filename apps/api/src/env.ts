@@ -42,7 +42,7 @@ const base = z.object({
   // FLOOD_WAIT. Con miles de archivos y varios usuarios a la vez, la palanca
   // real de rendimiento es TG_POOL_MAX_CLIENTS (más descargas EN PARALELO),
   // no más streams dentro de una descarga que ya va sobrada para su bitrate.
-  TG_DOWNLOAD_STREAMS: z.coerce.number().min(1).max(8).default(8),
+  TG_DOWNLOAD_STREAMS: z.coerce.number().min(1).max(32).default(8),
   /** Tope de conexiones de descarga que el pool puede llegar a abrir EN TOTAL,
    *  sumando TODAS las descargas/reproducciones simultáneas (no solo los
    *  TG_DOWNLOAD_STREAMS de una). El pool arranca con TG_DOWNLOAD_STREAMS
@@ -54,7 +54,7 @@ const base = z.object({
    *  sin uso. Cada conexión son unos pocos MB de RAM; súbelo si el VPS tiene
    *  ancho de banda y RAM de sobra para más usuarios concurrentes.
    */
-  TG_POOL_MAX_CLIENTS: z.coerce.number().min(1).max(64).default(24),
+  TG_POOL_MAX_CLIENTS: z.coerce.number().min(1).max(64).default(36),
   /** Mínimo de conexiones SIEMPRE conectadas y listas, aunque nadie las esté
    *  usando (no bajo demanda como TG_POOL_MAX_CLIENTS). Objetivo: abrir
    *  cualquier archivo, aunque nunca se haya abierto antes, en <2s — para eso
@@ -118,4 +118,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.21.8-audio-192k";
+export const VERSION = "0.21.9-diag-streams";

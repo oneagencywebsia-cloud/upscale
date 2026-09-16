@@ -175,7 +175,7 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
   // ?big=1 usa el vídeo más pesado de la biblioteca; ?key=orig/... uno concreto.
   app.get("/v1/diag/speedtest", async (req, reply) => {
     const { tgSustainedSpeedTest } = await import("../telegram.js");
-    const q = req.query as { key?: string; big?: string; mb?: string };
+    const q = req.query as { key?: string; big?: string; mb?: string; streams?: string };
     let key = q.key;
     if (!key) {
       const r = await one<{ k: string }>(
@@ -191,13 +191,16 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
     }
     if (!key) return reply.code(404).send({ error: "no hay ningún vídeo para probar" });
     const mb = Math.max(8, Math.min(2000, Number(q.mb) || 300));
+    // ?streams=N: para MEDIR con distintos números de conexiones paralelas
+    // antes de decidir el valor por defecto real, en vez de adivinar.
+    const streams = q.streams ? Math.max(1, Math.min(32, Number(q.streams) || 0)) : undefined;
 
     reply.header("Content-Type", "application/x-ndjson");
     reply.header("Cache-Control", "no-cache");
     reply.raw.writeHead(200, reply.getHeaders() as Record<string, string>);
-    reply.raw.write(JSON.stringify({ key, mb }) + "\n");
+    reply.raw.write(JSON.stringify({ key, mb, streams: streams ?? "env" }) + "\n");
     try {
-      for await (const m of tgSustainedSpeedTest(key, mb)) {
+      for await (const m of tgSustainedSpeedTest(key, mb, streams)) {
         reply.raw.write(JSON.stringify(m) + "\n");
       }
     } catch (e) {

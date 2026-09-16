@@ -1294,6 +1294,7 @@ export async function tgReadRangeLive(
   key: string,
   start: number,
   end: number,
+  streamsOverride?: number,
 ): Promise<{ stream: Readable; totalSize: number }> {
   lastLiveReadAt = Date.now(); // el mantenimiento se aparta mientras esto pase
   const { loc, total, dcId } = await docLocation(key);
@@ -1307,7 +1308,7 @@ export async function tgReadRangeLive(
   // silencio). El <video> se cansaba, cortaba, reintentaba... y así en bucle.
   // Ahora el primer byte sale en ~1 s y el caudal es continuo.
   async function* gen(): AsyncGenerator<Buffer> {
-    const STREAMS = Math.max(1, Math.min(8, env.TG_DOWNLOAD_STREAMS));
+    const STREAMS = Math.max(1, Math.min(32, streamsOverride ?? env.TG_DOWNLOAD_STREAMS));
     const PART = 1024 * 1024;
     // El PRIMER trozo va aparte y más pequeño (256 KB): a ~1 MB/s por conexión,
     // 1 MB entero puede ser ~1s solo para el primer byte — sumado a resolver
@@ -1408,10 +1409,11 @@ export async function tgReadRangeLive(
 export async function* tgSustainedSpeedTest(
   key: string,
   mb: number,
+  streams?: number,
 ): AsyncGenerator<{ s: number; mbps: number } | { fin: true; mb: number; segundos: number; mbpsMedia: number }> {
   const total = await tgSize(key);
   const wantBytes = Math.min(mb * 1024 * 1024, total);
-  const { stream } = await tgReadRangeLive(key, 0, wantBytes - 1);
+  const { stream } = await tgReadRangeLive(key, 0, wantBytes - 1, streams);
   const t0 = Date.now();
   let bytes = 0;
   let lastSampleAt = t0;
