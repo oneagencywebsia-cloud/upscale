@@ -90,13 +90,25 @@ async function getClient(): Promise<TelegramClient> {
             // ServerError/RPC_CALL_FAIL/RPC_MCGET_FAIL — su propio log dice
             // literalmente "Telegram is having internal issues" cuando pasa.
             // Con solo 2 intentos (2s de espera entre cada uno, ~4s en
-            // total) cualquier hipo pasajero de los servidores de Telegram
-            // tumbaba la generación de la copia ligera entera. Subido a 6:
-            // más margen para que un problema transitorio del lado de
-            // Telegram se resuelva solo sin gastar los 8 intentos con
-            // backoff exponencial de generarPreviews() en fallos que no son
-            // culpa nuestra ni del archivo.
-            requestRetries: 6,
+            // total) cualquier hipo pasajero tumbaba la generación de la
+            // copia ligera entera.
+            //
+            // Subirlo a 6 arregló ESE caso, pero se pasó de frenada: este
+            // mismo cliente también sirve la REPRODUCCIÓN EN DIRECTO
+            // (fetchSubRange/tgReadRangeLive), que YA tiene su propio
+            // reintento por fuera (netAttempt, con clientes FRESCOS cada vez
+            // — más eficaz que repetir sobre el mismo cliente que GramJS).
+            // Con 6, un trozo con problemas de verdad podía tardar hasta
+            // ~10s SOLO en los reintentos internos de GramJS, multiplicado
+            // por los 3 intentos externos = hasta ~30-60s de vídeo colgado
+            // en directo antes de fallar — justo el "carga 1s, para 3s,
+            // carga..." reportado. Bajado a 3: sigue siendo más resistente
+            // que el 2 original ante un hipo puntual, pero no convierte un
+            // fallo real en un cuelgue de un minuto para quien está viendo
+            // algo AHORA. La generación de copias en 2º plano no pierde
+            // resistencia real: generarPreviews() ya reintenta por su cuenta
+            // hasta 8 veces con backoff repartido en horas si hace falta.
+            requestRetries: 3,
             timeout: 20, // seg. por respuesta
             // si Telegram pide esperar > 20s (FLOOD_WAIT), que lance error en vez
             // de dormir en silencio minutos; lo gestionamos nosotros (plan B: subir)
@@ -154,10 +166,11 @@ async function newPoolClient(label: string): Promise<TelegramClient> {
     new StringSession(env.TELEGRAM_SESSION!),
     env.TELEGRAM_API_ID!,
     env.TELEGRAM_API_HASH!,
-    // requestRetries subido de 2 a 6 — mismo motivo que en getClient(): un
-    // ServerError/RPC_CALL_FAIL transitorio de Telegram no debe agotar el
-    // presupuesto de reintentos de GramJS en solo ~4s.
-    { connectionRetries: 3, requestRetries: 6, timeout: 20, floodSleepThreshold: 20, autoReconnect: true },
+    // requestRetries: 3 (bajado de 6, ver el porqué detallado en getClient()
+    // arriba — este cliente es justo el que usa fetchSubRange para servir
+    // vídeo/foto EN DIRECTO: con 6, un trozo con problemas de verdad podía
+    // colgar la reproducción hasta ~30-60s antes de fallar).
+    { connectionRetries: 3, requestRetries: 3, timeout: 20, floodSleepThreshold: 20, autoReconnect: true },
   );
   c.setLogLevel("error" as never);
   await raceTimeout(c.connect(), 25_000, `connect ${label}`);

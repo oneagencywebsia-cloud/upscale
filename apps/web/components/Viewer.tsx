@@ -73,7 +73,10 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
     setBuffering(false);
     setLivePlaying(false);
     if (!a || a.kind !== "video") return;
-    const t = setTimeout(() => setVideoState((s) => (s === "loading" ? "slow" : s)), 20000);
+    // 8s en vez de 20: si un vídeo tarda en arrancar (bitrate alto sin copia
+    // ligera aún, o un hipo de Telegram), mejor avisar pronto con la opción
+    // de descargar que dejar 20s de spinner mudo sin explicar qué pasa.
+    const t = setTimeout(() => setVideoState((s) => (s === "loading" ? "slow" : s)), 8000);
     return () => clearTimeout(t);
   }, [a?.id, a?.kind]);
 

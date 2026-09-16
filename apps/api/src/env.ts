@@ -121,4 +121,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.21.10-techo-medido";
+export const VERSION = "0.21.11-menos-reintentos-directo";
