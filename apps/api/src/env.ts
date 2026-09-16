@@ -121,4 +121,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.21.11-menos-reintentos-directo";
+export const VERSION = "0.21.12-cola-descargas";

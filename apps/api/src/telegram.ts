@@ -1095,6 +1095,47 @@ export function streamingActivo(ms = 20_000): boolean {
   return Date.now() - lastLiveReadAt < ms;
 }
 
+// ------------------------- cola de descargas completas -------------------------
+// MEDIDO EN PRODUCCIÓN (ver TG_DOWNLOAD_STREAMS en env.ts): la cuenta de
+// Telegram tiene un techo de ancho de banda SOSTENIDO de ~3.5-4 MB/s en
+// TOTAL, no por conexión ni por descarga — abrir más conexiones no lo supera.
+// Consecuencia real, confirmada por el usuario: dos descargas completas a la
+// vez no van cada una a mitad de velocidad de forma razonable, van cada una
+// a una fracción mucho más pequeña (varias descargas de cientos de MB
+// tardando 30+ minutos en vez de los ~5-8 min que tardarían solas), porque
+// cada una abre su propia ventana de streams compitiendo por el MISMO techo
+// ya de por sí estrecho — sumado a los reintentos de cada una.
+//
+// Arreglo: como máximo UNA descarga completa (el botón "Descargar", /v1/blob
+// sin Range) corre a la vez en todo el servidor. Las demás esperan en cola
+// — no pierden nada por esperar: el techo total es el mismo exista o no cola,
+// así que procesarlas de una en una a la velocidad máxima real es estrictamente
+// mejor que repartir ese mismo techo entre varias que se arrastran todas a
+// la vez. La REPRODUCCIÓN en directo (con Range, ver tgRead) NUNCA pasa por
+// esta cola — un vídeo que alguien está viendo AHORA no debe esperar turno
+// detrás de una descarga en segundo plano.
+const DOWNLOAD_QUEUE_MAX = 1;
+let downloadsActive = 0;
+const downloadQueue: Array<() => void> = [];
+async function acquireDownloadSlot(): Promise<() => void> {
+  if (downloadsActive >= DOWNLOAD_QUEUE_MAX) {
+    await new Promise<void>((resolve) => downloadQueue.push(resolve));
+  }
+  downloadsActive++;
+  let released = false;
+  return () => {
+    if (released) return; // idempotente: 'close' y 'error' pueden dispararse los dos
+    released = true;
+    downloadsActive--;
+    const next = downloadQueue.shift();
+    if (next) next();
+  };
+}
+/** Cuántas descargas completas esperan turno ahora mismo (diagnóstico). */
+export function downloadQueueStats(): { activas: number; enCola: number } {
+  return { activas: downloadsActive, enCola: downloadQueue.length };
+}
+
 const warming = new Set<string>();
 let warmChain: Promise<unknown> = Promise.resolve();
 
@@ -1461,6 +1502,7 @@ export async function tgDiag(sampleKey?: string): Promise<Record<string, unknown
   } catch (e) {
     out.conexionesDescarga = { error: (e as Error).message };
   }
+  out.colaDeDescargas = downloadQueueStats(); // { activas: 0|1, enCola: N } — ver acquireDownloadSlot
 
   out.floodWait = lastFloodWait
     ? { ...lastFloodWait, hace: `${Math.round((Date.now() - lastFloodWait.at) / 1000)}s` }
@@ -1647,8 +1689,17 @@ export async function tgRead(
     // Verificado en producción: dos descargas de 571 MB y 310 MB a la vez
     // caían a ~0,6 MB/s cada una por esto exactamente.
     try {
+      // en cola: como mucho una descarga completa a la vez en TODO el
+      // servidor (ver acquireDownloadSlot) — el techo de ancho de banda es
+      // el mismo con cola o sin ella, pero así cada descarga va a la
+      // velocidad máxima real en vez de repartirse entre varias a la vez.
+      const release = await acquireDownloadSlot();
       const total = await tgSize(key);
       const { stream, totalSize } = await tgReadRangeLive(key, 0, total - 1);
+      // se libera el turno cuando el stream TERMINA de verdad (fin normal,
+      // error, o el navegador corta la descarga a medias) — nunca antes.
+      stream.once("close", release);
+      stream.once("error", release);
       return { stream, size: totalSize, totalSize };
     } catch (e) {
       docCache.delete(key);
