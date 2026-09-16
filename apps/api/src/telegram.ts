@@ -1090,9 +1090,24 @@ export function tieneArranque(key: string): boolean {
 
 // ---- prioridad: la reproducción del usuario manda sobre el mantenimiento ----
 let lastLiveReadAt = 0;
-/** ¿Hay alguien viendo algo ahora mismo? (rango servido en los últimos `ms`) */
+/** ¿Hay alguien viendo algo ahora mismo? (rango servido en los últimos `ms`) —
+ *  cuenta TANTO reproducción como descargas completas, se usa para apartar el
+ *  mantenimiento en general. */
 export function streamingActivo(ms = 20_000): boolean {
   return Date.now() - lastLiveReadAt < ms;
+}
+
+// Más específico que streamingActivo(): SOLO reproducción/visionado real
+// (peticiones con Range desde el visor), nunca una descarga completa en
+// segundo plano — necesario para que una descarga sepa "debo cederle sitio a
+// alguien viendo algo" sin confundirse consigo misma (si contara sus propias
+// peticiones, una descarga se "vería a sí misma" como streaming activo y
+// nunca se cedería paso a sí misma). Ventana corta (8s, no 20): en cuanto el
+// usuario deja de ver algo, la descarga en 2º plano debe recuperar velocidad
+// máxima enseguida, no esperar 20s de margen pensados para el mantenimiento.
+let lastViewReadAt = 0;
+function viendoAlgoActivamente(ms = 8_000): boolean {
+  return Date.now() - lastViewReadAt < ms;
 }
 
 // ------------------------- cola de descargas completas -------------------------
@@ -1349,6 +1364,7 @@ export async function tgReadRangeLive(
   start: number,
   end: number,
   streamsOverride?: number,
+  isDownload = false,
 ): Promise<{ stream: Readable; totalSize: number }> {
   lastLiveReadAt = Date.now(); // el mantenimiento se aparta mientras esto pase
   const { loc, total, dcId } = await docLocation(key);
@@ -1397,10 +1413,21 @@ export async function tgReadRangeLive(
       // en cuanto ESTA conexión libere (bien o mal), ya puede coger el
       // siguiente trozo que le toque — sin esperar a que el consumidor
       // secuencial llegue hasta aquí.
-      p.then(
-        () => launch(i + STREAMS),
-        () => launch(i + STREAMS),
-      );
+      const relanzar = () => {
+        // Si esto es una DESCARGA de fondo y alguien está VIENDO algo ahora
+        // mismo, cede el paso: espera un poco antes de pedir el siguiente
+        // trozo en vez de competir a partes iguales por el mismo techo de
+        // banda de la cuenta (ver DOWNLOAD_QUEUE_MAX arriba — el techo NO
+        // sube con más conexiones, así que lo único que sirve de verdad es
+        // que alguien ceda). Nunca se aplica al revés: la reproducción en
+        // directo JAMÁS se frena a sí misma por una descarga.
+        if (isDownload && viendoAlgoActivamente()) {
+          setTimeout(() => launch(i + STREAMS), 700);
+        } else {
+          launch(i + STREAMS);
+        }
+      };
+      p.then(relanzar, relanzar);
     };
     for (let i = 0; i < Math.min(nParts, STREAMS); i++) launch(i);
 
@@ -1435,6 +1462,7 @@ export async function tgReadRangeLive(
         // conexiones durante el resto de la descarga, dejándola a un ritmo
         // de caracol el resto del tiempo.
         lastLiveReadAt = Date.now();
+        if (!isDownload) lastViewReadAt = Date.now(); // solo reproducción real, no descargas
         yield buf;
       }
     } catch (e) {
@@ -1695,7 +1723,9 @@ export async function tgRead(
       // velocidad máxima real en vez de repartirse entre varias a la vez.
       const release = await acquireDownloadSlot();
       const total = await tgSize(key);
-      const { stream, totalSize } = await tgReadRangeLive(key, 0, total - 1);
+      // isDownload=true: cede ancho de banda si alguien está viendo algo AHORA
+      // (ver viendoAlgoActivamente() y el "relanzar" dentro de tgReadRangeLive).
+      const { stream, totalSize } = await tgReadRangeLive(key, 0, total - 1, undefined, true);
       // se libera el turno cuando el stream TERMINA de verdad (fin normal,
       // error, o el navegador corta la descarga a medias) — nunca antes.
       stream.once("close", release);
