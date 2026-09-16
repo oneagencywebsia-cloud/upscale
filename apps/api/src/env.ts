@@ -121,4 +121,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.21.13-descarga-cede-paso";
+export const VERSION = "0.21.14-generacion-cede-paso";

@@ -921,6 +921,15 @@ async function tgDownloadParallel(
   msg: Api.Message,
   outPath: string,
   streams = 4,
+  // true por defecto: TODOS los usos actuales de esta función son trabajo de
+  // fondo (generar copias ligeras, reparar metadatos, el ZIP de "descargar
+  // todo") — nunca la reproducción en directo, que usa tgReadRangeLive
+  // directamente. Cede ancho de banda igual que las descargas completas
+  // (ver isDownload en tgReadRangeLive) — sin esto, un vídeo LARGO
+  // reproduciéndose en directo competía a plena velocidad contra su PROPIA
+  // generación de copia ligera en 2º plano, alargando justo el momento en
+  // que más se nota el problema.
+  isBackground = true,
 ): Promise<void> {
   const doc = msg.document as Api.Document | undefined;
   const total = Number(doc?.size) || 0;
@@ -972,6 +981,12 @@ async function tgDownloadParallel(
             await fh.write(w, 0, w.length, pos);
             pos += w.length;
             if (pos >= to) break;
+            // cede el paso si alguien está viendo algo AHORA — se re-evalúa
+            // en CADA trozo, así que si el visionado empieza a MITAD de esta
+            // descarga de fondo (p. ej. el usuario abre el vídeo justo
+            // mientras se genera su copia ligera), se frena de inmediato, y
+            // recupera velocidad sola en cuanto el visionado termina.
+            if (isBackground && viendoAlgoActivamente()) await new Promise((r) => setTimeout(r, 400));
           }
         }),
       );
