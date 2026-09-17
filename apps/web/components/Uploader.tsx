@@ -289,7 +289,13 @@ export default function Uploader({ onDone }: { onDone: () => void }) {
 
   return (
     <>
-      <input ref={input} type="file" accept="image/*,video/*" multiple hidden onChange={onPick} />
+      {/* Sin `accept`: con uno (aunque fuera "image/*,video/*") el propio SISTEMA
+          OPERATIVO decide qué mostrar en gris/oculto según el tipo de archivo que
+          él mismo detecte — y Windows a menudo no reconoce bien archivos que
+          vienen del iPhone por cable (algunos HEIC, Live Photos, etc.), dejándolos
+          fuera del selector antes de que la app llegue a verlos. El servidor ya
+          admite cualquier archivo sin restricción; el filtro vivía solo aquí. */}
+      <input ref={input} type="file" multiple hidden onChange={onPick} />
       <motion.button
         className="upload"
         type="button"

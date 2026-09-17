@@ -46,7 +46,10 @@ export default async function GalleryPage({
     <div className="app">
       <div className="libhead">
         <div>
-          <h2>{onlyFav ? "Favoritos" : "Tu biblioteca"}</h2>
+          <h2>
+            {onlyFav ? "Favoritos" : "Tu biblioteca"}
+            <span className="lh-flourish" aria-hidden="true" />
+          </h2>
           <p>
             {totalCount.toLocaleString("es-ES")} elementos · {bytesHuman(totalBytes)} · todo íntegro
           </p>

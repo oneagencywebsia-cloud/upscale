@@ -62,6 +62,7 @@ COPY --from=build /app/packages ./packages
 COPY --from=build /app/apps/web/.next/standalone ./
 COPY --from=build /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=build /app/apps/web/public ./apps/web/public
+COPY --from=build /app/apps/web/patch-timeouts.cjs ./apps/web/patch-timeouts.cjs
 
 COPY infra/start.sh /start.sh
 RUN chmod +x /start.sh

@@ -121,4 +121,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.23.0-auditoria-tb";
+export const VERSION = "0.24.0-cualquier-archivo";

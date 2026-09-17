@@ -25,7 +25,7 @@
       "text": "text",
       "url": "url",
       "files": [
-        { "name": "media", "accept": ["image/*", "video/*"] }
+        { "name": "media", "accept": ["*/*"] }
       ]
     }
   }

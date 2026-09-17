@@ -392,15 +392,60 @@ button {
   align-items: baseline;
   justify-content: space-between;
   gap: 16px;
-  margin: 2px 2px 20px;
+  margin: 2px 2px 26px;
+  position: relative;
+}
+/* halo de marca detrás del título — el mismo lenguaje que .sky, pero
+   concentrado aquí para que la biblioteca tenga un momento de identidad
+   propio nada más entrar, no solo en el fondo general de la app. */
+.libhead::before {
+  content: "";
+  position: absolute;
+  left: -18px;
+  top: -46px;
+  width: 260px;
+  height: 180px;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 20%, transparent), transparent 78%);
+  filter: blur(6px);
+  pointer-events: none;
+  z-index: -1;
 }
 .libhead h2 {
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   font-family: var(--font-display);
   font-weight: 800;
   font-size: clamp(25px, 3.6vw, 36px);
   letter-spacing: -0.03em;
   text-wrap: balance;
+}
+/* eco del isotipo (barra + punto degradados) junto al título: la misma forma
+   del icono de la app, en miniatura, para que "tu biblioteca" se sienta
+   inequívocamente Upscale y no un encabezado genérico. */
+.lh-flourish {
+  display: inline-block;
+  width: 34px;
+  height: 8px;
+  border-radius: 999px;
+  flex: none;
+  margin-bottom: 2px;
+  background: linear-gradient(90deg, var(--accent-2), var(--accent));
+  box-shadow: 0 0 16px -1px color-mix(in srgb, var(--accent) 70%, transparent);
+  position: relative;
+}
+.lh-flourish::after {
+  content: "";
+  position: absolute;
+  right: -5px;
+  top: 50%;
+  translate: 0 -50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px 1px color-mix(in srgb, var(--accent) 85%, transparent);
 }
 .libhead p {
   margin: 0;
@@ -412,31 +457,61 @@ button {
 }
 
 .daygroup {
-  margin-bottom: 30px;
+  margin-bottom: 36px;
   content-visibility: auto;
   contain-intrinsic-size: auto 480px;
 }
+/* Separador de día editorial: la etiqueta ("Hoy", "martes 16 de septiembre")
+   ya no es una pill perdida entre las fotos — es un momento de la marca que
+   se repite bibliteca abajo: display font grande, contador en mono como una
+   ficha técnica, y una regla degradada que ancla la sección al ancho entero
+   de la columna (mismo par accent/accent-2 que el resto del sistema). */
 .daygroup > h3 {
   position: sticky;
   top: 88px;
   z-index: 5;
-  width: max-content;
-  margin: 0 0 13px;
-  padding: 6px 14px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 7px 4px 7px 14px;
   border-radius: 999px;
-  font-family: var(--font-display);
-  font-size: 12.5px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  width: fit-content;
+  max-width: 100%;
   color: var(--text-dim);
   background: var(--glass);
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
   border: 1px solid var(--stroke);
+  box-shadow: 0 10px 26px -18px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 .daygroup > h3 b {
+  font-family: var(--font-display);
   color: var(--light);
-  font-weight: 700;
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+.dg-count {
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--on-accent);
+  background: linear-gradient(135deg, var(--accent-2), var(--accent));
+  padding: 2px 8px;
+  border-radius: 999px;
+  line-height: 1.5;
+  flex: none;
+}
+.dg-rule {
+  flex: 1 1 28px;
+  min-width: 18px;
+  height: 2px;
+  border-radius: 999px;
+  margin-right: 6px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, transparent), transparent);
 }
 
 .grid {
@@ -453,13 +528,13 @@ button {
 .frame {
   position: relative;
   aspect-ratio: 1;
-  border-radius: 16px;
+  border-radius: 20px;
   overflow: hidden;
   cursor: pointer;
   border: 1px solid var(--stroke);
   background: #1a2030;
   padding: 0;
-  transition: transform 0.16s cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 0.22s;
+  transition: transform 0.16s cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 0.22s, border-color 0.22s;
   isolation: isolate;
 }
 .frame img {
@@ -498,7 +573,9 @@ button {
 }
 .frame:hover {
   transform: translateY(-3px) scale(1.012);
-  box-shadow: 0 18px 34px -16px rgba(0, 0, 0, 0.58);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--stroke));
+  box-shadow: 0 18px 34px -16px rgba(0, 0, 0, 0.58), 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent),
+    0 0 26px -6px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 .frame:focus-visible {
   outline: 2px solid var(--accent);
@@ -513,10 +590,11 @@ button {
   z-index: 3;
   font-family: var(--font-mono);
   color: #fff;
-  background: rgba(6, 10, 18, 0.5);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(6, 10, 18, 0.55);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+  backdrop-filter: blur(8px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 .frame .vid {
   left: 8px;
@@ -530,14 +608,42 @@ button {
   font-weight: 600;
   letter-spacing: -0.02em;
 }
+.frame .vid svg {
+  color: var(--accent-2);
+}
+/* LIVE: el rasgo insignia de Upscale (original íntegro con su vídeo corto) se
+   nota — degradado de marca + un punto que respira, en vez de una etiqueta
+   gris más. */
 .frame .live {
   right: 8px;
   top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.05em;
-  padding: 3px 7px;
+  padding: 3px 8px 3px 7px;
   border-radius: 999px;
+  color: #fff;
+  background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 55%, rgba(6, 10, 18, 0.6)), rgba(6, 10, 18, 0.55));
+  border-color: color-mix(in srgb, var(--accent) 55%, rgba(255, 255, 255, 0.16));
+}
+.frame .live::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 6px 1px #fff;
+  animation: live-breathe 1.8s ease-in-out infinite;
+}
+@keyframes live-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.72); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .frame .live::before { animation: none; }
 }
 
 /* upload tray */
@@ -742,16 +848,43 @@ button {
 }
 
 .empty {
+  position: relative;
+  overflow: hidden;
   border: 1px dashed var(--stroke-strong);
-  border-radius: 20px;
-  padding: 48px 28px;
+  border-radius: 24px;
+  padding: 56px 28px;
   text-align: center;
   color: var(--text-dim);
 }
+.empty::before {
+  content: "";
+  position: absolute;
+  inset: auto;
+  left: 50%;
+  top: 0;
+  translate: -50% -30%;
+  width: 320px;
+  height: 240px;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 16%, transparent), transparent 75%);
+  pointer-events: none;
+}
+.empty-mark {
+  position: relative;
+  display: inline-flex;
+  margin-bottom: 14px;
+  filter: drop-shadow(0 8px 20px color-mix(in srgb, var(--accent) 35%, transparent));
+}
 .empty h3 {
+  position: relative;
   font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.02em;
   color: var(--light);
   margin: 0 0 6px;
+}
+.empty p {
+  position: relative;
+  margin: 0;
 }
 
 footer.status {
@@ -1496,7 +1629,14 @@ footer.status .dot {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: 0 2px 14px;
+  margin: 0 0 18px;
+  padding: 8px 10px 8px 14px;
+  border-radius: 18px;
+  background: var(--glass);
+  border: 1px solid var(--stroke);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+  box-shadow: 0 14px 34px -22px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 .gt-actions {
   display: flex;
@@ -1617,10 +1757,11 @@ footer.status .dot {
   border-radius: 999px;
   font-size: 11px;
   color: #ffd68c;
+  text-shadow: 0 0 8px rgba(255, 214, 140, 0.6);
   background: rgba(6, 10, 18, 0.5);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 214, 140, 0.3);
 }
 .frame .selmark {
   position: absolute;
