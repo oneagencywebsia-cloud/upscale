@@ -111,3 +111,14 @@ export interface Album {
 export interface AlbumListResponse {
   albums: Album[];
 }
+
+export interface MapPoint {
+  id: string;
+  lat: number;
+  lon: number;
+  thumbUrl: string;
+}
+
+export interface MapPointsResponse {
+  points: MapPoint[];
+}

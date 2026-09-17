@@ -1,4 +1,4 @@
-import { listAssets, getStorage } from "@/lib/api";
+import { listAssets, getStorage, listCameras } from "@/lib/api";
 import { groupByDay, bytesHuman } from "@/lib/format";
 import Gallery from "@/components/Gallery";
 import PrismMount from "@/components/PrismMount";
@@ -10,9 +10,17 @@ export const dynamic = "force-dynamic";
 export default async function GalleryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ kind?: string; fav?: string; tooBig?: string }>;
+  searchParams: Promise<{
+    kind?: string;
+    fav?: string;
+    tooBig?: string;
+    q?: string;
+    camera?: string;
+    from?: string;
+    to?: string;
+  }>;
 }) {
-  const { kind, fav, tooBig } = await searchParams;
+  const { kind, fav, tooBig, q, camera, from, to } = await searchParams;
   const filter = kind === "photo" || kind === "video" ? kind : undefined;
   const onlyFav = fav === "1";
 
@@ -22,11 +30,18 @@ export default async function GalleryPage({
   try {
     // SOLO la primera página: la biblioteca puede tener cientos de miles de
     // archivos. El resto entra por scroll infinito (cursor keyset).
-    const data = await listAssets({ limit: 120, kind: filter, fav: onlyFav });
+    const data = await listAssets({ limit: 120, kind: filter, fav: onlyFav, q, camera, from, to });
     items = data.items;
     cursor = data.nextCursor ?? null;
   } catch {
     error = "No se pudo conectar con el servidor de Upscale.";
+  }
+
+  let cameras: string[] = [];
+  try {
+    cameras = (await listCameras()).cameras;
+  } catch {
+    /* si falla, el desplegable de cámara sale vacío */
   }
 
   // Totales REALES de toda la biblioteca (un sum/count en la BD), no solo de lo
@@ -80,6 +95,11 @@ export default async function GalleryPage({
             kind={filter}
             fav={onlyFav}
             total={totalCount}
+            q={q}
+            camera={camera}
+            from={from}
+            to={to}
+            cameras={cameras}
           />
         </ErrorBoundary>
       </div>

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "motion/react";
 import type { AssetListItem } from "@upscale/shared";
 import { durationHuman, groupByDay } from "@/lib/format";
@@ -52,6 +53,11 @@ export default function Gallery({
   fav = false,
   total = 0,
   albumId,
+  q,
+  camera,
+  from,
+  to,
+  cameras = [],
 }: {
   groups: DayGroup[];
   error: string | null;
@@ -64,8 +70,16 @@ export default function Gallery({
   /** dentro de un álbum: pagina /api/albums/:id/assets en vez de /api/assets,
    *  y oculta "Añadir a álbum" (añadir álbumes-dentro-de-álbum no entra aquí). */
   albumId?: string;
+  /** búsqueda por nombre de archivo */
+  q?: string;
+  camera?: string;
+  from?: string;
+  to?: string;
+  /** cámaras distintas para el desplegable (llega ya calculado desde el servidor) */
+  cameras?: string[];
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
   const [assets, setAssets] = useState(flat);
   const [cursor, setCursor] = useState<string | null>(initialCursor);
@@ -87,7 +101,7 @@ export default function Gallery({
   // Todo/Fotos/Vídeos/Favoritos son LISTAS DISTINTAS: al cambiar de una a otra
   // no se conserva nada de lo paginado antes (si no, quedaban fotos colgando
   // debajo de la lista de "Vídeos" por ser más antiguas que su primera página).
-  const filterKey = `${kind ?? ""}|${fav ? 1 : 0}`;
+  const filterKey = `${kind ?? ""}|${fav ? 1 : 0}|${q ?? ""}|${camera ?? ""}|${from ?? ""}|${to ?? ""}`;
   const lastFilter = useRef(filterKey);
   useEffect(() => {
     const changed = lastFilter.current !== filterKey;
@@ -131,10 +145,17 @@ export default function Gallery({
     if (Date.now() < backoff.current.until) return;
     setLoadingMore(true);
     try {
-      const q = new URLSearchParams({ cursor, limit: String(PAGE) });
-      if (kind) q.set("kind", kind);
-      if (fav) q.set("fav", "1");
-      const url = albumId ? `/api/albums/${albumId}/assets?${q}` : `/api/assets?${q}`;
+      const params = new URLSearchParams({ cursor, limit: String(PAGE) });
+      if (kind) params.set("kind", kind);
+      if (fav) params.set("fav", "1");
+      // los filtros de búsqueda no aplican dentro de un álbum (fuera de alcance)
+      if (!albumId) {
+        if (q) params.set("q", q);
+        if (camera) params.set("camera", camera);
+        if (from) params.set("from", from);
+        if (to) params.set("to", to);
+      }
+      const url = albumId ? `/api/albums/${albumId}/assets?${params}` : `/api/assets?${params}`;
       const r = await fetch(url, { cache: "no-store" });
       if (!r.ok) throw new Error("no se pudo cargar más");
       const data = (await r.json()) as { items: AssetListItem[]; nextCursor: string | null };
@@ -152,7 +173,7 @@ export default function Gallery({
     } finally {
       setLoadingMore(false);
     }
-  }, [cursor, loadingMore, kind, fav, albumId]);
+  }, [cursor, loadingMore, kind, fav, albumId, q, camera, from, to]);
 
   useEffect(() => {
     const el = sentinel.current;
@@ -326,6 +347,49 @@ export default function Gallery({
     if (!r || !r.ok) setAssets((as) => as.map((a) => (a.id === id ? { ...a, isFavorite: !value } : a)));
   }
 
+  // ---- búsqueda y filtros: viven en la URL (compartibles, marcables) ----
+  // Se conserva cualquier otro parámetro ya en la URL (kind, fav) y solo se
+  // toca lo que cambia aquí.
+  const updateQuery = useCallback(
+    (patch: Record<string, string | undefined>) => {
+      const sp = new URLSearchParams(searchParams.toString());
+      for (const [k, v] of Object.entries(patch)) {
+        if (v) sp.set(k, v);
+        else sp.delete(k);
+      }
+      const qs = sp.toString();
+      router.push(`/app${qs ? `?${qs}` : ""}`);
+    },
+    [router, searchParams],
+  );
+
+  const [searchOpen, setSearchOpen] = useState(!!q);
+  const [searchText, setSearchText] = useState(q ?? "");
+  useEffect(() => setSearchText(q ?? ""), [q]);
+  // debounce de ~300ms: no se dispara una navegación por cada tecla
+  useEffect(() => {
+    const current = q ?? "";
+    if (searchText === current) return;
+    const t = setTimeout(() => updateQuery({ q: searchText.trim() || undefined }), 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchText]);
+
+  // el input "to" es inclusivo del día elegido; el backend usa `< to`, así que
+  // se manda el día SIGUIENTE a las 00:00.
+  const toExclusive = useCallback((dateStr: string) => {
+    const d = new Date(`${dateStr}T00:00:00.000Z`);
+    d.setUTCDate(d.getUTCDate() + 1);
+    return d.toISOString().slice(0, 10);
+  }, []);
+  // inverso: lo que se enseña en el <input type="date"> del "hasta" es un día
+  // menos que lo que se manda al backend.
+  const toInclusiveDisplay = useCallback((iso: string) => {
+    const d = new Date(iso.length <= 10 ? `${iso}T00:00:00.000Z` : iso);
+    d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().slice(0, 10);
+  }, []);
+
   async function del(id: string) {
     setAssets((as) => as.filter((a) => a.id !== id));
     setOpenIdx(null);
@@ -399,6 +463,71 @@ export default function Gallery({
     <>
       <div className="gallery-toolbar">
         <DensityControl value={density} onChange={setDensity} />
+
+        <div className="gt-filters">
+          <div className={`gt-search ${searchOpen ? "open" : ""}`}>
+            <button
+              type="button"
+              aria-label="Buscar"
+              aria-pressed={searchOpen}
+              onClick={() => setSearchOpen((v) => !v)}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="11" cy="11" r="7" />
+                <path d="M21 21l-4.3-4.3" strokeLinecap="round" />
+              </svg>
+            </button>
+            <input
+              type="search"
+              placeholder="Buscar por nombre…"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              onFocus={() => setSearchOpen(true)}
+            />
+          </div>
+
+          {cameras.length > 0 && (
+            <div className="gt-camera">
+              <select
+                aria-label="Filtrar por cámara"
+                value={camera ?? ""}
+                onChange={(e) => updateQuery({ camera: e.target.value || undefined })}
+              >
+                <option value="">Todas las cámaras</option>
+                {cameras.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="gt-daterange">
+            <input
+              type="date"
+              aria-label="Desde"
+              value={from ? from.slice(0, 10) : ""}
+              onChange={(e) => updateQuery({ from: e.target.value || undefined })}
+            />
+            <span>–</span>
+            <input
+              type="date"
+              aria-label="Hasta"
+              value={to ? toInclusiveDisplay(to) : ""}
+              onChange={(e) => updateQuery({ to: e.target.value ? toExclusive(e.target.value) : undefined })}
+            />
+          </div>
+
+          <Link href="/app/mapa" className="gt-mapbtn" aria-label="Ver mapa" title="Ver mapa">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M9 20l-6 -3v-13l6 3l6 -3l6 3v13l-6 -3l-6 3z" strokeLinejoin="round" />
+              <path d="M9 7v13" strokeLinecap="round" />
+              <path d="M15 10v13" strokeLinecap="round" />
+            </svg>
+          </Link>
+        </div>
+
         <div className="gt-actions">
           <button
             className="btn ghost sm"

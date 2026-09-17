@@ -23,6 +23,14 @@ export async function GET(req: Request) {
   if (cursor) q.set("cursor", cursor);
   if (kind === "photo" || kind === "video") q.set("kind", kind);
   if (url.searchParams.get("fav") === "1") q.set("fav", "1");
+  const search = url.searchParams.get("q");
+  const camera = url.searchParams.get("camera");
+  const from = url.searchParams.get("from");
+  const to = url.searchParams.get("to");
+  if (search) q.set("q", search);
+  if (camera) q.set("camera", camera);
+  if (from) q.set("from", from);
+  if (to) q.set("to", to);
   q.set("limit", String(Math.min(Math.max(limit, 1), 300)));
 
   const res = await fetch(`${API}/v1/assets?${q.toString()}`, {
