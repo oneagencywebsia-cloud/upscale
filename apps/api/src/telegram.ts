@@ -1096,6 +1096,67 @@ async function messageForKey(key: string): Promise<Api.Message> {
  * para UNA parte de un original troceado (baseOffset = dónde empieza esa
  * parte dentro del archivo lógico completo, ver ensureCached).
  */
+/**
+ * Descarga [from,to) del documento `loc` y lo escribe en `fh` a `baseOffset+pos`.
+ * Si `iterDownload` falla a MITAD (fileReference caducado, corte de red, un
+ * FLOOD_WAIT que agota los reintentos internos de GramJS…), NO se tira lo ya
+ * escrito: se reintenta solo el TRAMO PENDIENTE [pos,to), con un cliente
+ * DISTINTO del pool — hasta 2 veces más.
+ *
+ * Antes, cualquier fallo transitorio en CUALQUIERA de las (hasta 24) conexiones
+ * paralelas de una descarga de varios GB (generar la copia ligera de
+ * reproducción, el ZIP de "descargar todo") tiraba TODO el progreso de esa
+ * conexión y `ensureCached` volvía a bajar el original ENTERO desde cero en el
+ * siguiente intento. Con cientos de peticiones MTProto por conexión en un
+ * original grande, la probabilidad de acabar limpio cae cuanto más pesa el
+ * vídeo — explica por qué eran justo los vídeos más largos (los que más lo
+ * necesitan, por su bitrate) los que se quedaban sin copia ligera para
+ * siempre tras agotar sus reintentos ("Request was unsuccessful 3 time(s)":
+ * el límite interno de GramJS, ver requestRetries).
+ */
+async function downloadRangeResiliente(
+  client: TelegramClient,
+  loc: Api.InputDocumentFileLocation,
+  dcId: number | undefined,
+  from: number,
+  to: number,
+  baseOffset: number,
+  fh: import("node:fs/promises").FileHandle,
+  isBackground: boolean,
+  intento = 0,
+): Promise<void> {
+  const REQ = 512 * 1024;
+  let pos = from;
+  try {
+    await exclusive(client, async () => {
+      for await (const chunk of client.iterDownload({
+        file: loc,
+        dcId,
+        offset: bigInt(pos),
+        limit: to - pos,
+        requestSize: REQ,
+      })) {
+        const buf = Buffer.from(chunk as Uint8Array);
+        if (!buf.length) continue;
+        const w = pos + buf.length > to ? buf.subarray(0, to - pos) : buf;
+        await fh.write(w, 0, w.length, baseOffset + pos);
+        pos += w.length;
+        if (pos >= to) break;
+        // cede el paso si alguien está viendo algo AHORA — se re-evalúa
+        // en CADA trozo, así que si el visionado empieza a MITAD de esta
+        // descarga de fondo (p. ej. el usuario abre el vídeo justo
+        // mientras se genera su copia ligera), se frena de inmediato, y
+        // recupera velocidad sola en cuanto el visionado termina.
+        if (isBackground && viendoAlgoActivamente()) await new Promise((r) => setTimeout(r, 400));
+      }
+    });
+  } catch (e) {
+    if (pos >= to || intento >= 2) throw e; // ya terminado, o sin más intentos
+    const fresh = (await downloadClients(1))[0]!;
+    await downloadRangeResiliente(fresh, loc, dcId, pos, to, baseOffset, fh, isBackground, intento + 1);
+  }
+}
+
 async function downloadDocToFile(
   fh: import("node:fs/promises").FileHandle,
   loc: Api.InputDocumentFileLocation,
@@ -1114,36 +1175,7 @@ async function downloadDocToFile(
   for (let i = 0; i < nParts; i++) {
     const from = i * per;
     const to = Math.min(total, from + per);
-    const c = clients[i]!;
-    // exclusive(): si `c` coincide con el de OTRO trozo (el pool puede ser
-    // más pequeño que nParts) o con alguna otra descarga en curso a la vez,
-    // esto pone en cola en vez de correr dos iterDownload a la vez sobre la
-    // misma conexión — que es justo lo que mezclaba bytes entre descargas.
-    jobs.push(
-      exclusive(c, async () => {
-        let pos = from;
-        for await (const chunk of c.iterDownload({
-          file: loc,
-          dcId,
-          offset: bigInt(from),
-          limit: to - from,
-          requestSize: REQ,
-        })) {
-          const buf = Buffer.from(chunk as Uint8Array);
-          if (!buf.length) continue;
-          const w = pos + buf.length > to ? buf.subarray(0, to - pos) : buf;
-          await fh.write(w, 0, w.length, baseOffset + pos);
-          pos += w.length;
-          if (pos >= to) break;
-          // cede el paso si alguien está viendo algo AHORA — se re-evalúa
-          // en CADA trozo, así que si el visionado empieza a MITAD de esta
-          // descarga de fondo (p. ej. el usuario abre el vídeo justo
-          // mientras se genera su copia ligera), se frena de inmediato, y
-          // recupera velocidad sola en cuanto el visionado termina.
-          if (isBackground && viendoAlgoActivamente()) await new Promise((r) => setTimeout(r, 400));
-        }
-      }),
-    );
+    jobs.push(downloadRangeResiliente(clients[i]!, loc, dcId, from, to, baseOffset, fh, isBackground));
   }
   await Promise.all(jobs);
 }

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { ping, one, poolStats } from "../db.js";
+import { ping, one, query, poolStats } from "../db.js";
 import { env, VERSION } from "../env.js";
 import { requireUploadToken, principalOf } from "../auth.js";
 import { ingestSnapshot, ingestState, ingestTickNow, ingestSkipPending, ingestResume, previewWorkerMetrics } from "../ingest.js";
@@ -327,5 +327,21 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
     ingestResume();
     await ingestTickNow(app.log);
     return { ok: true, lastTickError: ingestState.lastTickError, totalImported: ingestState.totalImported };
+  });
+
+  // reabre las copias de reproducción que se habían rendido (preview_state=-1)
+  // tras agotar sus reintentos — pensado para después de un fix real en el
+  // descargador (antes, un solo fallo transitorio en cualquiera de las
+  // conexiones paralelas tiraba TODO el progreso de un original grande, así
+  // que los vídeos más largos/pesados eran los que más fácil acababan aquí).
+  // Solo del propio usuario, y solo vídeos sin copia todavía.
+  app.post("/v1/diag/previews/reabrir", soloDueno, async (req) => {
+    const { userId } = principalOf(req);
+    const r = await query(
+      `update assets set preview_state = 0, preview_next_attempt_at = now(), preview_last_error = null
+         where user_id = $1 and kind = 'video' and preview_key is null and preview_state = -1 and deleted_at is null`,
+      [userId],
+    );
+    return { reabiertos: r.rowCount ?? 0 };
   });
 }
