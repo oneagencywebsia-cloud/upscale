@@ -25,6 +25,13 @@ const I = {
       <path d="M4 7h16M4 12h16M4 17h10" />
     </svg>
   ),
+  albums: (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="5" width="14" height="14" rx="2.4" />
+      <path d="M7 9h6M7 13h6" />
+      <path d="M9 3h9a2 2 0 0 1 2 2v11" strokeLinecap="round" />
+    </svg>
+  ),
   gear: (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3.2" />
@@ -86,6 +93,7 @@ export default function MobileTabs() {
   const tabs = [
     { href: "/app", label: "Biblioteca", icon: I.lib, active: onLib },
     { href: "/app?fav=1", label: "Favoritos", icon: I.fav, active: onFav },
+    { href: "/app/albumes", label: "Álbumes", icon: I.albums, active: pathname.startsWith("/app/albumes") },
     { href: "/app/espacio", label: "Espacio", icon: I.space, active: pathname === "/app/espacio" },
     { href: "/app/ajustes", label: "Ajustes", icon: I.gear, active: pathname === "/app/ajustes" },
   ];

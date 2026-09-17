@@ -99,3 +99,15 @@ export interface HealthResult {
 export interface ApiError {
   error: string;
 }
+
+export interface Album {
+  id: string;
+  name: string;
+  createdAt: string;
+  count: number;
+  coverUrl: string | null;
+}
+
+export interface AlbumListResponse {
+  albums: Album[];
+}

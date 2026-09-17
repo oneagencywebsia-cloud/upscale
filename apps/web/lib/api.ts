@@ -1,7 +1,7 @@
 import "server-only";
 import { headers } from "next/headers";
 import { getAccessToken } from "@/lib/supabase/server";
-import type { AssetListResponse, AssetDetail, Me, UploadToken, StorageInfo } from "@upscale/shared";
+import type { AssetListResponse, AssetDetail, Me, UploadToken, StorageInfo, AlbumListResponse, Album } from "@upscale/shared";
 
 const API = process.env.UPSCALE_API_URL ?? "http://localhost:8080";
 
@@ -49,6 +49,22 @@ export const createToken = (label?: string) =>
     body: JSON.stringify({ label }),
   });
 export const deleteToken = (id: string) => req<void>(`/v1/tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+export const listAlbums = () => req<AlbumListResponse>("/v1/albums");
+
+/** No hay GET /v1/albums/:id dedicado (la lista ya es barata: pocos álbumes
+ *  por usuario) — se busca dentro de listAlbums(). */
+export async function getAlbum(id: string): Promise<Album | null> {
+  const { albums } = await listAlbums();
+  return albums.find((a) => a.id === id) ?? null;
+}
+
+export function getAlbumAssets(id: string, cursor?: string): Promise<AssetListResponse> {
+  const q = new URLSearchParams();
+  if (cursor) q.set("cursor", cursor);
+  const qs = q.toString();
+  return req<AssetListResponse>(`/v1/albums/${id}/assets${qs ? `?${qs}` : ""}`);
+}
 
 export async function getMe(): Promise<Me | null> {
   try {

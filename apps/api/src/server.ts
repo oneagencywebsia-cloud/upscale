@@ -8,6 +8,7 @@ import { runMigrations } from "./run-migrations.js";
 import { healthRoutes } from "./routes/health.js";
 import { authRoutes } from "./routes/auth.js";
 import { assetRoutes } from "./routes/assets.js";
+import { albumRoutes } from "./routes/albums.js";
 import { tokenRoutes } from "./routes/tokens.js";
 import { activityRoutes } from "./routes/activity.js";
 import { blobRoutes } from "./routes/blob.js";
@@ -73,6 +74,7 @@ app.setErrorHandler((err: { statusCode?: number; message?: string }, req, reply)
 await app.register(healthRoutes);
 await app.register(authRoutes);
 await app.register(assetRoutes);
+await app.register(albumRoutes);
 await app.register(tokenRoutes);
 await app.register(activityRoutes);
 await app.register(blobRoutes);
