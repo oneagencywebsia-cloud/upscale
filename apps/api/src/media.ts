@@ -1,5 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { cpus } from "node:os";
+import { readFileSync } from "node:fs";
 import { createWriteStream } from "node:fs";
 import { extname } from "node:path";
 import sharp from "sharp";
@@ -8,31 +9,151 @@ import type { AssetKind } from "./types.js";
 
 const RUN_OPTS = { maxBuffer: 8 * 1024 * 1024, timeout: 25_000 };
 
+/**
+ * Núcleos que este proceso puede usar DE VERDAD.
+ *
+ * `os.cpus().length` devuelve los núcleos de la MÁQUINA ANFITRIONA, no los del
+ * contenedor: en un VPS con 2 vCPU asignadas sobre un host de 16, devolvía 16.
+ * Con eso, `-threads 15` en x264 sobre un 4K no acelera nada (solo hay 2 vCPU)
+ * pero sí reserva estructuras por hilo — cientos de MB extra de RAM por cada
+ * ffmpeg, en un contenedor con límite de memoria: candidato perfecto a que el
+ * OOM-killer se lleve la API entera a mitad de una transcodificación de horas
+ * (y esa es exactamente la pinta que tiene un "preview_state" que no avanza).
+ * Se lee la cuota real del cgroup (v2 y v1) y se usa la más restrictiva.
+ */
+function nucleosReales(): number {
+  const host = Math.max(1, cpus().length);
+  const leer = (p: string): string | null => {
+    try {
+      return readFileSync(p, "utf8").trim();
+    } catch {
+      return null;
+    }
+  };
+  // cgroup v2: "<cuota> <periodo>" o "max <periodo>"
+  const v2 = leer("/sys/fs/cgroup/cpu.max");
+  if (v2) {
+    const [q, p] = v2.split(/\s+/);
+    const quota = Number(q);
+    const periodo = Number(p) || 100_000;
+    if (q !== "max" && Number.isFinite(quota) && quota > 0) {
+      return Math.max(1, Math.min(host, Math.floor(quota / periodo) || 1));
+    }
+  }
+  // cgroup v1
+  const q1 = Number(leer("/sys/fs/cgroup/cpu/cpu.cfs_quota_us"));
+  const p1 = Number(leer("/sys/fs/cgroup/cpu/cpu.cfs_period_us")) || 100_000;
+  if (Number.isFinite(q1) && q1 > 0) {
+    return Math.max(1, Math.min(host, Math.floor(q1 / p1) || 1));
+  }
+  return host;
+}
+const NUCLEOS = nucleosReales();
+
+// libvips (sharp) también abre un hilo por núcleo del ANFITRIÓN por defecto:
+// varias miniaturas a la vez en un contenedor de 2 vCPU se traducían en
+// decenas de hilos peleándose y mucha RAM. Se ajusta una sola vez al cargar.
+sharp.concurrency(Math.max(1, Math.min(4, NUCLEOS)));
+
+/**
+ * Semáforo simple (FIFO). Existe porque NADA limitaba cuántos procesos
+ * externos podían correr a la vez: cada subida simultánea lanza su ffprobe +
+ * su ffmpeg/vips/convert, y en paralelo el worker de copias ligeras lanza los
+ * suyos. Con 10 subidas a la vez desde el Atajo de iOS eso son 20+ procesos
+ * de decodificación de vídeo/HEIC compitiendo por 2 vCPU: todos van lentísimos,
+ * varios llegan a su `timeout` y FALLAN aunque el archivo esté perfecto (y en
+ * el caso de las previews, ese fallo consume un intento del backoff).
+ */
+class Semaforo {
+  private libres: number;
+  private cola: (() => void)[] = [];
+  constructor(max: number) {
+    this.libres = Math.max(1, max);
+  }
+  async tomar(): Promise<() => void> {
+    if (this.libres > 0) this.libres--;
+    else await new Promise<void>((r) => this.cola.push(r));
+    let soltado = false;
+    return () => {
+      if (soltado) return; // liberar dos veces rompería el contador
+      soltado = true;
+      const siguiente = this.cola.shift();
+      if (siguiente) siguiente();
+      else this.libres++;
+    };
+  }
+  get espera(): number {
+    return this.cola.length;
+  }
+}
+
+/** Carril LIGERO: ffprobe, miniaturas, pósters, exiftool… segundos cada uno. */
+const carrilLigero = new Semaforo(Math.max(2, Math.min(4, NUCLEOS)));
+/**
+ * Carril PESADO: solo las copias ligeras de reproducción (makePreview), que
+ * duran de minutos a horas. Tope = los carriles del worker (normal + urgente)
+ * que hay hoy; si alguien sube PREVIEW_WORKER_CONCURRENCY, esto impide que se
+ * conviertan en N transcodificaciones 4K simultáneas sobre el mismo VPS.
+ * Deliberadamente >= 2 para no reintroducir el bloqueo del carril urgente
+ * detrás de una transcodificación normal de horas.
+ */
+const carrilPesado = new Semaforo(
+  Math.max(2, Math.min(4, Number(process.env.PREVIEW_WORKER_CONCURRENCY) || 1) + 1),
+);
+
 /** Ejecuta un binario y vuelca su stdout (binario) a `outFile`. Para exiftool
  *  `-b`, cuyo resultado son bytes de imagen que no caben como string. */
-function runToFile(file: string, args: string[], outFile: string, timeoutMs = 25_000): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const ws = createWriteStream(outFile);
-    const child = spawn(file, args, { stdio: ["ignore", "pipe", "ignore"] });
-    const timer = setTimeout(() => {
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        /* ya muerto */
-      }
-      reject(new Error(`${file}: timeout ${timeoutMs}ms`));
-    }, timeoutMs);
-    child.stdout.pipe(ws);
-    child.on("error", (e) => {
-      clearTimeout(timer);
-      reject(e);
+async function runToFile(file: string, args: string[], outFile: string, timeoutMs = 25_000): Promise<void> {
+  const soltar = await carrilLigero.tomar();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const ws = createWriteStream(outFile);
+      const child = spawn(file, args, { stdio: ["ignore", "pipe", "ignore"] });
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+
+      // Antes: en el camino de timeout y en el de 'error' se rechazaba SIN
+      // cerrar `ws` → un descriptor de archivo abierto por cada fallo, para
+      // siempre (EMFILE a la larga); y `ws` no tenía manejador de 'error', así
+      // que un fallo de escritura (disco lleno) emitía un 'error' sin escuchar
+      // = excepción no capturada. Además se resolvía al cerrar el HIJO, sin
+      // esperar a que el stream VOLCARA a disco: el llamante hacía stat() y
+      // podía ver 0 bytes de un archivo que sí se acabó escribiendo (la vía de
+      // rescate de HEIC por exiftool fallaba "sola" por esto).
+      const acabar = (err?: Error) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        timer = null;
+        if (err) {
+          ws.destroy();
+          try {
+            child.kill("SIGKILL");
+          } catch {
+            /* ya muerto */
+          }
+          reject(err);
+        } else {
+          resolve();
+        }
+      };
+
+      ws.on("error", (e) => acabar(e));
+      child.on("error", (e) => acabar(e));
+      timer = setTimeout(() => acabar(new Error(`${file}: timeout ${timeoutMs}ms`)), timeoutMs);
+
+      child.stdout.pipe(ws);
+      child.on("close", (code) => {
+        if (settled) return;
+        if (code !== 0) return acabar(new Error(`${file}: exit ${code}`));
+        // el hijo terminó bien: ahora sí, esperar a que el archivo esté en disco
+        ws.once("finish", () => acabar());
+        ws.end();
+      });
     });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      ws.end();
-      code === 0 ? resolve() : reject(new Error(`${file}: exit ${code}`));
-    });
-  });
+  } finally {
+    soltar();
+  }
 }
 
 /**
@@ -41,32 +162,55 @@ function runToFile(file: string, args: string[], outFile: string, timeoutMs = 25
  * cierre sus pipes. `execFile` de Node con `timeout` puede quedarse colgado si el
  * hijo no cierra stdio tras el kill (pasa con ffprobe/ffmpeg en vídeos 4K/HEVC
  * pesados) — esto lo evita.
+ *
+ * `carril`: "ligero" (por defecto) o "pesado" — ver los semáforos de arriba. El
+ * tiempo de espera del semáforo NO cuenta para el `timeout`: el reloj arranca
+ * cuando el proceso arranca de verdad, si no, un archivo esperando turno se
+ * daría por fallido sin haber llegado a ejecutarse nunca.
  */
-function run(
+async function run(
   file: string,
   args: string[],
   opts: { maxBuffer: number; timeout: number },
+  carril: "ligero" | "pesado" = "ligero",
 ): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const child = execFile(file, args, { maxBuffer: opts.maxBuffer }, (err, stdout, stderr) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (err) reject(err);
-      else resolve({ stdout: String(stdout), stderr: String(stderr) });
+  const soltar = await (carril === "pesado" ? carrilPesado : carrilLigero).tomar();
+  try {
+    return await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+      let settled = false;
+      const child = execFile(file, args, { maxBuffer: opts.maxBuffer }, (err, stdout, stderr) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (err) reject(err);
+        else resolve({ stdout: String(stdout), stderr: String(stderr) });
+      });
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          /* ya muerto */
+        }
+        // Tras el SIGKILL, Node sigue teniendo los pipes de stdout/stderr del
+        // hijo enganchados y sus búferes acumulados en memoria hasta que el
+        // proceso muere del todo. Con ffmpeg escupiendo a stderr sobre un 4K,
+        // eso puede ser megas por invocación colgando de un proceso que ya
+        // hemos dado por perdido: se destruyen a mano para soltarlos ya.
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        reject(new Error(`${file}: timeout ${opts.timeout}ms`));
+      }, opts.timeout);
     });
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        /* ya muerto */
-      }
-      reject(new Error(`${file}: timeout ${opts.timeout}ms`));
-    }, opts.timeout);
-  });
+  } finally {
+    soltar();
+  }
+}
+
+/** Estado de los carriles de procesos externos (para /v1/diag). */
+export function mediaColas(): { nucleos: number; esperaLigero: number; esperaPesado: number } {
+  return { nucleos: NUCLEOS, esperaLigero: carrilLigero.espera, esperaPesado: carrilPesado.espera };
 }
 
 const VIDEO_EXT = new Set([".mov", ".mp4", ".m4v", ".hevc", ".avci", ".3gp", ".avi", ".mkv", ".webm"]);
@@ -398,7 +542,12 @@ export async function makePreview(
 ): Promise<void> {
   const maxH = opts.maxH ?? 1080;
   const preset = (opts.durationS ?? 0) > 20 * 60 ? "ultrafast" : "veryfast";
-  const threads = Math.max(2, cpus().length - 1);
+  // Núcleos REALES del contenedor (no los del anfitrión, ver nucleosReales) y
+  // repartidos entre las transcodificaciones que pueden coincidir: el carril
+  // normal y el urgente pueden estar los dos activos a la vez a propósito, así
+  // que pedir "todos los núcleos menos uno" en cada uno significaba pedir el
+  // doble de CPU de la que hay y dejar a la API sin aire para responder.
+  const threads = Math.max(1, Math.min(8, Math.floor(NUCLEOS / 2) || 1));
   await run(
     env.FFMPEG_PATH,
     [
@@ -430,6 +579,7 @@ export async function makePreview(
     // ingest.ts), así que un margen amplio no bloquea nada más: es preferible
     // a que se dé por vencido a mitad de camino y haya que empezar de cero.
     { maxBuffer: 8 * 1024 * 1024, timeout: 180 * 60_000 },
+    "pesado", // carril propio: nunca hace cola detrás de una miniatura, ni al revés
   );
 }
 

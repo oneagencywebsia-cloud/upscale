@@ -9,6 +9,59 @@ const MIME: Record<string, string> = {
 };
 
 /**
+ * Rango HTTP pedido, ya resuelto contra el tamaño real del archivo.
+ * Devuelve:
+ *   - `null`   → la cabecera Range no es interpretable (unidad desconocida,
+ *                multi-rango, sintaxis rara): por RFC 9110 se IGNORA y se
+ *                responde 200 con el archivo entero.
+ *   - `{ noSatisfiable: true }` → sintaxis válida pero fuera del archivo → 416.
+ *   - `{ start, end }` → rango cerrado, inclusivo, ya recortado a [0, total-1].
+ *
+ * Soporta las TRES formas de RFC 9110, incluida `bytes=-N` (los últimos N
+ * bytes), que antes se interpretaba como "los primeros N": un reproductor o
+ * un `ffprobe` que pide la COLA de un .mov para encontrar el átomo `moov`
+ * (que en los originales del iPhone está al final, no al principio) recibía
+ * la CABECERA en su lugar, con un `Content-Range: bytes 0-N/total` que
+ * además mentía sobre qué trozo era. Resultado: el archivo parecía ilegible
+ * aunque estuviera perfecto.
+ */
+export function parseRange(header: string, total: number): { start: number; end: number } | { noSatisfiable: true } | null {
+  const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!m) return null; // multi-rango u otra unidad → se ignora (200)
+  const rawStart = m[1] ?? "";
+  const rawEnd = m[2] ?? "";
+  if (!rawStart && !rawEnd) return null; // "bytes=-" no es nada
+  if (total <= 0) return { noSatisfiable: true };
+
+  let start: number;
+  let end: number;
+  if (!rawStart) {
+    // sufijo: los últimos N bytes. N mayor que el archivo = archivo entero.
+    const n = Number(rawEnd);
+    if (!Number.isFinite(n) || n <= 0) return { noSatisfiable: true };
+    start = Math.max(0, total - n);
+    end = total - 1;
+  } else {
+    start = Number(rawStart);
+    // Un valor absurdamente grande (más dígitos de los que caben en un double)
+    // se vuelve impreciso o Infinity: se trata como "fuera del archivo".
+    if (!Number.isFinite(start) || start < 0 || start >= total) return { noSatisfiable: true };
+    end = rawEnd ? Number(rawEnd) : total - 1;
+    if (!Number.isFinite(end) || end < start) return { noSatisfiable: true };
+    if (end >= total) end = total - 1;
+  }
+  return { start, end };
+}
+
+/** Un parámetro repetido (?dl=a&dl=b) llega como array: quedarse con el primero
+ *  en vez de petar con "x.replace is not a function". */
+function firstStr(v: unknown): string | undefined {
+  if (typeof v === "string") return v;
+  if (Array.isArray(v) && typeof v[0] === "string") return v[0];
+  return undefined;
+}
+
+/**
  * Sirve archivos de los motores "local" y "telegram". No usa sesión: el enlace
  * lleva un token HMAC temporal (?e=&t=) generado por storage.signedUrl().
  * Soporta `Range` (necesario para reproducir vídeo en Safari/iOS y para reanudar descargas).
@@ -18,7 +71,8 @@ export async function blobRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/v1/blob/*", async (req, reply) => {
     const key = (req.params as Record<string, string>)["*"] ?? "";
-    const q = req.query as { e?: string; t?: string; dl?: string };
+    const raw = req.query as Record<string, unknown>;
+    const q = { e: firstStr(raw.e), t: firstStr(raw.t), dl: firstStr(raw.dl) };
     const exp = Number(q.e);
 
     if (!key || !q.t || !verifyBlobToken(key, exp, q.t)) {
@@ -40,17 +94,16 @@ export async function blobRoutes(app: FastifyInstance): Promise<void> {
     const rangeHeader = typeof req.headers.range === "string" ? req.headers.range : null;
 
     try {
-      if (rangeHeader) {
-        const total = await blobSize(key);
-        const m = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
-        let start = m && m[1] ? parseInt(m[1], 10) : 0;
-        let end = m && m[2] ? parseInt(m[2], 10) : total - 1;
-        if (!Number.isFinite(start) || start < 0) start = 0;
-        if (!Number.isFinite(end) || end >= total) end = total - 1;
-        if (start > end || start >= total) {
+      // blobSize() puede consultar la BD: una sola vez por petición.
+      const total = rangeHeader ? await blobSize(key) : 0;
+      const parsed = rangeHeader ? parseRange(rangeHeader, total) : null;
+      if (parsed) {
+        if ("noSatisfiable" in parsed) {
           reply.code(416).header("Content-Range", `bytes */${total}`);
           return reply.send();
         }
+        const start = parsed.start;
+        let end = parsed.end;
         // Limitamos cada respuesta: el reproductor pedirá el siguiente trozo.
         // 16 MB = menos "costuras" entre trozos que 8 (menos micro-tirones) sin
         // descargar de más si el usuario hace seek. Cuando el archivo ya está en

@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { ping, one, poolStats } from "../db.js";
 import { env, VERSION } from "../env.js";
+import { requireUploadToken, principalOf } from "../auth.js";
 import { ingestSnapshot, ingestState, ingestTickNow, ingestSkipPending, ingestResume, previewWorkerMetrics } from "../ingest.js";
 
 function firstLine(cmd: string, args: string[]): Promise<string> {
@@ -14,6 +15,59 @@ function firstLine(cmd: string, args: string[]): Promise<string> {
   });
 }
 
+/**
+ * Todo lo de /v1/diag/* y /v1/ingest/* exige identidad. Antes NO la exigía, y
+ * eso era un agujero de verdad, no teórico:
+ *  - /v1/diag/signedurl?key=orig/<cualquiera> devolvía a CUALQUIERA en
+ *    internet una URL firmada válida para descargar ese archivo (la firma la
+ *    pone el servidor: no hace falta conocer BLOB_SECRET).
+ *  - /v1/ingest/skip (POST, sin cuerpo) descartaba el inbox pendiente →
+ *    pérdida de datos a un `curl` de distancia.
+ *  - /v1/diag/speedtest?mb=2000 bajaba 2 GB de Telegram por llamada.
+ *  - /v1/diag/tools lanzaba 7 procesos por llamada.
+ * Se usa requireUploadToken (sesión Supabase O `X-Upload-Token`) a propósito:
+ * cierra el acceso anónimo sin romper el diagnóstico por curl, que puede
+ * seguir usando el mismo token del Atajo de iOS que ya existe.
+ */
+const soloDueno = { preHandler: requireUploadToken } as const;
+
+/** ¿esa key es de un archivo de ESTE usuario? (evita firmar/inspeccionar lo ajeno) */
+async function keyDelUsuario(userId: string, key: string): Promise<boolean> {
+  const r = await one<{ x: number }>(
+    // `$2::text` explícito: sin el cast, Postgres no puede inferir el tipo del
+    // parámetro dentro de un IN (...) y falla con "could not determine data
+    // type of parameter $2" — el .catch() se lo tragaría y ?key= dejaría de
+    // funcionar en silencio.
+    `select 1 x from assets
+      where user_id = $1 and deleted_at is null
+        and $2::text in (original_key, thumb_key, coalesce(poster_key, ''),
+                         coalesce(preview_key, ''), coalesce(live_video_key, ''))
+      limit 1`,
+    [userId, key],
+  ).catch(() => null);
+  return !!r;
+}
+
+/**
+ * Key a diagnosticar: la de `?key=` (solo si es del propio usuario) o, si no
+ * se pasa ninguna, el vídeo más pesado (`?big=1`) o el más reciente DE ESTE
+ * USUARIO. Antes cogía el último vídeo de la tabla entera, de quien fuera.
+ */
+async function keyDiag(req: FastifyRequest): Promise<string | null> {
+  const { userId } = principalOf(req);
+  const q = req.query as { key?: string; big?: string };
+  if (typeof q.key === "string" && q.key) {
+    return (await keyDelUsuario(userId, q.key)) ? q.key : null;
+  }
+  const r = await one<{ k: string }>(
+    `select original_key k from assets
+       where user_id = $1 and kind = 'video' and stored = true and deleted_at is null
+       order by ${q.big ? "bytes desc" : "uploaded_at desc"} limit 1`,
+    [userId],
+  ).catch(() => null);
+  return r?.k ?? null;
+}
+
 export async function healthRoutes(app: FastifyInstance): Promise<void> {
   app.get("/v1/healthz", async (_req, reply) => {
     const db = await ping();
@@ -21,7 +75,7 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // qué herramientas de imagen hay en el contenedor (para depurar HEIC/rotación)
-  app.get("/v1/diag/tools", async () => ({
+  app.get("/v1/diag/tools", soloDueno, async () => ({
     version: VERSION,
     convert: await firstLine("convert", ["-version"]),
     vips: await firstLine("vips", ["--version"]),
@@ -34,24 +88,11 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
 
   // ¿va rápido Telegram? conexiones vivas, caché y prueba de velocidad real.
   // ?key=orig/... para medir con un original concreto; si no, coge el último vídeo.
-  app.get("/v1/diag/storage", async (req) => {
+  app.get("/v1/diag/storage", soloDueno, async (req) => {
     const { tgDiag } = await import("../telegram.js");
-    const q = req.query as { key?: string; big?: string };
-    let key = q.key;
-    if (!key) {
-      // ?big=1: el vídeo más pesado de verdad (para probar sostenida con algo
-      // de cientos de MB), en vez del último subido (que puede ser pequeño).
-      const r = await one<{ k: string }>(
-        q.big
-          ? `select original_key k from assets
-               where kind = 'video' and stored = true and deleted_at is null
-               order by bytes desc limit 1`
-          : `select original_key k from assets
-               where kind = 'video' and stored = true and deleted_at is null
-               order by uploaded_at desc limit 1`,
-      ).catch(() => null);
-      key = r?.k;
-    }
+    // ?big=1: el vídeo más pesado de verdad (para probar sostenida con algo
+    // de cientos de MB), en vez del último subido (que puede ser pequeño).
+    const key = (await keyDiag(req)) ?? undefined;
     // peso de la BD: lo que decide si la biblioteca escala a millones de archivos
     const db = await one<{ total: string; posters: string; thumbs: string; n: string; pend: string; rotos: string }>(
       `select pg_size_pretty(pg_total_relation_size('assets')) as total,
@@ -180,22 +221,10 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
   // la conexión si no ve ningún byte salir durante ~30s, y una prueba de
   // cientos de MB tarda mucho más que eso. ?mb=N (por defecto 300, máx 2000).
   // ?big=1 usa el vídeo más pesado de la biblioteca; ?key=orig/... uno concreto.
-  app.get("/v1/diag/speedtest", async (req, reply) => {
+  app.get("/v1/diag/speedtest", soloDueno, async (req, reply) => {
     const { tgSustainedSpeedTest } = await import("../telegram.js");
-    const q = req.query as { key?: string; big?: string; mb?: string; streams?: string };
-    let key = q.key;
-    if (!key) {
-      const r = await one<{ k: string }>(
-        q.big
-          ? `select original_key k from assets
-               where kind = 'video' and stored = true and deleted_at is null
-               order by bytes desc limit 1`
-          : `select original_key k from assets
-               where kind = 'video' and stored = true and deleted_at is null
-               order by uploaded_at desc limit 1`,
-      ).catch(() => null);
-      key = r?.k;
-    }
+    const q = req.query as { mb?: string; streams?: string };
+    const key = await keyDiag(req);
     if (!key) return reply.code(404).send({ error: "no hay ningún vídeo para probar" });
     const mb = Math.max(8, Math.min(2000, Number(q.mb) || 300));
     // ?streams=N: para MEDIR con distintos números de conexiones paralelas
@@ -208,6 +237,10 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
     reply.raw.write(JSON.stringify({ key, mb, streams: streams ?? "env" }) + "\n");
     try {
       for await (const m of tgSustainedSpeedTest(key, mb, streams)) {
+        // Si quien lanzó la prueba cierra la pestaña, parar YA: sin esto, el
+        // generador seguía bajando hasta 2 GB de Telegram para nadie, comiendo
+        // el ancho de banda de quien sí esté viendo algo.
+        if (reply.raw.destroyed) break;
         reply.raw.write(JSON.stringify(m) + "\n");
       }
     } catch (e) {
@@ -220,22 +253,9 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
   // URL firmada real (la MISMA que genera la app) para un original concreto —
   // sirve para reproducir exactamente lo que descarga un usuario y verificar
   // el archivo con ffmpeg/ffprobe fuera de la app. ?key=orig/... o ?big=1.
-  app.get("/v1/diag/signedurl", async (req, reply) => {
+  app.get("/v1/diag/signedurl", soloDueno, async (req, reply) => {
     const { signedUrl } = await import("../storage.js");
-    const q = req.query as { key?: string; big?: string };
-    let key = q.key;
-    if (!key) {
-      const r = await one<{ k: string }>(
-        q.big
-          ? `select original_key k from assets
-               where kind = 'video' and stored = true and deleted_at is null
-               order by bytes desc limit 1`
-          : `select original_key k from assets
-               where kind = 'video' and stored = true and deleted_at is null
-               order by uploaded_at desc limit 1`,
-      ).catch(() => null);
-      key = r?.k;
-    }
+    const key = await keyDiag(req);
     if (!key) return reply.code(404).send({ error: "no hay ningún vídeo" });
     return { key, url: await signedUrl(key, { expiresIn: 600 }) };
   });
@@ -243,21 +263,23 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
 
   // TEMPORAL: inspección directa del estado real de un asset (solo campos de
   // la cola de previews, nada sensible) — para verificar sin adivinar.
-  app.get("/v1/diag/asset/:id", async (req, reply) => {
+  app.get("/v1/diag/asset/:id", soloDueno, async (req, reply) => {
+    const { userId } = principalOf(req);
     const { id } = req.params as { id: string };
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return reply.code(400).send({ error: "id inválido" });
     const r = await one(
       `select id, filename, bytes, duration_s, preview_key is not null as tiene_preview,
               preview_state, preview_locked_at, preview_next_attempt_at, preview_bump_at,
               preview_last_error, extract(epoch from now() - preview_locked_at) as candado_hace_s
-         from assets where id = $1`,
-      [id],
+         from assets where id = $1 and user_id = $2`,
+      [id, userId],
     ).catch((e) => ({ error: (e as Error).message }));
     if (!r) return reply.code(404).send({ error: "no existe" });
     return r;
   });
 
   // diagnóstico de la ingesta desde Telegram (sin datos sensibles)
-  app.get("/v1/ingest/status", async () => {
+  app.get("/v1/ingest/status", soloDueno, async () => {
     const lastId = await one<{ v: string }>("select v from kv where k = 'ingest:last_id'").catch(() => null);
     const inited = await one<{ v: string }>("select v from kv where k = 'ingest:inited'").catch(() => null);
     const pend = await one<{ n: string }>("select count(*) n from assets where not stored and deleted_at is null").catch(() => null);
@@ -283,7 +305,7 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // fuerza una vuelta ahora y devuelve el estado
-  app.post("/v1/ingest/run", async () => {
+  app.post("/v1/ingest/run", soloDueno, async () => {
     await ingestTickNow(app.log);
     return {
       ran: true,
@@ -295,13 +317,13 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // salta lo que hay atascado ahora en el inbox (luego reenvías lo que quieras)
-  app.post("/v1/ingest/skip", async () => {
+  app.post("/v1/ingest/skip", soloDueno, async () => {
     const r = await ingestSkipPending(app.log);
     return { ok: true, ...r };
   });
 
   // quita la pausa por FLOOD_WAIT y hace una vuelta ya
-  app.post("/v1/ingest/resume", async () => {
+  app.post("/v1/ingest/resume", soloDueno, async () => {
     ingestResume();
     await ingestTickNow(app.log);
     return { ok: true, lastTickError: ingestState.lastTickError, totalImported: ingestState.totalImported };
