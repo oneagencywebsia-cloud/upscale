@@ -321,9 +321,33 @@ export async function probe(path: string, filename: string, contentType?: string
     ? Number(v?.bit_rate) || Number(fmt.bit_rate) || null
     : null;
 
-  const loc = parseIso6709(
+  let loc = parseIso6709(
     tags["com.apple.quicktime.location.ISO6709"] ?? tags["location"] ?? tags["location-eng"],
   );
+  // Para FOTOS (HEIC/JPEG) esa etiqueta no existe nunca — es de vídeo
+  // QuickTime. La ubicación GPS de una foto va en el EXIF normal
+  // (GPSLatitude/GPSLongitude), que ffprobe ni siquiera intenta leer. Sin
+  // esto, el mapa solo mostraba los pocos vídeos con ubicación y NINGUNA
+  // foto, aunque el iPhone geoetiquete casi todo. exiftool ya está instalado
+  // (se usa para el rescate de HEIC) — `-n` da grados decimales en vez de
+  // "40 deg 25' 46.80\" N", `-T` los separa por tabulador en una sola línea.
+  if (loc.lat == null || loc.lon == null) {
+    try {
+      const { stdout } = await run(
+        "exiftool",
+        ["-n", "-T", "-GPSLatitude", "-GPSLongitude", path],
+        RUN_OPTS,
+      );
+      const [latStr, lonStr] = stdout.trim().split("\t");
+      const lat = Number(latStr);
+      const lon = Number(lonStr);
+      if (Number.isFinite(lat) && Number.isFinite(lon) && (lat !== 0 || lon !== 0)) {
+        loc = { lat, lon };
+      }
+    } catch {
+      /* sin GPS en el EXIF, o exiftool no pudo leer el archivo — no pasa nada */
+    }
+  }
 
   const capturedAt =
     tags["creation_time"] ??

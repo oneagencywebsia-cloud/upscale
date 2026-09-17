@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
@@ -36,6 +36,43 @@ export default function AlbumGrid({ initialAlbums, error }: { initialAlbums: Alb
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameText, setRenameText] = useState("");
+
+  async function renameAlbum(id: string) {
+    const trimmed = renameText.trim();
+    if (!trimmed) return;
+    setAlbums((as) => as.map((a) => (a.id === id ? { ...a, name: trimmed } : a))); // optimista
+    setRenaming(null);
+    const r = await fetch(`/api/albums/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: trimmed }),
+    }).catch(() => null);
+    if (!r || !r.ok) router.refresh(); // deshace si falló, trayendo el nombre real
+  }
+
+  // cerrar el menú de tres puntos al tocar fuera / Escape — mismo patrón que
+  // el menú de la barra de la galería.
+  useEffect(() => {
+    if (!menuFor) return;
+    const close = () => setMenuFor(null);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMenuFor(null);
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menuFor]);
+
+  async function deleteAlbum(id: string, name: string) {
+    if (!confirm(`¿Borrar el álbum «${name}»? Las fotos y vídeos NO se borran, solo dejan de estar agrupados aquí.`)) return;
+    setMenuFor(null);
+    setAlbums((as) => as.filter((a) => a.id !== id));
+    await fetch(`/api/albums/${id}`, { method: "DELETE" }).catch(() => null);
+  }
 
   async function createAlbum(e: React.FormEvent) {
     e.preventDefault();
@@ -118,17 +155,80 @@ export default function AlbumGrid({ initialAlbums, error }: { initialAlbums: Alb
         )}
       </div>
 
-      {albums.map((a) => (
-        <Link key={a.id} href={`/app/albumes/${a.id}`} className="album-card">
-          <div className="album-cover">
-            {a.coverUrl ? <img src={a.coverUrl} alt="" loading="lazy" /> : <div className="album-cover-empty" aria-hidden="true" />}
+      {albums.map((a) =>
+        renaming === a.id ? (
+          <div key={a.id} className="album-card album-new">
+            <form
+              className="album-new-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void renameAlbum(a.id);
+              }}
+            >
+              <input
+                autoFocus
+                value={renameText}
+                onChange={(e) => setRenameText(e.target.value)}
+                maxLength={80}
+                onKeyDown={(e) => e.key === "Escape" && setRenaming(null)}
+              />
+              <div className="album-new-actions">
+                <button type="submit" className="btn primary sm" disabled={!renameText.trim()}>
+                  Guardar
+                </button>
+                <button type="button" className="btn ghost sm" onClick={() => setRenaming(null)}>
+                  Cancelar
+                </button>
+              </div>
+            </form>
           </div>
-          <div className="album-meta">
-            <b>{a.name}</b>
-            <span>{a.count.toLocaleString("es-ES")} elemento{a.count === 1 ? "" : "s"}</span>
+        ) : (
+          <div key={a.id} className="album-card-wrap">
+            <Link href={`/app/albumes/${a.id}`} className="album-card">
+              <div className="album-cover">
+                {a.coverUrl ? <img src={a.coverUrl} alt="" loading="lazy" /> : <div className="album-cover-empty" aria-hidden="true" />}
+              </div>
+              <div className="album-meta">
+                <b>{a.name}</b>
+                <span>{a.count.toLocaleString("es-ES")} elemento{a.count === 1 ? "" : "s"}</span>
+              </div>
+            </Link>
+            <div className="album-menu" onPointerDown={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                className="album-menu-btn"
+                aria-label="Opciones del álbum"
+                aria-expanded={menuFor === a.id}
+                onClick={(e) => {
+                  e.preventDefault();
+                  setMenuFor((v) => (v === a.id ? null : a.id));
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                  <circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" />
+                </svg>
+              </button>
+              {menuFor === a.id && (
+                <div className="gt-dropdown album-dropdown" role="menu">
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      setMenuFor(null);
+                      setRenameText(a.name);
+                      setRenaming(a.id);
+                    }}
+                  >
+                    Cambiar nombre
+                  </button>
+                  <button role="menuitem" onClick={() => deleteAlbum(a.id, a.name)}>
+                    Borrar álbum
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-        </Link>
-      ))}
+        ),
+      )}
 
       {!albums.length && !creating && (
         <div className="empty album-empty">

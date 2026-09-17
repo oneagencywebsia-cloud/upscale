@@ -2798,6 +2798,37 @@ footer.status .dot {
   border-color: var(--stroke);
   background: color-mix(in srgb, var(--light) 4%, transparent);
 }
+/* envoltorio para poder superponer el menú de "..." sobre la tarjeta-enlace
+   sin que el clic del menú navegue al álbum (ver onPointerDown/preventDefault) */
+.album-card-wrap {
+  position: relative;
+}
+.album-card-wrap .album-card {
+  width: 100%;
+}
+.album-menu {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 2;
+}
+.album-menu-btn {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--stroke);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  color: var(--light);
+  cursor: pointer;
+}
+.album-dropdown {
+  right: 0;
+  left: auto;
+}
 .album-cover {
   position: relative;
   aspect-ratio: 1;

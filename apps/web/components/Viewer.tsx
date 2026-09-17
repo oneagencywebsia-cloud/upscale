@@ -28,14 +28,20 @@ interface Props {
   onDelete: (id: string) => void;
   /** pide a la galería la página siguiente; undefined = no queda nada más */
   onNeedMore?: () => void;
+  /** viendo dentro de un álbum: "Borrar" solo desagrupa, no borra de la biblioteca */
+  inAlbum?: boolean;
 }
 
-export default function Viewer({ assets, index, onClose, onIndex, onFavorite, onDelete, onNeedMore }: Props) {
+export default function Viewer({ assets, index, onClose, onIndex, onFavorite, onDelete, onNeedMore, inAlbum }: Props) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
   const open = index !== null;
   const a = open ? assets[index] : null;
+  const confirmDeleteMsg = (filename: string) =>
+    inAlbum
+      ? `¿Quitar ${filename} de este álbum? Sigue en tu biblioteca.`
+      : `Borrar ${filename}? Es definitivo.`;
 
   // Móvil: visor a pantalla completa estilo Fotos — barras que se ocultan al
   // tocar la imagen, hoja de datos técnicos que sube desde abajo en vez de
@@ -186,6 +192,17 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
     }
     setLivePlaying(false);
   }, []);
+  // Precarga el vídeo Live en cuanto se muestra la foto: con preload="metadata"
+  // el <video> no tenía ni un byte de datos bufferizado, así que el primer
+  // mantener-pulsado solo disparaba la petición de red y se soltaba antes de
+  // que llegara el primer frame — parecía que "no activaba" y hacían falta un
+  // par de intentos más para que ya hubiera algo cacheado. Forzando el load()
+  // (con preload="auto") en cuanto se entra en la foto, ya está bufferizando
+  // cuando el dedo llega.
+  useEffect(() => {
+    if (!isLive) return;
+    liveRef.current?.load();
+  }, [isLive, a?.id]);
 
   const go = useCallback(
     (d: number) => {
@@ -476,7 +493,7 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
                         src={a.liveVideoUrl!}
                         className={`viewer-live ${livePlaying ? "on" : ""}`}
                         playsInline
-                        preload="metadata"
+                        preload="auto"
                         onEnded={liveStop}
                       />
                       <span className="badge live viewer-livebadge" aria-hidden="true">
@@ -544,9 +561,9 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
                   <button
                     className="vm-iconbtn vm-danger"
                     onClick={() => {
-                      if (confirm(`Borrar ${a.filename}? Es definitivo.`)) onDelete(a.id);
+                      if (confirm(confirmDeleteMsg(a.filename))) onDelete(a.id);
                     }}
-                    aria-label="Borrar"
+                    aria-label={inAlbum ? "Quitar del álbum" : "Borrar"}
                   >
                     <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m2 0-.8 12.1a2 2 0 0 1-2 1.9H9.8a2 2 0 0 1-2-1.9L7 7" /></svg>
                   </button>
@@ -591,10 +608,10 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
                 <button
                   className="btn ghost"
                   onClick={() => {
-                    if (confirm(`Borrar ${a.filename}? Es definitivo.`)) onDelete(a.id);
+                    if (confirm(confirmDeleteMsg(a.filename))) onDelete(a.id);
                   }}
                 >
-                  Borrar
+                  {inAlbum ? "Quitar del álbum" : "Borrar"}
                 </button>
               </div>
             </div>

@@ -393,7 +393,10 @@ export default function Gallery({
   async function del(id: string) {
     setAssets((as) => as.filter((a) => a.id !== id));
     setOpenIdx(null);
-    await fetch(`/api/assets/${id}`, { method: "DELETE" });
+    // mismo criterio que bulkDelete: dentro de un álbum esto quita del álbum,
+    // no borra el archivo de la biblioteca entera.
+    const url = albumId ? `/api/albums/${albumId}/assets/${id}` : `/api/assets/${id}`;
+    await fetch(url, { method: "DELETE" });
     router.refresh();
   }
 
@@ -418,7 +421,14 @@ export default function Gallery({
   }
 
   async function bulkDelete() {
-    if (!confirm(`Borrar ${sel.size} elementos? Es definitivo.`)) return;
+    // Dentro de un álbum, "Borrar" quita SOLO del álbum — las fotos/vídeos
+    // siguen en la biblioteca. Antes llamaba siempre a DELETE /api/assets/:id
+    // (borrado real, para siempre) sin mirar en qué vista estabas: dentro de
+    // un álbum eso significaba borrar la foto de TODA la cuenta por error.
+    const msg = albumId
+      ? `¿Quitar ${sel.size} elementos de este álbum? Siguen en tu biblioteca.`
+      : `Borrar ${sel.size} elementos? Es definitivo.`;
+    if (!confirm(msg)) return;
     const ids = [...sel];
     setAssets((as) => as.filter((a) => !sel.has(a.id)));
     setSel(new Set());
@@ -433,7 +443,8 @@ export default function Gallery({
       Array.from({ length: Math.min(LANES, ids.length) }, async () => {
         while (next < ids.length) {
           const id = ids[next++]!;
-          await fetch(`/api/assets/${id}`, { method: "DELETE" }).catch(() => null);
+          const url = albumId ? `/api/albums/${albumId}/assets/${id}` : `/api/assets/${id}`;
+          await fetch(url, { method: "DELETE" }).catch(() => null);
         }
       }),
     );
@@ -667,7 +678,7 @@ export default function Gallery({
             </button>
           )}
           <button className="btn ghost sm" onClick={bulkDelete}>
-            Borrar
+            {albumId ? "Quitar del álbum" : "Borrar"}
           </button>
         </motion.div>
       )}
@@ -694,6 +705,7 @@ export default function Gallery({
         onIndex={setOpenIdx}
         onFavorite={favorite}
         onDelete={del}
+        inAlbum={!!albumId}
       />
     </>
   );
