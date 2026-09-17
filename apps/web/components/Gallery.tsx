@@ -7,6 +7,7 @@ import type { AssetListItem } from "@upscale/shared";
 import { durationHuman, groupByDay } from "@/lib/format";
 import Viewer from "./Viewer";
 import DensityControl from "./DensityControl";
+import AddToAlbumSheet from "./AddToAlbumSheet";
 
 interface DayGroup {
   key: string;
@@ -50,6 +51,7 @@ export default function Gallery({
   kind,
   fav = false,
   total = 0,
+  albumId,
 }: {
   groups: DayGroup[];
   error: string | null;
@@ -59,6 +61,9 @@ export default function Gallery({
   fav?: boolean;
   /** total real de la biblioteca (no solo lo cargado) */
   total?: number;
+  /** dentro de un álbum: pagina /api/albums/:id/assets en vez de /api/assets,
+   *  y oculta "Añadir a álbum" (añadir álbumes-dentro-de-álbum no entra aquí). */
+  albumId?: string;
 }) {
   const router = useRouter();
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
@@ -72,6 +77,7 @@ export default function Gallery({
   const [density, setDensity] = useState(1);
   const [menuOpen, setMenuOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [addToAlbumOpen, setAddToAlbumOpen] = useState(false);
 
   // Al refrescar (router.refresh) llega SOLO la primera página. Se toma como
   // verdad (así se ven altas y bajas) y se conserva todo lo ya paginado que sea
@@ -128,7 +134,8 @@ export default function Gallery({
       const q = new URLSearchParams({ cursor, limit: String(PAGE) });
       if (kind) q.set("kind", kind);
       if (fav) q.set("fav", "1");
-      const r = await fetch(`/api/assets?${q}`, { cache: "no-store" });
+      const url = albumId ? `/api/albums/${albumId}/assets?${q}` : `/api/assets?${q}`;
+      const r = await fetch(url, { cache: "no-store" });
       if (!r.ok) throw new Error("no se pudo cargar más");
       const data = (await r.json()) as { items: AssetListItem[]; nextCursor: string | null };
       paged.current = true;
@@ -145,7 +152,7 @@ export default function Gallery({
     } finally {
       setLoadingMore(false);
     }
-  }, [cursor, loadingMore, kind, fav]);
+  }, [cursor, loadingMore, kind, fav, albumId]);
 
   useEffect(() => {
     const el = sentinel.current;
@@ -525,10 +532,26 @@ export default function Gallery({
           <button className="btn sm" onClick={() => downloadZip([...sel])}>
             Descargar
           </button>
+          {!albumId && (
+            <button className="btn ghost sm" onClick={() => setAddToAlbumOpen(true)}>
+              Añadir a álbum
+            </button>
+          )}
           <button className="btn ghost sm" onClick={bulkDelete}>
             Borrar
           </button>
         </motion.div>
+      )}
+
+      {addToAlbumOpen && (
+        <AddToAlbumSheet
+          assetIds={[...sel]}
+          onClose={() => setAddToAlbumOpen(false)}
+          onAdded={(albumName) => {
+            setAddToAlbumOpen(false);
+            setToast(`Añadido a «${albumName}»`);
+          }}
+        />
       )}
 
       <Viewer
