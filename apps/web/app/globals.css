@@ -1282,6 +1282,44 @@ footer.status .dot {
     animation: floatglow 32s ease-in-out infinite alternate;
   }
 }
+
+/* Atmósfera extra SOLO de la galería (/app) — pinta por encima del aurora
+   global (que vive fuera de .app-shell) y por debajo del contenido real de
+   la página (que dentro de .app-shell tiene z-index >= 1). Un pelín más
+   presente que el aurora global para dar profundidad a la grilla de fotos,
+   sin competir nunca por la atención con el contenido. */
+.lib-aurora {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  background:
+    radial-gradient(52% 44% at 78% 4%, color-mix(in srgb, var(--accent-2) 20%, transparent), transparent 72%),
+    radial-gradient(48% 42% at 14% 100%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 74%),
+    var(--night);
+}
+.lib-aurora::after {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  background: radial-gradient(38% 38% at 60% 65%, color-mix(in srgb, var(--accent-2) 14%, transparent), transparent 70%);
+  transform-origin: center;
+}
+@media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {
+  .lib-aurora::after {
+    animation: libauroradrift 26s ease-in-out infinite alternate;
+  }
+}
+@keyframes libauroradrift {
+  0% {
+    transform: translate3d(-2%, -1%, 0) scale(1);
+  }
+  100% {
+    transform: translate3d(2%, 2%, 0) scale(1.06);
+  }
+}
+
 .app-shell {
   position: relative;
   z-index: 1;
