@@ -121,4 +121,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.26.0-rechaza-videos-rotos";
+export const VERSION = "0.27.0-albumes-busqueda-mapa";
