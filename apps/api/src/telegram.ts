@@ -1158,17 +1158,31 @@ async function downloadRangeResiliente(
       }
     });
   } catch (e) {
-    if (pos >= to || intento >= 2) throw e; // ya terminado, o sin más intentos
+    if (pos >= to || intento >= 3) throw e; // ya terminado, o sin más intentos
     const fresh = (await downloadClients(1))[0]!;
     // primer reintento: puede ser solo la conexión → se prueba tal cual con
-    // otro cliente. Si ESE también falla, el segundo (y último) reintento ya
-    // refresca loc/dcId de verdad, por si el problema es el fileReference.
+    // otro cliente. Si ESE también falla, los siguientes ya refrescan
+    // loc/dcId de verdad, por si el problema es el fileReference.
     const nextLoc = intento >= 1 && refresh ? await refresh() : { loc, dcId };
     await downloadRangeResiliente(
       fresh, nextLoc.loc, nextLoc.dcId, pos, to, baseOffset, fh, isBackground, refresh, intento + 1,
     );
   }
 }
+
+// Granularidad de reintento dentro de cada conexión paralela. Medido en vivo
+// hoy con un original real de 1,66 GB: cada intento sobrevivía entre 60 y 165
+// segundos de descarga REAL antes de que UNA petición MTProto agotara sus 3
+// reintentos internos (GramJS) — con tramos de ~200 MB por conexión (total/8),
+// UN solo tropiezo en cualquier punto tiraba ese tramo entero y, en la
+// práctica, ninguno de los intentos conseguía completar las 8 conexiones sin
+// que ALGUNA fallara en algún momento de esos 60-165s: cuanto más pesa el
+// original, más ventana hay para que algo falle una vez, y más caro es cada
+// tropiezo. Con trozos de 16 MB (bastante más rápidos de bajar y de
+// reintentar) el mismo tropiezo cuesta ~8x menos progreso, y con 8 conexiones
+// en paralelo un original de 1,66 GB pasa de "8 tramos que tienen que salir
+// todos perfectos" a "~104 trozos pequeños, cada uno con su propio margen".
+const RESUME_CHUNK_BYTES = 16 * 1024 * 1024;
 
 async function downloadDocToFile(
   fh: import("node:fs/promises").FileHandle,
@@ -1187,9 +1201,20 @@ async function downloadDocToFile(
   const clients = await downloadClients(nParts);
   const jobs: Promise<void>[] = [];
   for (let i = 0; i < nParts; i++) {
-    const from = i * per;
-    const to = Math.min(total, from + per);
-    jobs.push(downloadRangeResiliente(clients[i]!, loc, dcId, from, to, baseOffset, fh, isBackground, refresh));
+    const streamFrom = i * per;
+    const streamTo = Math.min(total, streamFrom + per);
+    const client = clients[i]!;
+    jobs.push(
+      (async () => {
+        // sub-trozos SECUENCIALES dentro de esta misma conexión: la
+        // paralelización real sigue siendo `streams` (una por conexión), esto
+        // solo acota cuánto se pierde si algo falla a mitad.
+        for (let from = streamFrom; from < streamTo; from += RESUME_CHUNK_BYTES) {
+          const to = Math.min(streamTo, from + RESUME_CHUNK_BYTES);
+          await downloadRangeResiliente(client, loc, dcId, from, to, baseOffset, fh, isBackground, refresh);
+        }
+      })(),
+    );
   }
   await Promise.all(jobs);
 }

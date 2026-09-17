@@ -121,4 +121,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.27.0-albumes-busqueda-mapa";
+export const VERSION = "0.27.1-reintento-por-trozos";
