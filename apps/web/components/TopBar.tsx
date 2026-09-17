@@ -32,6 +32,7 @@ export default function TopBar({ email }: { email: string }) {
       <Segmented />
 
       <nav className="topnav">
+        <MotionLink href="/app/mapa" aria-current={pathname === "/app/mapa"} whileTap={{ scale: 0.9 }} whileHover={{ y: -1 }}>Mapa</MotionLink>
         <MotionLink href="/app/espacio" aria-current={pathname === "/app/espacio"} whileTap={{ scale: 0.9 }} whileHover={{ y: -1 }}>Espacio</MotionLink>
         <MotionLink href="/app/ajustes" aria-current={pathname === "/app/ajustes"} whileTap={{ scale: 0.9 }} whileHover={{ y: -1 }}>Ajustes</MotionLink>
       </nav>

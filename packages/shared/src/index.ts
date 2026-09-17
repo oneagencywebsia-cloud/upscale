@@ -99,3 +99,14 @@ export interface HealthResult {
 export interface ApiError {
   error: string;
 }
+
+export interface MapPoint {
+  id: string;
+  lat: number;
+  lon: number;
+  thumbUrl: string;
+}
+
+export interface MapPointsResponse {
+  points: MapPoint[];
+}

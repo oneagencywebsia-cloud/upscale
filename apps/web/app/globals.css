@@ -1750,6 +1750,103 @@ footer.status .dot {
   }
 }
 
+/* ---- búsqueda y filtros de la galería (parte del gallery-toolbar) ---- */
+.gt-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+.gt-search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--light) 7%, transparent);
+  border: 1px solid var(--stroke);
+  padding: 3px;
+}
+.gt-search button {
+  width: 30px;
+  height: 26px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-mute);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.16s;
+}
+.gt-search button[aria-pressed="true"] {
+  color: var(--accent);
+}
+.gt-search input {
+  border: 0;
+  background: transparent;
+  color: var(--light);
+  font-size: 13px;
+  outline: none;
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  transition: width 0.18s ease, padding 0.18s ease;
+}
+.gt-search.open input {
+  width: 150px;
+  padding: 0 6px 0 2px;
+}
+.gt-camera select,
+.gt-daterange input {
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--light) 7%, transparent);
+  border: 1px solid var(--stroke);
+  color: var(--light);
+  font-size: 12.5px;
+  padding: 6px 8px;
+  outline: none;
+  max-width: 130px;
+}
+.gt-camera select option {
+  background: var(--night, #0c1018);
+  color: var(--light);
+}
+.gt-daterange {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.gt-daterange span {
+  color: var(--text-mute);
+  font-size: 11px;
+}
+.gt-mapbtn {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--stroke);
+  background: color-mix(in srgb, var(--light) 7%, transparent);
+  color: var(--text-mute);
+  cursor: pointer;
+  text-decoration: none;
+  transition: color 0.16s, background 0.16s;
+}
+.gt-mapbtn:hover,
+.gt-mapbtn:focus-visible {
+  color: var(--light);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+@media (max-width: 720px) {
+  .gt-camera,
+  .gt-daterange {
+    display: none;
+  }
+}
+
 .frame .badge.fav {
   left: 8px;
   top: 8px;
@@ -2636,4 +2733,92 @@ footer.status .dot {
 .gt-more small {
   font-size: 13px;
   letter-spacing: 0.01em;
+}
+
+/* ===================================================================
+   Vista de mapa (/app/mapa) — Leaflet + teselas oscuras de CARTO.
+   =================================================================== */
+.map-view {
+  width: 100%;
+  height: calc(100dvh - 220px);
+  min-height: 420px;
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid var(--stroke);
+  background: var(--night, #0c1018);
+  box-shadow: 0 14px 34px -22px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+@media (max-width: 720px) {
+  .map-view {
+    height: calc(100dvh - 180px);
+    border-radius: 14px;
+  }
+}
+/* miniatura circular en vez del pin por defecto de Leaflet, para que haga eco
+   del estilo "photo-forward" del resto de la app (ver .frame). */
+.map-thumb-marker {
+  background: transparent;
+  border: 0;
+}
+.map-thumb-ring {
+  display: block;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid var(--accent, #1c8fac);
+  box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.7), 0 0 0 3px color-mix(in srgb, var(--night, #0c1018) 70%, transparent);
+  background: var(--glass-strong, #1a2130);
+}
+.map-thumb-ring img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.marker-cluster {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.marker-cluster div {
+  background: var(--glass-strong, #1a2130);
+  border: 1px solid var(--stroke);
+  color: var(--light, #e8ecf4);
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.map-popup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  min-width: 160px;
+}
+.map-popup img {
+  width: 100%;
+  max-width: 220px;
+  max-height: 220px;
+  border-radius: 12px;
+  object-fit: cover;
+  border: 1px solid var(--stroke);
+}
+.map-popup a {
+  font-size: 12.5px;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+.map-popup a:hover {
+  text-decoration: underline;
+}
+.leaflet-popup-content-wrapper {
+  background: var(--glass-strong, #1a2130);
+  color: var(--light, #e8ecf4);
+  border-radius: 14px;
+  border: 1px solid var(--stroke);
+}
+.leaflet-popup-tip {
+  background: var(--glass-strong, #1a2130);
+}
+.leaflet-container a.leaflet-popup-close-button {
+  color: var(--text-mute, #8b90a0);
 }

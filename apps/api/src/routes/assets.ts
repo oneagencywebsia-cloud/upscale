@@ -567,7 +567,10 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
   // ---------- listar ----------
   app.get("/v1/assets", { preHandler: requireUser }, async (req, reply) => {
     const { userId } = principalOf(req);
-    const q = req.query as { limit?: string; cursor?: string; kind?: string; fav?: string };
+    const q = req.query as {
+      limit?: string; cursor?: string; kind?: string; fav?: string;
+      q?: string; camera?: string; from?: string; to?: string;
+    };
     const limit = Math.min(Math.max(Number(q.limit) || 80, 1), 500);
     const params: unknown[] = [userId];
     let sql = `select ${A} from assets a where a.user_id = $1 and a.deleted_at is null`;
@@ -577,6 +580,22 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
       sql += ` and a.kind = $${params.length}`;
     }
     if (q.fav === "1") sql += " and a.is_favorite";
+    if (typeof q.q === "string" && q.q.trim()) {
+      params.push(`%${q.q.trim()}%`);
+      sql += ` and a.filename ilike $${params.length}`;
+    }
+    if (typeof q.camera === "string" && q.camera.trim()) {
+      params.push(q.camera.trim());
+      sql += ` and a.camera_make = $${params.length}`;
+    }
+    if (typeof q.from === "string" && q.from.trim() && !Number.isNaN(Date.parse(q.from))) {
+      params.push(q.from.trim());
+      sql += ` and a.captured_at >= $${params.length}::timestamptz`;
+    }
+    if (typeof q.to === "string" && q.to.trim() && !Number.isNaN(Date.parse(q.to))) {
+      params.push(q.to.trim());
+      sql += ` and a.captured_at < $${params.length}::timestamptz`;
+    }
     if (typeof q.cursor === "string" && q.cursor) {
       // Un cursor manipulado o truncado hacía que Postgres fallara al castear
       // ("invalid input syntax for type uuid") y la galería entera respondía
@@ -604,6 +623,43 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
         : null;
 
     return { items, nextCursor };
+  });
+
+  // ---------- cámaras distintas (para el desplegable de filtros) ----------
+  app.get("/v1/assets/cameras", { preHandler: requireUser }, async (req, reply) => {
+    const { userId } = principalOf(req);
+    const rows = (
+      await query<{ camera_make: string }>(
+        "select distinct camera_make from assets where user_id=$1 and camera_make is not null and deleted_at is null order by camera_make",
+        [userId],
+      )
+    ).rows;
+    return { cameras: rows.map((r) => r.camera_make) };
+  });
+
+  // ---------- puntos geolocalizados (vista de mapa) ----------
+  // Carga única (sin paginación keyset): una biblioteca personal de ~1.500
+  // archivos cabe entera en un solo viaje. El límite de 3000 es un TOPE DE
+  // SEGURIDAD, no paginación real.
+  app.get("/v1/assets/map", { preHandler: requireUser }, async (req, reply) => {
+    const { userId } = principalOf(req);
+    const rows = (
+      await query<{ id: string; lat: number; lon: number; thumb_key: string }>(
+        `select a.id, a.lat, a.lon, a.thumb_key from assets a
+         where a.user_id = $1 and a.deleted_at is null and a.lat is not null and a.lon is not null
+         order by a.captured_at desc limit 3000`,
+        [userId],
+      )
+    ).rows;
+    const points = await Promise.all(
+      rows.map(async (r) => ({
+        id: r.id,
+        lat: r.lat,
+        lon: r.lon,
+        thumbUrl: await signedUrl(r.thumb_key, { expiresIn: DERIV_TTL }),
+      })),
+    );
+    return { points };
   });
 
   // ---------- detalle ----------
