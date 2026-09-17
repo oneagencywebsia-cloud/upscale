@@ -3,6 +3,7 @@ import { groupByDay, bytesHuman } from "@/lib/format";
 import Gallery from "@/components/Gallery";
 import PrismMount from "@/components/PrismMount";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import LibraryAurora from "@/components/LibraryAurora";
 
 export const dynamic = "force-dynamic";
 
@@ -43,42 +44,45 @@ export default async function GalleryPage({
   const groups = groupByDay(items);
 
   return (
-    <div className="app">
-      <div className="libhead">
-        <div>
-          <h2>
-            {onlyFav ? "Favoritos" : "Tu biblioteca"}
-            <span className="lh-flourish" aria-hidden="true" />
-          </h2>
-          <p>
-            {totalCount.toLocaleString("es-ES")} elementos · {bytesHuman(totalBytes)} · todo íntegro
-          </p>
-        </div>
-        <PrismMount />
-      </div>
-      {tooBig === "1" && (
-        <div className="empty" role="status">
-          <h3>Ese archivo es demasiado grande para «Compartir»</h3>
-          <p>Súbelo con el botón «Subir» (o con el Atajo de iOS): esa vía no tiene tope de tamaño.</p>
-        </div>
-      )}
-      <ErrorBoundary
-        fallback={
-          <div className="empty">
-            <h3>No se pudo mostrar la galería</h3>
-            <p>Recarga la página.</p>
+    <>
+      <LibraryAurora />
+      <div className="app">
+        <div className="libhead">
+          <div>
+            <h2>
+              {onlyFav ? "Favoritos" : "Tu biblioteca"}
+              <span className="lh-flourish" aria-hidden="true" />
+            </h2>
+            <p>
+              {totalCount.toLocaleString("es-ES")} elementos · {bytesHuman(totalBytes)} · todo íntegro
+            </p>
           </div>
-        }
-      >
-        <Gallery
-          groups={groups}
-          error={error}
-          initialCursor={cursor}
-          kind={filter}
-          fav={onlyFav}
-          total={totalCount}
-        />
-      </ErrorBoundary>
-    </div>
+          <PrismMount />
+        </div>
+        {tooBig === "1" && (
+          <div className="empty" role="status">
+            <h3>Ese archivo es demasiado grande para «Compartir»</h3>
+            <p>Súbelo con el botón «Subir» (o con el Atajo de iOS): esa vía no tiene tope de tamaño.</p>
+          </div>
+        )}
+        <ErrorBoundary
+          fallback={
+            <div className="empty">
+              <h3>No se pudo mostrar la galería</h3>
+              <p>Recarga la página.</p>
+            </div>
+          }
+        >
+          <Gallery
+            groups={groups}
+            error={error}
+            initialCursor={cursor}
+            kind={filter}
+            fav={onlyFav}
+            total={totalCount}
+          />
+        </ErrorBoundary>
+      </div>
+    </>
   );
 }
