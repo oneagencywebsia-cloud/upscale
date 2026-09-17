@@ -1,13 +1,13 @@
-import { createReadStream, existsSync, createWriteStream } from "node:fs";
+import { createReadStream, existsSync, createWriteStream, readdirSync } from "node:fs";
 import { mkdir, stat, rm, readdir, utimes, rename, writeFile } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { join, dirname, basename } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import { Readable } from "node:stream";
 import bigInt from "big-integer";
 import { TelegramClient, Api } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
 import { env } from "./env.js";
-import { query, one } from "./db.js";
+import { query, one, pool } from "./db.js";
 
 /**
  * Almacén sobre un canal privado de Telegram. Se sube SIEMPRE como documento
@@ -33,12 +33,27 @@ let armedOn: TelegramClient | null = null;
 
 /** Descarta el cliente y el canal cacheados: la siguiente llamada reconecta de cero. */
 export function resetTelegram(): void {
+  resetMainClient();
+  resetPool();
+}
+
+/**
+ * Como resetTelegram(), pero SIN tocar el pool de descarga.
+ *
+ * Por qué hace falta: resetPool() desconecta de golpe TODAS las conexiones de
+ * descarga, incluidas las que están sirviendo un vídeo EN DIRECTO en ese
+ * instante. Los reintentos de subida (sendOneDocument, tgPutByForward) hacían
+ * un resetTelegram() completo entre intento e intento — o sea, un fallo
+ * transitorio subiendo una miniatura en segundo plano cortaba la reproducción
+ * de quien estuviera viendo algo. El problema de subida SIEMPRE está en el
+ * cliente principal (es el único que sube), así que reciclarlo a él basta.
+ */
+function resetMainClient(): void {
   const dying = clientPromise;
   clientPromise = null;
   channelEntity = null;
   armedOn = null; // el listener del inbox se re-arma al reconectar
   dying?.then((c) => c.disconnect().catch(() => {})).catch(() => {});
-  resetPool();
 }
 
 /**
@@ -235,10 +250,23 @@ let growLock: Promise<unknown> = Promise.resolve();
  *  conexiones de las que caben en TG_POOL_MAX_CLIENTS. */
 function growPool(): Promise<TelegramClient | null> {
   const p = growLock.then(async () => {
-    const pool = await getPool().catch(() => [] as TelegramClient[]);
-    if (pool.length >= POOL_MAX) return null;
+    // FUGA DE CONEXIONES REAL: antes esto hacía `await getPool()`, que en su
+    // camino degradado devuelve un array NUEVO y desechable (`[clientePrincipal]`)
+    // en vez del pool de verdad. El cliente recién creado se metía en ese array
+    // efímero: nadie lo reaprovechaba, reapIdlePoolClients() ni lo veía y
+    // resetPool() no lo desconectaba — una conexión MTProto abierta y olvidada
+    // por cada petición mientras el pool estuviera caído. Ahora solo se crece el
+    // pool REAL, y si se resetea mientras conectábamos, el cliente se cierra.
+    const vivo = poolPromise;
+    if (!vivo) return null;
+    const pool = await vivo.catch(() => null);
+    if (!pool || pool.length >= POOL_MAX) return null;
     try {
       const c = await newPoolClient(`pool#${pool.length} (bajo demanda)`);
+      if (poolPromise !== vivo) {
+        c.disconnect().catch(() => {}); // el pool se reseteó mientras conectábamos
+        return null;
+      }
       pool.push(c);
       console.error(`[tg] pool creció a ${pool.length}/${POOL_MAX} conexiones (demanda concurrente)`);
       return c;
@@ -413,17 +441,46 @@ export function pinCachedFile(p: string): () => void {
   return () => pinnedCache.delete(p);
 }
 
+/** Los ficheros definitivos de la caché se llaman EXACTAMENTE con el sha1 de la
+ *  key (40 hex, sin punto); cualquier nombre con un punto es un temporal en
+ *  curso (`<sha1>.<hex>.dl` de ensureCached, `<sha1>.<hex>` del write-back de
+ *  miniaturas o de tgEnsureHead). */
+const esTemporalDeCache = (nombre: string): boolean => nombre.includes(".");
+/** Un temporal más viejo que esto ya no puede pertenecer a nada en curso
+ *  (el techo de una descarga de original es ~6 h): se recicla. */
+const TEMP_HUERFANO_MS = 8 * 60 * 60_000;
+
 async function pruneDir(dir: string, maxBytes: number): Promise<void> {
   try {
     const files = await readdir(dir);
+    const ahora = Date.now();
     const stats = await Promise.all(
       files.map(async (f) => {
         const p = join(dir, f);
         const s = await stat(p).catch(() => null);
-        return s && s.isFile() ? { p, size: s.size, at: s.mtimeMs } : null;
+        if (!s || !s.isFile()) return null;
+        // FALLO REAL: ensureCached escribe el original en `<sha1>.<hex>.dl` DENTRO
+        // de este mismo directorio. Como pruneDir solo perdonaba "el archivo más
+        // reciente", bastaba con que OTRA descarga terminara mientras una grande
+        // seguía bajando para que este limpiador borrara su temporal a medio
+        // escribir: la descarga seguía (en Linux el descriptor sigue vivo) y al
+        // final fallaba el rename → horas de descarga de varios GB a la basura,
+        // y vuelta a empezar en el siguiente intento. Los temporales quedan
+        // fuera del desalojo por LRU; solo se retiran si son claramente restos
+        // huérfanos de un proceso muerto.
+        if (esTemporalDeCache(f)) {
+          if (ahora - s.mtimeMs > TEMP_HUERFANO_MS) {
+            await rm(p, { force: true }).catch(() => {});
+            return null;
+          }
+          // cuenta para el presupuesto (ocupa disco de verdad) pero NO es
+          // candidato a borrarse: está escribiéndose ahora mismo.
+          return { p, size: s.size, at: s.mtimeMs, temp: true };
+        }
+        return { p, size: s.size, at: s.mtimeMs, temp: false };
       }),
     );
-    const list = stats.filter(Boolean) as { p: string; size: number; at: number }[];
+    const list = stats.filter(Boolean) as { p: string; size: number; at: number; temp: boolean }[];
     let total = list.reduce((n, x) => n + x.size, 0);
     if (total <= maxBytes) return;
     list.sort((a, b) => a.at - b.at); // más antiguo primero
@@ -436,6 +493,7 @@ async function pruneDir(dir: string, maxBytes: number): Promise<void> {
     const candidates = list.length > 1 ? list.slice(0, -1) : [];
     for (const x of candidates) {
       if (total <= maxBytes) break;
+      if (x.temp) continue; // temporal en curso (ver arriba) — intocable
       if (pinnedCache.has(x.p)) continue; // en uso activo — intocable
       await rm(x.p, { force: true });
       total -= x.size;
@@ -544,14 +602,40 @@ export async function tgDownloadInbox(id: number, outPath: string, deadlineMs = 
   const total = Number(doc.size) || 0;
   const deadline = Date.now() + deadlineMs;
 
+  const location = new Api.InputDocumentFileLocation({
+    id: doc.id,
+    accessHash: doc.accessHash,
+    fileReference: doc.fileReference,
+    thumbSize: "",
+  });
+
+  // 0) ARCHIVOS GRANDES: por varias conexiones a la vez, como hace ya todo lo
+  //    demás (tgDownloadParallel/ensureCached). El camino de abajo baja por UNA
+  //    sola conexión (~1 MB/s) y para un original de decenas de GB eso son
+  //    DÍAS — muy por encima de cualquier plazo razonable, así que la
+  //    recuperación de un original grande nunca podía terminar. Con el pool se
+  //    aprovecha el techo real de la cuenta (~3,5-4 MB/s).
+  if (total > 64 * 1024 * 1024) {
+    try {
+      const { open } = await import("node:fs/promises");
+      await rm(outPath, { force: true }).catch(() => {});
+      const fh = await open(outPath, "w");
+      try {
+        await fh.truncate(total);
+        await downloadDocToFile(fh, location, doc.dcId, total, 0, env.TG_DOWNLOAD_STREAMS, true);
+      } finally {
+        await fh.close();
+      }
+      const { size } = await stat(outPath);
+      if (size >= total) return size;
+      throw new Error(`descarga paralela incompleta ${size}/${total}`);
+    } catch (e) {
+      console.error("[tg] descarga paralela del inbox falló, pruebo por una conexión:", (e as Error).message);
+    }
+  }
+
   // 1) por trozos, con abort limpio
   try {
-    const location = new Api.InputDocumentFileLocation({
-      id: doc.id,
-      accessHash: doc.accessHash,
-      fileReference: doc.fileReference,
-      thumbSize: "",
-    });
     await rm(outPath, { force: true }).catch(() => {});
     const ws = createWriteStream(outPath);
     let written = 0;
@@ -756,7 +840,7 @@ export async function tgPutByForward(key: string, inboxMsgId: number, filePath?:
     } catch (e) {
       lastErr = e;
       if (/flood/i.test((e as Error)?.message ?? "")) break;
-      resetTelegram();
+      resetMainClient(); // NO resetPool(): cortaría la reproducción de quien esté viendo algo
       await new Promise((r) => setTimeout(r, 1500 * attempt));
     }
   }
@@ -784,7 +868,7 @@ export async function tgPutByForward(key: string, inboxMsgId: number, filePath?:
 /** Sube el archivo como documento (bytes exactos) y registra key -> message_id. */
 /** Núcleo compartido de "subir UN archivo local como UN documento de
  *  Telegram, con reintentos" — lo usan tanto tgPut (un archivo = una key)
- *  como tgPutPart (una parte de un archivo troceado). */
+ *  como tgSendPart (una parte de un archivo troceado). */
 async function sendOneDocument(filePath: string, caption: string): Promise<{ messageId: number; bytes: number }> {
   const channel = await getChannel();
   const { size } = await stat(filePath);
@@ -806,8 +890,10 @@ async function sendOneDocument(filePath: string, caption: string): Promise<{ mes
       break;
     } catch (e) {
       lastErr = e;
-      // fuerza reconexión limpia antes de reintentar
-      resetTelegram();
+      // fuerza reconexión limpia antes de reintentar. Solo el cliente principal:
+      // tirar también el pool de descarga cortaba en seco cualquier vídeo que se
+      // estuviera reproduciendo mientras esto sube algo en 2º plano.
+      resetMainClient();
       await new Promise((r) => setTimeout(r, 1500 * attempt));
     }
   }
@@ -831,15 +917,58 @@ export async function tgPut(key: string, filePath: string): Promise<void> {
 }
 
 /** Sube UNA parte (de un original troceado por superar el tope de Telegram,
- *  ver putSplit en storage.ts) como su propio documento, registrada en
- *  blob_parts bajo la MISMA key lógica + su índice. */
-export async function tgPutPart(key: string, index: number, filePath: string): Promise<void> {
+ *  ver putSplit en storage.ts) como su propio documento. NO toca la BD a
+ *  propósito: ver tgRegisterParts. */
+export async function tgSendPart(
+  key: string,
+  index: number,
+  filePath: string,
+): Promise<{ index: number; messageId: number; bytes: number }> {
   const { messageId, bytes } = await sendOneDocument(filePath, `${key}#${index}`);
-  await query(
-    `insert into blob_parts (key, part_index, tg_message_id, bytes) values ($1,$2,$3,$4)
-     on conflict (key, part_index) do update set tg_message_id = excluded.tg_message_id, bytes = excluded.bytes`,
-    [key, index, messageId, bytes],
-  );
+  return { index, messageId, bytes };
+}
+
+/**
+ * Registra DE GOLPE todas las partes de un original troceado, en una sola
+ * transacción.
+ *
+ * CORRUPCIÓN SILENCIOSA que esto evita: antes cada parte se insertaba nada más
+ * subirse. Si la subida se caía a mitad (red, FLOOD_WAIT, timeout del pipeline,
+ * OOM-kill) quedaban en blob_parts las 6 primeras partes de 25 — y NADA en el
+ * sistema distingue eso de un archivo completo de 6 partes: resolveParts las
+ * devuelve, tgSize suma sus bytes y /v1/blob sirve tan tranquilo un vídeo
+ * truncado al 24 % con Content-Length coherente. Registrando solo al final y en
+ * bloque, un fallo a medias deja CERO filas: la key sencillamente no está
+ * guardada y el barrido la reintenta desde el principio.
+ */
+export async function tgRegisterParts(
+  key: string,
+  parts: { index: number; messageId: number; bytes: number }[],
+): Promise<void> {
+  if (!parts.length) throw new Error("tgRegisterParts sin partes");
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    // fuera cualquier resto de un intento anterior (p. ej. uno que dejó más
+    // partes de las que hay ahora): la verdad es exactamente lo que se acaba
+    // de subir, ni una fila más.
+    await client.query("delete from blob_parts where key = $1", [key]);
+    for (const p of parts) {
+      await client.query(
+        "insert into blob_parts (key, part_index, tg_message_id, bytes) values ($1,$2,$3,$4)",
+        [key, p.index, p.messageId, p.bytes],
+      );
+    }
+    // un original troceado NO tiene fila en blob_refs; si la tuviera de un
+    // intento anterior sin trocear, sobra y despistaría a docLocationFresh.
+    await client.query("delete from blob_refs where key = $1", [key]);
+    await client.query("commit");
+  } catch (e) {
+    await client.query("rollback").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 async function pipe(rs: NodeJS.ReadableStream, ws: NodeJS.WritableStream): Promise<void> {
@@ -884,7 +1013,7 @@ export async function tgInboxDocLocation(
 }
 
 export async function tgDelete(key: string): Promise<void> {
-  const parts = await resolveParts(key);
+  const parts = await resolveParts(key, false); // sin validar: hay que poder limpiar restos incompletos
   if (parts.length) {
     // troceado: borra TODOS los mensajes de Telegram de todas las partes
     const c = await getClient();
@@ -901,6 +1030,10 @@ export async function tgDelete(key: string): Promise<void> {
     await query("delete from blob_refs where key = $1", [key]).catch(() => {});
   }
   await rm(cachePath(key), { force: true }).catch(() => {});
+  // el arranque cacheado vive en OTRO directorio con otro nombre: sin esto
+  // quedaba en disco para siempre tras borrar el asset (y, si se reingiere el
+  // mismo archivo, tgEnsureHead lo daba por bueno sin volver a bajarlo).
+  await rm(headPath(key), { force: true }).catch(() => {});
 }
 
 /** Tamaño en bytes registrado para una key (sin tocar Telegram). */
@@ -1055,6 +1188,28 @@ async function tgDownloadParallel(
   }
 }
 
+/**
+ * Lanza si no caben `necesarios` bytes (más un colchón) en el sistema de
+ * archivos de `dir`. Si statfs no está disponible, no bloquea.
+ */
+async function exigirEspacio(dir: string, necesarios: number): Promise<void> {
+  try {
+    const { statfs } = await import("node:fs/promises");
+    await mkdir(dir, { recursive: true });
+    const fs = await statfs(dir);
+    const libres = fs.bavail * fs.bsize;
+    const hacenFalta = necesarios + 512 * 1024 * 1024;
+    if (libres < hacenFalta) {
+      throw new Error(
+        `sin espacio en disco: hacen falta ~${Math.round(hacenFalta / 1e6)} MB en ${dir} y hay ${Math.round(libres / 1e6)} MB`,
+      );
+    }
+  } catch (e) {
+    if (/sin espacio en disco/.test((e as Error)?.message ?? "")) throw e;
+    /* statfs no disponible: seguimos igual que antes */
+  }
+}
+
 /** Descarga la key entera a la caché de disco (una sola vez aunque llamen en paralelo). */
 async function ensureCached(key: string, streams = 4): Promise<string> {
   const cp = cachePath(key);
@@ -1070,6 +1225,16 @@ async function ensureCached(key: string, streams = 4): Promise<string> {
       const tmp = `${cp}.${randomBytes(6).toString("hex")}.dl`;
       try {
         const parts = await resolveParts(key);
+        // Preflight de disco. Esta función baja el original ENTERO (la usan el
+        // ZIP de "descargar todo", la generación de copias ligeras y el plan B
+        // de tgRead) y puede ser de decenas de GB — muy por encima del
+        // presupuesto de la caché, que NO limita esto: pruneCache solo actúa
+        // DESPUÉS. Sin comprobación, un original enorme llena el disco del
+        // contenedor a mitad de descarga y se lleva por delante a todo lo demás.
+        const necesarios = parts.length
+          ? parts.reduce((s, p) => s + p.bytes, 0)
+          : await tgSize(key).catch(() => 0);
+        if (necesarios > 0) await exigirEspacio(env.TG_CACHE_DIR, necesarios);
         if (parts.length) {
           // troceado: cada parte va a su offset dentro del MISMO fichero de
           // salida, en orden — para quien lo lee después es un solo archivo.
@@ -1113,6 +1278,30 @@ export async function tgEnsureLocal(key: string, streams = 3): Promise<string> {
 }
 
 /**
+ * Lee el rango GLOBAL [from, to) de un original troceado, cruzando tantas
+ * partes como haga falta. Devuelve un buffer por trozo con el offset ABSOLUTO
+ * (dentro del archivo lógico) en el que hay que escribirlo.
+ */
+async function leerRangoGlobalTroceado(
+  key: string,
+  parts: { index: number; msgId: number; bytes: number; start: number }[],
+  from: number,
+  to: number,
+): Promise<{ buf: Buffer; at: number }[]> {
+  const tocadas = parts.filter((p) => from < p.start + p.bytes && to > p.start);
+  const clientes = await downloadClients(Math.max(1, tocadas.length));
+  return Promise.all(
+    tocadas.map(async (p, i) => {
+      const localFrom = Math.max(0, from - p.start);
+      const localTo = Math.min(p.bytes, to - p.start);
+      const { loc, dcId } = await docLocationPart(key, p.index, p.msgId);
+      const buf = await fetchSubRange(loc, dcId, localFrom, localTo, clientes[i % clientes.length]);
+      return { buf, at: p.start + localFrom };
+    }),
+  );
+}
+
+/**
  * Fichero DISPERSO con la cabecera y la cola de un objeto YA guardado, del
  * tamaño real. Para releer metadatos o sacar el póster de un vídeo sin bajarse
  * el archivo entero: de un 4K de 600 MB se descargan 14 MB.
@@ -1124,8 +1313,43 @@ export async function tgHeadTailTemp(
   headBytes = 8 * 1024 * 1024,
   tailBytes = 6 * 1024 * 1024,
 ): Promise<{ path: string; total: number; partial: boolean }> {
-  const { loc, total, dcId } = await docLocation(key);
   const { open } = await import("node:fs/promises");
+
+  // TROCEADO (>2 GB): docLocation() solo sabe de blob_refs, así que para un
+  // original troceado lanzaba "blob no registrado" — y con él se caía TODO el
+  // backfill de metadatos/póster de justo los archivos más grandes, que son los
+  // que SIEMPRE entran por cabecera y por tanto los que más lo necesitan. La
+  // cabecera sale de la primera parte y la cola de la última; el fichero
+  // disperso se escribe con los offsets GLOBALES del archivo lógico.
+  const parts = await resolveParts(key);
+  if (parts.length) {
+    const total = parts.reduce((s, p) => s + p.bytes, 0);
+    // CUIDADO con la ingenuidad de "la cola sale de la última parte": el
+    // troceado puede dejar una última parte MINÚSCULA. Con PART_SIZE =
+    // 1.932.735.283 B, un original de 45 GB (48.318.382.080 B) son 25 partes
+    // llenas + una de 5 BYTES — leer "la cola" de la última parte devolvía 5
+    // bytes, ffprobe no encontraba el átomo `moov` y el backfill de ese vídeo
+    // fallaba para siempre. La cola son los últimos `tailBytes` del archivo
+    // LÓGICO, crucen las partes que crucen.
+    const headTo = Math.min(headBytes, total);
+    const tailFrom = Math.max(headTo, Math.floor(Math.max(0, total - tailBytes) / 4096) * 4096);
+    const fh = await open(outPath, "w");
+    try {
+      await fh.truncate(total);
+      const escrituras = await Promise.all([
+        leerRangoGlobalTroceado(key, parts, 0, headTo),
+        leerRangoGlobalTroceado(key, parts, tailFrom, total),
+      ]);
+      for (const trozos of escrituras) {
+        for (const t of trozos) await fh.write(t.buf, 0, t.buf.length, t.at);
+      }
+    } finally {
+      await fh.close();
+    }
+    return { path: outPath, total, partial: true };
+  }
+
+  const { loc, total, dcId } = await docLocation(key);
 
   if (!total || total <= headBytes + tailBytes) {
     // pequeño: el archivo entero sale más a cuenta que trocear
@@ -1164,19 +1388,61 @@ export async function tgEnsureHead(key: string): Promise<boolean> {
   const hp = headPath(key);
   if (existsSync(hp)) return false;
   if (existsSync(cachePath(key))) return false; // ya está el archivo entero
-  const { loc, total, dcId } = await docLocation(key);
+  // troceado (>2 GB): el arranque siempre cae dentro de la PRIMERA parte, pero
+  // docLocation() no sabe de blob_parts y lanzaba "blob no registrado" — los
+  // vídeos más grandes se quedaban sin arranque precargado para siempre (y
+  // precargarArranques() abortaba su vuelta entera al primero que encontraba).
+  const parts = await resolveParts(key);
+  let loc: Api.InputDocumentFileLocation;
+  let dcId: number | undefined;
+  let total: number;
+  if (parts.length) {
+    const p0 = parts[0]!;
+    const r = await docLocationPart(key, p0.index, p0.msgId);
+    loc = r.loc;
+    dcId = r.dcId;
+    total = p0.bytes; // el arranque no se sale de la primera parte
+  } else {
+    const r = await docLocation(key);
+    loc = r.loc;
+    dcId = r.dcId;
+    total = r.total;
+  }
   const want = Math.min(HEAD_CACHE_BYTES, total || HEAD_CACHE_BYTES);
   const buf = await fetchSubRange(loc, dcId, 0, want, (await downloadClients(1))[0]);
   await mkdir(HEADS_DIR(), { recursive: true });
   const tmp = `${hp}.${randomBytes(4).toString("hex")}`;
   await writeFile(tmp, buf);
   await rename(tmp, hp);
+  arranquesEnDisco?.add(basename(hp)); // mantiene el índice en memoria al día
   return true;
 }
 
+// Índice en memoria de los arranques ya presentes en disco. precargarArranques()
+// (ingest.ts) recorre hasta 5.000 vídeos en CADA vuelta de mantenimiento
+// llamando a tieneArranque() uno por uno: con existsSync eso son miles de
+// syscalls SÍNCRONAS que bloquean el event loop varias décimas de segundo
+// justo mientras se está sirviendo vídeo en directo. Un solo readdirSync cada
+// 30 s cuesta lo mismo que ~1 existsSync y cubre todas las consultas.
+let arranquesEnDisco: Set<string> | null = null;
+let arranquesLeidosAt = 0;
+const ARRANQUES_TTL_MS = 30_000;
+
 /** ¿Tenemos ya el arranque de esta key en disco? */
 export function tieneArranque(key: string): boolean {
-  return existsSync(headPath(key));
+  const hp = headPath(key);
+  const ahora = Date.now();
+  if (!arranquesEnDisco || ahora - arranquesLeidosAt > ARRANQUES_TTL_MS) {
+    try {
+      arranquesEnDisco = new Set(readdirSync(HEADS_DIR()));
+    } catch {
+      arranquesEnDisco = new Set(); // aún no existe el directorio
+    }
+    arranquesLeidosAt = ahora;
+  }
+  // Un falso negativo (arranque creado por otra vía desde la última lectura) es
+  // inofensivo: tgEnsureHead vuelve a comprobar el disco y sale enseguida.
+  return arranquesEnDisco.has(basename(hp));
 }
 
 // ---- prioridad: la reproducción del usuario manda sobre el mantenimiento ----
@@ -1365,9 +1631,18 @@ async function resolveMessageLocation(messageId: number): Promise<{ loc: Api.Inp
 
 /** Filas de blob_parts de un original troceado, en orden, con el offset
  *  GLOBAL (dentro del archivo lógico completo) en el que empieza cada una.
- *  Array vacío = key no troceada (camino de blob_refs de SIEMPRE). */
+ *  Array vacío = key no troceada (camino de blob_refs de SIEMPRE).
+ *
+ *  `validar` (por defecto sí): comprueba que los índices sean 0..n-1 SIN
+ *  huecos y que ninguna parte esté vacía. Un hueco significaría reconstruir el
+ *  archivo con bytes de menos y con todo lo posterior DESPLAZADO — un vídeo
+ *  silenciosamente corrupto que ni el tamaño delata (tgSize suma lo que hay).
+ *  Mejor fallar ruidosamente: /v1/blob lo traduce a un 503 "reintenta" y el
+ *  original no se da por bueno. Se desactiva solo en tgDelete, que necesita
+ *  poder limpiar restos aunque estén incompletos. */
 async function resolveParts(
   key: string,
+  validar = true,
 ): Promise<{ index: number; msgId: number; bytes: number; start: number }[]> {
   const rows = await query<{ part_index: number; tg_message_id: string; bytes: string }>(
     "select part_index, tg_message_id, bytes from blob_parts where key = $1 order by part_index",
@@ -1375,12 +1650,23 @@ async function resolveParts(
   );
   if (!rows.rows.length) return [];
   let acc = 0;
-  return rows.rows.map((r) => {
+  const parts = rows.rows.map((r) => {
     const start = acc;
     const bytes = Number(r.bytes);
     acc += bytes;
     return { index: r.part_index, msgId: Number(r.tg_message_id), bytes, start };
   });
+  if (validar) {
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i]!;
+      if (p.index !== i || !(p.bytes > 0) || !(p.msgId > 0)) {
+        throw new Error(
+          `partes incompletas de ${key}: se esperaba la parte ${i} y hay ${p.index} (${parts.length} partes registradas)`,
+        );
+      }
+    }
+  }
+  return parts;
 }
 
 /** docLocation, pero para UNA parte de un original troceado — misma caché
@@ -1562,8 +1848,27 @@ function tgReadRangeLoc(
     // demás conexiones enteras — así de fácil se caía de 12-17 MB/s en una
     // ráfaga corta a menos de 1 MB/s sostenido en una descarga larga.
     const inflight = new Map<number, Promise<Buffer>>();
+    // FUGA DE MEMORIA REAL (y descarga fantasma): antes, la ventana deslizante
+    // lanzaba el trozo i+STREAMS en cuanto TERMINABA el trozo i, sin mirar por
+    // dónde iba el consumidor. Dos consecuencias graves:
+    //  1) Si el consumidor va más lento que Telegram (navegador lento, red del
+    //     cliente peor que la nuestra, descarga pausada), los trozos ya bajados
+    //     se acumulan en este Map SIN LÍMITE. En una descarga completa el rango
+    //     pedido es el archivo ENTERO: un original de 100 GB acaba en RAM.
+    //  2) Si el consumidor ABANDONA (el usuario cancela la descarga, hace seek,
+    //     cierra el vídeo), Readable.from() cierra el generador pero la cadena
+    //     de `relanzar` seguía viva: se bajaba el resto del rango entero de
+    //     Telegram, a RAM, consumiendo TODO el techo de banda de la cuenta para
+    //     nada. Con seeks repetidos en un vídeo grande se acumulaban varias
+    //     descargas fantasma a la vez.
+    // Arreglo: ventana ACOTADA por delante del consumidor (`consumed`) y parada
+    // real (`stopped`) cuando el generador se cierra.
+    let consumed = 0; // índice que el consumidor va a pedir a continuación
+    let stopped = false;
+    const MAX_AHEAD = Math.max(STREAMS * 2, STREAMS + 2); // trozos como mucho por delante
+    const aplazados = new Set<number>(); // lanzamientos en espera de que avance el consumidor
     const launch = (i: number): void => {
-      if (i >= nParts || inflight.has(i)) return;
+      if (stopped || i >= nParts || inflight.has(i)) return;
       const [from, to] = partRange(i);
       const p = fetchSubRange(loc, dcId, from, to, clients[i % clients.length]);
       inflight.set(i, p);
@@ -1571,6 +1876,9 @@ function tgReadRangeLoc(
       // siguiente trozo que le toque — sin esperar a que el consumidor
       // secuencial llegue hasta aquí.
       const relanzar = () => {
+        if (stopped) return;
+        const next = i + STREAMS;
+        if (next >= nParts) return;
         // Si esto es una DESCARGA de fondo y alguien está VIENDO algo ahora
         // mismo, cede el paso: espera un poco antes de pedir el siguiente
         // trozo en vez de competir a partes iguales por el mismo techo de
@@ -1578,18 +1886,37 @@ function tgReadRangeLoc(
         // sube con más conexiones, así que lo único que sirve de verdad es
         // que alguien ceda). Nunca se aplica al revés: la reproducción en
         // directo JAMÁS se frena a sí misma por una descarga.
-        if (isDownload && viendoAlgoActivamente()) {
-          setTimeout(() => launch(i + STREAMS), 700);
-        } else {
-          launch(i + STREAMS);
-        }
+        const pedir = () => {
+          if (stopped) return;
+          if (next < consumed + MAX_AHEAD) launch(next);
+          else aplazados.add(next); // hay demasiado por delante: espera turno
+        };
+        if (isDownload && viendoAlgoActivamente()) setTimeout(pedir, 700);
+        else pedir();
       };
       p.then(relanzar, relanzar);
+    };
+    /** Lanza lo aplazado que ya cabe en la ventana (llamado al avanzar el consumidor). */
+    const bombear = (): void => {
+      if (stopped || !aplazados.size) return;
+      for (const i of [...aplazados].sort((a, b) => a - b)) {
+        if (i >= consumed + MAX_AHEAD) break;
+        aplazados.delete(i);
+        launch(i);
+      }
     };
     for (let i = 0; i < Math.min(nParts, STREAMS); i++) launch(i);
 
     try {
       for (let i = 0; i < nParts; i++) {
+        consumed = i;
+        bombear();
+        // red de seguridad anti-bloqueo: el trozo que toca AHORA se lanza sí o
+        // sí, aunque la contabilidad de la ventana lo hubiera aplazado.
+        if (!inflight.has(i)) {
+          aplazados.delete(i);
+          launch(i);
+        }
         let buf: Buffer;
         try {
           buf = await inflight.get(i)!;
@@ -1620,10 +1947,22 @@ function tgReadRangeLoc(
         lastLiveReadAt = Date.now();
         if (!isDownload) lastViewReadAt = Date.now(); // solo reproducción real, no descargas
         yield buf;
+        // el consumidor YA se llevó este trozo: abre hueco en la ventana para
+        // que la conexión que estaba esperando pida el siguiente.
+        consumed = i + 1;
+        bombear();
       }
     } catch (e) {
       invalidate(); // fileReference fresco al siguiente intento
       throw e;
+    } finally {
+      // Se llega aquí SIEMPRE: fin normal, error, o —lo importante— cuando
+      // Readable.from() cierra el generador porque el cliente abandonó. Corta
+      // la cadena de relanzamientos (si no, se seguía bajando el resto del
+      // archivo para nada) y suelta los buffers ya bajados.
+      stopped = true;
+      aplazados.clear();
+      inflight.clear();
     }
   }
 
@@ -1924,12 +2263,13 @@ export async function tgRead(
     // vez, compitiendo por las mismas conexiones del pool consigo mismo.
     // Verificado en producción: dos descargas de 571 MB y 310 MB a la vez
     // caían a ~0,6 MB/s cada una por esto exactamente.
+    // en cola: como mucho una descarga completa a la vez en TODO el
+    // servidor (ver acquireDownloadSlot) — el techo de ancho de banda es
+    // el mismo con cola o sin ella, pero así cada descarga va a la
+    // velocidad máxima real en vez de repartirse entre varias a la vez.
+    const release = await acquireDownloadSlot();
+    let entregado = false;
     try {
-      // en cola: como mucho una descarga completa a la vez en TODO el
-      // servidor (ver acquireDownloadSlot) — el techo de ancho de banda es
-      // el mismo con cola o sin ella, pero así cada descarga va a la
-      // velocidad máxima real en vez de repartirse entre varias a la vez.
-      const release = await acquireDownloadSlot();
       const total = await tgSize(key);
       // isDownload=true: cede ancho de banda si alguien está viendo algo AHORA
       // (ver viendoAlgoActivamente() y el "relanzar" dentro de tgReadRangeLive).
@@ -1938,10 +2278,21 @@ export async function tgRead(
       // error, o el navegador corta la descarga a medias) — nunca antes.
       stream.once("close", release);
       stream.once("error", release);
+      entregado = true;
       return { stream, size: totalSize, totalSize };
     } catch (e) {
       docCache.delete(key);
       console.error("[tg] streaming directo (descarga completa) falló, uso caché completa:", (e as Error).message);
+    } finally {
+      // BLOQUEO PERMANENTE REAL que esto arregla: si tgSize() o
+      // tgReadRangeLive() lanzaban (key sin registrar, Telegram caído, BD
+      // lenta), el turno adquirido arriba NO se soltaba nunca — y como solo
+      // cabe UNA descarga a la vez (DOWNLOAD_QUEUE_MAX=1), a partir de ese
+      // momento TODAS las descargas completas del servidor se quedaban
+      // esperando un turno que ya no iba a llegar, hasta reiniciar el
+      // proceso. Ahora solo se conserva el turno si de verdad se entregó un
+      // stream que lo soltará al cerrarse.
+      if (!entregado) release();
     }
   }
 
