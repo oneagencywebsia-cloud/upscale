@@ -939,10 +939,18 @@ async function generarPreviews(log: FastifyBaseLoggerLike, soloUrgentes = false)
     // un vídeo largo esto pueden ser varios GB — más que TODA la caché — así
     // que se protege de que el limpiador lo expulse mientras se usa (si no,
     // se autoborraba nada más descargarse y cada intento volvía a bajar el
-    // original entero desde cero, sin avanzar nunca). 8 conexiones (el máximo)
-    // para esta descarga: solo ocurre cuando no hay nadie viendo nada
-    // (streamingActivo() en reposo), así que no le quita banda a nadie.
-    const src = await tgEnsureLocal(a.original_key, 8);
+    // original entero desde cero, sin avanzar nunca).
+    //
+    // 3 conexiones, NO 8: medido en vivo hoy con /v1/diag/speedtest — 8, 16,
+    // 24 y 32 streams dan TODOS el mismo caudal sostenido (~3.5-4 MB/s, techo
+    // de la CUENTA, no de la conexión), así que bajar a 3 no cuesta ni un
+    // byte/s de verdad. Lo que SÍ se sospecha (fallo real reproducido varias
+    // veces hoy con un original de 1,66GB, "Request was unsuccessful 3
+    // time(s)" persistente pese a dos rondas de arreglos de reintento
+    // distintas) es que abrir 8 conexiones simultáneas contra el MISMO
+    // documento pueda estar disparando algún límite de abuso de Telegram que
+    // NINGÚN reintento por conexión puede evitar, solo abrir menos a la vez.
+    const src = await tgEnsureLocal(a.original_key, 3);
     unpin = pinCachedFile(src);
     await makePreview(src, out, { durationS: a.duration_s ?? undefined });
 
