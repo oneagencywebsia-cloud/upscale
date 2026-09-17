@@ -41,6 +41,35 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   ]).finally(() => clearTimeout(t!)) as Promise<T>;
 }
 
+/**
+ * Como withTimeout, pero con un plazo MÓVIL: `getDeadline()` se consulta una y
+ * otra vez, así que quien hace el trabajo puede ir empujándolo hacia adelante a
+ * medida que progresa. Pensado para una subida de varias horas troceada en
+ * partes: se aborta por quedarse ATASCADA, no por durar mucho.
+ */
+function withDeadline<T>(p: Promise<T>, getDeadline: () => number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let fin = false;
+    let t: NodeJS.Timeout | undefined;
+    const tick = () => {
+      if (fin) return;
+      const queda = getDeadline() - Date.now();
+      if (queda <= 0) {
+        fin = true;
+        reject(new Error(`sin progreso: ${label}`));
+        return;
+      }
+      t = setTimeout(tick, Math.min(queda, 30_000));
+      t.unref?.();
+    };
+    tick();
+    p.then(
+      (v) => { fin = true; clearTimeout(t); resolve(v); },
+      (e) => { fin = true; clearTimeout(t); reject(e); },
+    );
+  });
+}
+
 export interface IngestResult {
   status: "saved" | "duplicate";
   id: string;
@@ -378,6 +407,24 @@ export async function ingestLocalFile(opts: {
   // El original: se intenta REENVIAR dentro de Telegram (instantáneo, sin gastar
   // subida del VPS). El forward de un userbot está limitado (FLOOD_WAIT), así que
   // se le da un margen corto: si no sale ya, se sube el archivo como plan B.
+  // Plazo SIN PROGRESO en vez de plazo total.
+  //
+  // El tope total anterior (6 h duras) no daba para un original de verdad
+  // grande: a la velocidad de subida real de esta cuenta (~3-4 MB/s medidos),
+  // 100 GB son ~8 h y el `min(..., 6h)` lo abortaba SIEMPRE, por bien que
+  // estuviera yendo. Y abortar aquí es caro: la subida sigue viva en segundo
+  // plano (un timeout no cancela nada), así que acababa registrando un blob
+  // cuyo asset nunca se llegó a insertar. Ahora el reloj se reinicia con cada
+  // parte subida: una subida que progresa NUNCA se corta, y una atascada de
+  // verdad muere igual de rápido que antes.
+  let vence = Date.now();
+  const presupuestoMs = Math.max(
+    30 * 60_000,
+    Math.min(6 * 60 * 60_000, (Math.min(size, 2 * 1024 * 1024 * 1024) / (1024 * 1024)) * 1000 * 2),
+  );
+  const renovarPlazo = () => { vence = Date.now() + presupuestoMs; };
+  renovarPlazo();
+
   const storeOriginal = (async () => {
     if (opts.forwardFromInboxMsgId) {
       try {
@@ -392,20 +439,31 @@ export async function ingestLocalFile(opts: {
         log.warn({ err: (e as Error)?.message }, "forward al almacén no salió; subo el archivo");
       }
     }
+    renovarPlazo(); // el reenvío consumió parte del plazo; la subida empieza de cero
     // putSplit: si el original supera el tope de Telegram por documento
     // (2/4 GB), lo trocea en varias partes automáticamente — invisible para
     // el resto del pipeline, sigue siendo UN original_key/bytes.
-    await putSplit(originalKey, filePath, mime, size);
+    await putSplit(originalKey, filePath, mime, size, (subidos, parte, dePartes) => {
+      renovarPlazo();
+      step(`original: parte ${parte}/${dePartes} subida (${Math.round(subidos / 1e6)} MB)`);
+    });
   })();
 
   // la miniatura va a la BD (más abajo); aquí solo el original.
-  // El timeout escala con el tamaño: un original troceado en varias partes
-  // (putSplit, >2GB) puede tardar bastante más que los 12 min fijos de
-  // antes — con 45GB en ~25 partes subidas una a una, 12 min se queda
-  // corto de sobra. ~3 MB/s conservador de subida + margen x1.5; techo
-  // duro de 6h para que ni un original gigantesco cuelgue el proceso.
-  const storeTimeoutMs = Math.max(12 * 60_000, Math.min(6 * 60 * 60_000, (size / (3 * 1024 * 1024)) * 1000 * 1.5));
-  await withTimeout(storeOriginal, storeTimeoutMs, "guardar original en el almacén");
+  try {
+    await withDeadline(storeOriginal, () => vence, "guardar original en el almacén");
+  } catch (e) {
+    // FUGA REAL: por este camino (subida HTTP directa, sin deferStore) el único
+    // sitio que borra `filePath` es el trabajo de derivadas de más abajo, al que
+    // ya no se llega. Un original de 45 GB se quedaba en TMP_DIR hasta que el
+    // barrido de huérfanos lo pillara. Se borra cuando la subida de fondo deje
+    // de usarlo de verdad — nunca antes, o se le quitaría el fichero de debajo.
+    void storeOriginal.then(
+      () => rm(filePath, { force: true }).catch(() => {}),
+      () => rm(filePath, { force: true }).catch(() => {}),
+    );
+    throw e;
+  }
 
   const inserted = await one<{ id: string }>(
     `insert into assets

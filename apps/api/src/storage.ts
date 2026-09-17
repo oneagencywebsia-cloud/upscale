@@ -1,5 +1,5 @@
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, stat, rename, copyFile, rm } from "node:fs/promises";
+import { mkdir, stat, rename, copyFile, rm, utimes } from "node:fs/promises";
 import { dirname, join, normalize, sep, basename } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -75,27 +75,81 @@ export async function put(key: string, filePath: string, contentType: string): P
  * Como put(), pero trocea el original si supera el tope de Telegram por
  * documento (2 GB / 4 GB Premium) — un vídeo de 1h a 4K/60 HEVC del iPhone
  * puede pesar 20-45 GB, muy por encima. Cada parte se sube como su propio
- * mensaje (tgPutPart); el resto de la app lo sigue viendo como UN solo
+ * mensaje (tgSendPart); el resto de la app lo sigue viendo como UN solo
  * archivo — la reconstrucción es transparente en la capa de lectura
  * (tgReadRangeLive/ensureCached en telegram.ts). Solo aplica a
  * STORAGE_DRIVER=telegram: local/R2 no tienen ese tope por archivo.
  */
-export async function putSplit(key: string, filePath: string, contentType: string, size: number): Promise<void> {
+export async function putSplit(
+  key: string,
+  filePath: string,
+  contentType: string,
+  size: number,
+  /** Se llama tras subir CADA parte, con los bytes acumulados. Lo usa el
+   *  pipeline para que el plazo límite sea "sin progreso en X" y no un tope
+   *  total que mata una subida legítima de varias horas. */
+  onProgress?: (bytesSubidos: number, parte: number, dePartes: number) => void,
+): Promise<void> {
   if (env.STORAGE_DRIVER !== "telegram") return put(key, filePath, contentType);
-  const { tgPutPart, TELEGRAM_FILE_CEILING_BYTES, PART_SIZE_BYTES } = await import("./telegram.js");
+  const { tgSendPart, tgRegisterParts, TELEGRAM_FILE_CEILING_BYTES, PART_SIZE_BYTES } = await import("./telegram.js");
   if (size <= TELEGRAM_FILE_CEILING_BYTES) return put(key, filePath, contentType); // camino de SIEMPRE
 
-  const n = Math.ceil(size / PART_SIZE_BYTES);
-  for (let i = 0; i < n; i++) {
-    const start = i * PART_SIZE_BYTES;
-    const end = Math.min(size, start + PART_SIZE_BYTES);
-    const tmp = join(env.TMP_DIR, `${basename(filePath)}.part${i}`);
-    await pipeline(createReadStream(filePath, { start, end: end - 1 }), createWriteStream(tmp));
-    try {
-      await tgPutPart(key, i, tmp);
-    } finally {
-      await rm(tmp, { force: true }).catch(() => {});
+  // Preflight de disco: cada parte se materializa como un fichero temporal
+  // aparte (hasta ~1,8 GB) ANTES de subirla. Sin sitio, la primera copia
+  // fallaría a mitad y dejaría un temporal enorme a medias.
+  try {
+    const { statfs } = await import("node:fs/promises");
+    const fsStat = await statfs(env.TMP_DIR);
+    const libres = fsStat.bavail * fsStat.bsize;
+    const necesarios = Math.min(size, PART_SIZE_BYTES) + 512 * 1024 * 1024;
+    if (libres < necesarios) {
+      throw new Error(
+        `sin espacio en TMP_DIR para trocear: hacen falta ~${Math.round(necesarios / 1e6)} MB y hay ${Math.round(libres / 1e6)} MB`,
+      );
     }
+  } catch (e) {
+    if (/sin espacio en TMP_DIR/.test((e as Error)?.message ?? "")) throw e;
+    /* statfs no disponible: seguimos igual */
+  }
+
+  const n = Math.ceil(size / PART_SIZE_BYTES);
+  const subidas: { index: number; messageId: number; bytes: number }[] = [];
+  // nombre único por invocación: dos putSplit a la vez sobre ficheros con el
+  // MISMO basename (p. ej. dos reintentos solapados del mismo asset) se
+  // pisaban el temporal el uno al otro y subían bytes cruzados.
+  const marca = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const temporales = Array.from({ length: n }, (_, i) => join(env.TMP_DIR, `${basename(filePath)}.${marca}.part${i}`));
+  try {
+    let acumulado = 0;
+    for (let i = 0; i < n; i++) {
+      const start = i * PART_SIZE_BYTES;
+      const end = Math.min(size, start + PART_SIZE_BYTES);
+      const tmp = temporales[i]!;
+      await pipeline(createReadStream(filePath, { start, end: end - 1 }), createWriteStream(tmp));
+      // verificación barata: si la copia de la parte salió corta (disco lleno,
+      // fichero truncado bajo los pies), subirla dejaría un original corrupto
+      // imposible de detectar después.
+      const { size: copiado } = await stat(tmp);
+      if (copiado !== end - start) {
+        throw new Error(`parte ${i} incompleta en disco: ${copiado}/${end - start} bytes`);
+      }
+      // Marca el ORIGINAL como "en uso": aquí solo se LEE, y leer no refresca
+      // el mtime. Sin esto, el barrido de temporales huérfanos de ingest.ts
+      // (que se guía por el mtime) podría borrarlo a mitad de una subida
+      // troceada de varias horas y dejar sin fichero a las partes que faltan.
+      await utimes(filePath, new Date(), new Date()).catch(() => {});
+      subidas.push(await tgSendPart(key, i, tmp));
+      await rm(tmp, { force: true }).catch(() => {});
+      acumulado += copiado;
+      onProgress?.(acumulado, i + 1, n);
+    }
+    // TODO subido: recién ahora se hace visible, de golpe y en una transacción.
+    await tgRegisterParts(key, subidas);
+  } finally {
+    // Si algo lanzó a medias, el `rm` del bucle no llegó a correr para la parte
+    // en curso (ni para las siguientes, que ni existen): se barren todos los
+    // nombres posibles. `force:true` no se queja de los que no existen.
+    await Promise.allSettled(temporales.map((t) => rm(t, { force: true })));
   }
 }
 

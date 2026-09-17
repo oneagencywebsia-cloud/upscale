@@ -145,6 +145,32 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   ]).finally(() => clearTimeout(t!)) as Promise<T>;
 }
 
+/** withTimeout con plazo MÓVIL: aborta por falta de PROGRESO, no por duración.
+ *  Imprescindible para una subida troceada de varias horas, donde un tope total
+ *  mataría una subida que va perfectamente. */
+function withDeadline<T>(p: Promise<T>, getDeadline: () => number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let fin = false;
+    let t: NodeJS.Timeout | undefined;
+    const tick = () => {
+      if (fin) return;
+      const queda = getDeadline() - Date.now();
+      if (queda <= 0) {
+        fin = true;
+        reject(new Error(`sin progreso en ${label}`));
+        return;
+      }
+      t = setTimeout(tick, Math.min(queda, 30_000));
+      t.unref?.();
+    };
+    tick();
+    p.then(
+      (v) => { fin = true; clearTimeout(t); resolve(v); },
+      (e) => { fin = true; clearTimeout(t); reject(e); },
+    );
+  });
+}
+
 async function getLastId(): Promise<number> {
   const r = await one<{ v: string }>("select v from kv where k = $1", [KEY]);
   return r ? Number(r.v) || 0 : 0;
@@ -430,11 +456,25 @@ async function limpiarTemporalesHuerfanos(log: FastifyBaseLoggerLike): Promise<v
   const nombres = await readdir(env.TMP_DIR).catch(() => [] as string[]);
   let borrados = 0;
   for (const nombre of nombres) {
-    // prefijos usados por tick/storePending/backfillDerivatives/generarPreviews/offloadPosters
-    if (!/^(tg|store|bf|prev|off)-/.test(nombre)) continue;
+    // Antes esto filtraba por prefijo (`tg|store|bf|prev|off`) y se dejaba
+    // fuera JUSTO los temporales más gordos que existen:
+    //   · `<marca>.upload`        — el original ENTERO de una subida HTTP
+    //                               (routes/assets.ts): hasta decenas de GB
+    //   · `<marca>.upload.partN`  — cada trozo de un original troceado
+    //                               (storage.ts putSplit): ~1,8 GB cada uno
+    //   · `<marca>.live.mov`      — el .MOV de un Live Photo
+    //   · `<marca>.thumb.webp`, `.poster.jpg`, `.rt.webp`, `.rp.jpg`
+    //   · `broken-<id>-….webp`
+    // Si el proceso muere a mitad (OOM-kill, redeploy), esos restos se
+    // quedaban en disco PARA SIEMPRE — precisamente lo que los preflights de
+    // espacio intentan evitar. TMP_DIR es un directorio dedicado a temporales
+    // de esta app: se barre TODO lo que lleve horas sin tocarse, que es el
+    // criterio correcto (a un temporal vivo se le está escribiendo y su mtime
+    // se refresca solo).
     const ruta = join(env.TMP_DIR, nombre);
     try {
       const st = await stat(ruta);
+      if (!st.isFile()) continue;
       if (Date.now() - st.mtimeMs > TMP_HUERFANO_MS) {
         await rm(ruta, { force: true });
         borrados++;
@@ -499,23 +539,20 @@ async function storePending(log: FastifyBaseLoggerLike): Promise<void> {
     }
     const n = (await kvNum(fkey)) + 1;
     const bytes = Number(a.bytes) || 0;
-    // Por encima del tope real de Telegram (ver env.ts), la recuperación pesada
-    // (descargar + volver a SUBIR el original) está condenada: re-subir bajo la
-    // MISMA cuenta no puede superar su propio límite. El reenvío (forward) no
-    // re-sube nada — es server-side — así que SÍ sigue siendo viable sin límite
-    // de tamaño. Para estos archivos nunca escalamos a la vía pesada: solo
-    // reintentamos el reenvío (el resto de la lógica de abandono a los 8
-    // intentos sigue aplicando igual más abajo).
-    const heavyEligible = bytes === 0 || bytes <= TELEGRAM_FILE_CEILING_BYTES;
+    // Antes: por encima del tope de Telegram por documento (2/4 GB) la
+    // recuperación pesada se daba por imposible, porque re-subir un único
+    // documento no puede superar ese límite — así que un original enorme cuyo
+    // reenvío fallara 8 veces acababa RETIRADO (asset borrado) sin más salida.
+    // Eso dejó de ser cierto al añadirse putSplit(): un original por encima del
+    // tope se trocea en varios documentos y se sube igual. La vía pesada vuelve
+    // a estar disponible para cualquier tamaño; lo único que sigue mandando es
+    // que quepa en disco (preflight justo abajo).
     let tmp: string | null = null;
     let heavy = false;
     try {
       // 1º el reenvío (instantáneo, server-side). Si falla, se recupera de
       // verdad: descargar el original del inbox y subirlo al almacén.
-      if (n <= 2 || !heavyEligible) {
-        if (!heavyEligible && n > 2) {
-          ingestState.lastStep = `"${a.filename}" (${Math.round(bytes / 1e6)} MB) supera el tope de Telegram para re-subir; solo reenvío`;
-        }
+      if (n <= 2) {
         await withTimeout(tgPutByForward(a.original_key, srcId), 18_000, "reenviar original");
       } else {
         // preflight de disco: el original puede pesar varios GB (vídeo de
@@ -540,7 +577,26 @@ async function storePending(log: FastifyBaseLoggerLike): Promise<void> {
         const upTimeout = scaledTimeoutMs(bytes, 8 * 60_000, 2, 2);
         const got = await withTimeout(tgDownloadInbox(srcId, tmp, dlTimeout), dlTimeout + 30_000, "descargar del inbox");
         if (!got) throw new Error("descarga vacía");
-        await withTimeout(tgPut(a.original_key, tmp), upTimeout, "subir original");
+        // se decide por los bytes REALES descargados, no por lo que diga la fila
+        // (si `bytes` estuviera desfasado, tgPut fallaría con FILE_TOO_BIG)
+        if (got > TELEGRAM_FILE_CEILING_BYTES) {
+          // supera el tope por documento: sube en varias partes (putSplit).
+          // El plazo se mide POR PARTE, no en total: el reloj se reinicia con
+          // cada parte subida, así una subida que avanza no se corta por durar.
+          const { putSplit } = await import("./storage.js");
+          const porParte = scaledTimeoutMs(Math.min(got, TELEGRAM_FILE_CEILING_BYTES), 30 * 60_000, 2, 2);
+          let plazo = Date.now() + porParte;
+          await withDeadline(
+            putSplit(a.original_key, tmp, "application/octet-stream", got, (subidos, parte, de) => {
+              plazo = Date.now() + porParte;
+              ingestState.lastStep = `subiendo "${a.filename}" por partes: ${parte}/${de} (${Math.round(subidos / 1e6)} MB)`;
+            }),
+            () => plazo,
+            "subir original por partes",
+          );
+        } else {
+          await withTimeout(tgPut(a.original_key, tmp), upTimeout, "subir original");
+        }
         if (!a.thumb_ok) {
           await regenerateDerivatives(a.id, a.kind, tmp).catch((e) =>
             log.warn({ id: a.id, err: (e as Error)?.message }, "no se pudo regenerar la miniatura"),
@@ -971,6 +1027,13 @@ async function precargarArranques(log: FastifyBaseLoggerLike): Promise<number> {
 
   const cap = Date.now() - bootAt < 6 * 60_000 ? 10 : 4;
   let hechos = 0;
+  // Antes, CUALQUIER fallo cortaba la vuelta entera (`break`). Bastaba un solo
+  // vídeo problemático (original aún no registrado, mensaje borrado a mano,
+  // hipo puntual de Telegram) para que NINGÚN otro vídeo de la biblioteca
+  // volviera a recibir su arranque precargado — y como el orden es siempre el
+  // mismo, se topaba con ese mismo vídeo vuelta tras vuelta. Ahora se toleran
+  // unos pocos fallos y se sigue con los demás; solo se corta si falla todo.
+  let fallos = 0;
   for (const a of rows) {
     if (streamingActivo()) break; // si estás viendo algo, esto puede esperar
     if (tieneArranque(a.original_key)) continue;
@@ -980,7 +1043,7 @@ async function precargarArranques(log: FastifyBaseLoggerLike): Promise<number> {
       if (hechos >= cap) break;
     } catch (e) {
       log.warn({ f: a.filename, err: (e as Error)?.message }, "arranque: no se pudo precargar");
-      break;
+      if (++fallos >= 3) break; // algo va mal de verdad (Telegram caído): se deja para la próxima
     }
   }
   if (hechos) log.info({ hechos }, "arranques precargados");

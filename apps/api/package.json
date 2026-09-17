@@ -8,7 +8,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "migrate": "tsx --env-file-if-exists=.env src/migrate.ts",
-    "tg-login": "tsx --env-file-if-exists=.env src/tg-login.ts"
+    "tg-login": "tsx --env-file-if-exists=.env src/tg-login.ts",
+    "verify:chunk-math": "node scripts/verify-chunk-math.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.678.0",
