@@ -51,7 +51,22 @@ export default function Gallery({
   // Al refrescar (router.refresh) llega SOLO la primera página. Se toma como
   // verdad (así se ven altas y bajas) y se conserva todo lo ya paginado que sea
   // más antiguo que ella — si no, el scroll infinito se rebobinaría solo.
+  // ¿hemos paginado ya más allá de la primera página? (ver más abajo)
+  const paged = useRef(false);
+  // Todo/Fotos/Vídeos/Favoritos son LISTAS DISTINTAS: al cambiar de una a otra
+  // no se conserva nada de lo paginado antes (si no, quedaban fotos colgando
+  // debajo de la lista de "Vídeos" por ser más antiguas que su primera página).
+  const filterKey = `${kind ?? ""}|${fav ? 1 : 0}`;
+  const lastFilter = useRef(filterKey);
   useEffect(() => {
+    const changed = lastFilter.current !== filterKey;
+    lastFilter.current = filterKey;
+    if (changed) {
+      paged.current = false;
+      setAssets(flat);
+      setCursor(initialCursor);
+      return;
+    }
     setAssets((prev) => {
       if (!prev.length) return flat;
       if (!flat.length) return prev;
@@ -60,12 +75,29 @@ export default function Gallery({
       const tail = prev.filter((a) => a.capturedAt < oldest && !seen.has(a.id));
       return [...flat, ...tail];
     });
-  }, [flat]);
-  useEffect(() => setCursor(initialCursor), [initialCursor]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flat, filterKey]);
+  // El refresco automático trae SOLO la primera página, con SU cursor. Si se
+  // adoptara tal cual, cada 25 s el scroll infinito se rebobinaría al principio
+  // y, estando abajo del todo con 10 páginas cargadas, volvería a pedir esas 10
+  // páginas una a una para no añadir nada (dedupe) — decenas de peticiones
+  // inútiles a la API en una biblioteca grande. Solo se adopta mientras no se
+  // haya paginado (el cambio de filtro lo reinicia arriba).
+  useEffect(() => {
+    if (paged.current) return;
+    setCursor(initialCursor);
+  }, [initialCursor]);
 
   // ---- scroll infinito: la biblioteca puede tener cientos de miles ----
+  // Si la API falla, NO se reintenta a lo loco: el observador se vuelve a
+  // suscribir cada vez que cambia `loadMore` (y eso pasa en cada intento), así
+  // que un error sostenido se convertía en una tanda de peticiones a toda
+  // velocidad contra una API que ya está en problemas. Se espera un poco más
+  // en cada fallo seguido.
+  const backoff = useRef({ until: 0, n: 0 });
   const loadMore = useCallback(async () => {
     if (loadingMore || !cursor) return;
+    if (Date.now() < backoff.current.until) return;
     setLoadingMore(true);
     try {
       const q = new URLSearchParams({ cursor, limit: String(PAGE) });
@@ -74,12 +106,16 @@ export default function Gallery({
       const r = await fetch(`/api/assets?${q}`, { cache: "no-store" });
       if (!r.ok) throw new Error("no se pudo cargar más");
       const data = (await r.json()) as { items: AssetListItem[]; nextCursor: string | null };
+      paged.current = true;
       setAssets((prev) => {
         const seen = new Set(prev.map((a) => a.id));
         return [...prev, ...(data.items ?? []).filter((a) => !seen.has(a.id))];
       });
       setCursor(data.nextCursor ?? null);
+      backoff.current = { until: 0, n: 0 };
     } catch {
+      const n = backoff.current.n + 1;
+      backoff.current = { n, until: Date.now() + Math.min(60_000, 5_000 * 2 ** (n - 1)) };
       setToast("No se pudieron cargar más archivos. Baja otra vez para reintentar.");
     } finally {
       setLoadingMore(false);
@@ -106,11 +142,12 @@ export default function Gallery({
   // aparecen los archivos que van entrando por Telegram sin recargar a mano.
   useEffect(() => {
     let busy = false;
+    let cool: ReturnType<typeof setTimeout> | undefined;
     const tick = () => {
       if (busy || document.hidden || openIdx !== null || selecting) return;
       busy = true;
       router.refresh();
-      setTimeout(() => (busy = false), 3000);
+      cool = setTimeout(() => (busy = false), 3000);
     };
     const iv = setInterval(tick, 25_000);
     const onVis = () => !document.hidden && tick();
@@ -118,6 +155,7 @@ export default function Gallery({
     document.addEventListener("visibilitychange", onVis);
     return () => {
       clearInterval(iv);
+      clearTimeout(cool);
       window.removeEventListener("focus", onVis);
       document.removeEventListener("visibilitychange", onVis);
     };
@@ -127,7 +165,6 @@ export default function Gallery({
   // Los días se recalculan desde `assets` (no desde la prop) para que el scroll
   // infinito pueda añadir días nuevos según se van pidiendo páginas.
   const liveGroups = useMemo(() => groupByDay(assets), [assets]);
-  const byId = useMemo(() => new Map(assets.map((a) => [a.id, a] as const)), [assets]);
   const idxById = useMemo(() => {
     const m = new Map<string, number>();
     assets.forEach((a, i) => m.set(a.id, i));
@@ -194,7 +231,15 @@ export default function Gallery({
   );
 
   useEffect(() => {
-    if (!selecting) endDrag();
+    if (!selecting) {
+      endDrag();
+      // `didDrag` se traga el siguiente click para que soltar el dedo tras
+      // pintar una selección no abra la foto. Si el arrastre acabó fuera de un
+      // tile (o se salió del modo selección) ese click nunca llega y la bandera
+      // se quedaba puesta: el primer toque siguiente sobre una foto no hacía
+      // nada. Al salir de selección se limpia siempre.
+      drag.current.didDrag = false;
+    }
   }, [selecting, endDrag]);
   useEffect(() => () => endDrag(), [endDrag]);
 
@@ -211,11 +256,20 @@ export default function Gallery({
     };
   }, [menuOpen]);
 
+  // el arranque del vídeo se pide ANTES de abrir el visor (así el <video> lo
+  // encuentra ya en camino). Se cancela la petición anterior si se abre otro
+  // distinto: si no, tocar 10 vídeos seguidos dejaba 10 descargas de 1 MB
+  // compitiendo por el ancho de banda con el que sí estás viendo.
+  const warm = useRef<AbortController | null>(null);
+  useEffect(() => () => warm.current?.abort(), []);
   const openAt = useCallback(
     (idx: number) => {
       const a = assets[idx];
       if (a?.kind === "video") {
-        fetch(`/api/media/${a.id}`, { headers: { range: "bytes=0-1048575" } }).catch(() => {});
+        warm.current?.abort();
+        const ac = new AbortController();
+        warm.current = ac;
+        fetch(`/api/media/${a.id}`, { headers: { range: "bytes=0-1048575" }, signal: ac.signal }).catch(() => {});
       }
       setOpenIdx(idx);
     },
@@ -273,7 +327,20 @@ export default function Gallery({
     setAssets((as) => as.filter((a) => !sel.has(a.id)));
     setSel(new Set());
     setSelecting(false);
-    await Promise.allSettled(ids.map((id) => fetch(`/api/assets/${id}`, { method: "DELETE" })));
+    // De 6 en 6, no las 1.450 a la vez: "Seleccionar todo → Borrar" lanzaba un
+    // DELETE por archivo de golpe. El navegador encola, la API recibe cientos
+    // de borrados simultáneos (cada uno toca Telegram y Postgres) y lo normal
+    // es que empiecen a fallar por timeout — quedando archivos sin borrar.
+    const LANES = 6;
+    let next = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(LANES, ids.length) }, async () => {
+        while (next < ids.length) {
+          const id = ids[next++]!;
+          await fetch(`/api/assets/${id}`, { method: "DELETE" }).catch(() => null);
+        }
+      }),
+    );
     router.refresh();
   }
 
@@ -375,7 +442,15 @@ export default function Gallery({
                       drag.current.didDrag = false;
                       return;
                     }
-                    selecting ? toggleSel(a.id) : openAt(idxById.get(a.id) ?? 0);
+                    if (selecting) {
+                      toggleSel(a.id);
+                      return;
+                    }
+                    // sin `?? 0`: si por lo que sea el id no estuviera en el
+                    // índice, abrir el 0 sería abrir OTRA foto (la más
+                    // reciente) — justo el fallo que ya se arregló una vez.
+                    const i = idxById.get(a.id);
+                    if (i !== undefined) openAt(i);
                   }}
                 >
                   <img src={a.thumbUrl} alt={a.filename} loading="lazy" decoding="async" />
@@ -430,6 +505,10 @@ export default function Gallery({
       <Viewer
         assets={assets}
         index={openIdx}
+        // el visor también tira de la biblioteca: al acercarse al final de lo
+        // cargado pide la página siguiente. Antes, abrir una foto y deslizar
+        // se paraba en seco en la número 120 aunque hubiera 1.450.
+        onNeedMore={cursor ? loadMore : undefined}
         onClose={() => setOpenIdx(null)}
         onIndex={setOpenIdx}
         onFavorite={favorite}

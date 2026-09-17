@@ -10,6 +10,15 @@ import ViewerFilmstrip from "./ViewerFilmstrip";
 /** Mismo corte que usa el CSS del visor para pasar a diseño móvil (globals.css). */
 const MOBILE_BP = "(max-width: 860px)";
 
+/**
+ * Franja inferior del <video> donde el navegador pinta su barra NATIVA
+ * (play/pausa, tiempo, buscar). Los eventos de esa barra viven en el shadow DOM
+ * del propio <video>, así que BURBUJEAN hasta este contenedor: sin esta
+ * exclusión, arrastrar la barra de tiempo del vídeo movía también la foto y
+ * podía saltar al siguiente vídeo a mitad de búsqueda.
+ */
+const NATIVE_CONTROLS_H = 76;
+
 interface Props {
   assets: AssetListItem[];
   index: number | null;
@@ -17,9 +26,11 @@ interface Props {
   onIndex: (i: number) => void;
   onFavorite: (id: string, value: boolean) => void;
   onDelete: (id: string) => void;
+  /** pide a la galería la página siguiente; undefined = no queda nada más */
+  onNeedMore?: () => void;
 }
 
-export default function Viewer({ assets, index, onClose, onIndex, onFavorite, onDelete }: Props) {
+export default function Viewer({ assets, index, onClose, onIndex, onFavorite, onDelete, onNeedMore }: Props) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -56,7 +67,16 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
   const dragOpacity = useTransform(dragAbs, [0, 260], [1, 0.9], { clamp: true });
   const peekScale = useTransform(dragAbs, [0, 260], [0.94, 1], { clamp: true });
   const peekOpacity = useTransform(dragAbs, [0, 260], [0.7, 1], { clamp: true });
-  const gesture = useRef({ active: false, x0: 0, y0: 0, t0: 0, axis: null as null | "x" | "y" });
+  // `id` = pointerId del dedo que manda. Un segundo dedo (pinza, o el típico
+  // roce con el pulgar al sujetar el móvil) NO reescribe el gesto en marcha:
+  // antes lo hacía y la foto pegaba un salto, o al levantar el primer dedo se
+  // decidía el cambio de foto con las coordenadas del OTRO.
+  const gesture = useRef({ id: -1, active: false, x0: 0, y0: 0, t0: 0, axis: null as null | "x" | "y" });
+  // animación de "se completa el paso a la siguiente": se guarda para poder
+  // pararla si el usuario vuelve a tocar (antes el dedo y la animación se
+  // peleaban por el mismo valor) o si el visor se cierra a mitad (antes el
+  // `.then()` llamaba a onIndex DESPUÉS de cerrar y el visor se reabría solo).
+  const swipe = useRef<{ controls: { stop: () => void }; dir: number } | null>(null);
   useEffect(() => {
     setChromeVisible(true);
     setSheetOpen(false);
@@ -68,6 +88,28 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
   const [buffering, setBuffering] = useState(false);
   const [livePlaying, setLivePlaying] = useState(false);
   const liveRef = useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Al pasar a otro archivo (o al cerrar el visor) el <video> anterior se
+  // desmonta, pero el navegador puede seguir descargando su buffer un buen
+  // rato — con originales de varios GB eso es ancho de banda robado al vídeo
+  // que SÍ estás viendo. Se corta a mano. Ojo: el elemento se captura en el
+  // cuerpo del efecto, no en la limpieza, porque para cuando corre la limpieza
+  // la ref ya apunta al vídeo NUEVO (y lo mataríamos a él).
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    return () => {
+      try {
+        v.pause();
+        v.removeAttribute("src");
+        v.load();
+      } catch {
+        /* el navegador ya lo había soltado */
+      }
+    };
+  }, [a?.id]);
+
   useEffect(() => {
     setVideoState("loading");
     setBuffering(false);
@@ -83,6 +125,15 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
 
   // Mientras miras uno, se va pidiendo el arranque del siguiente y el anterior:
   // al pasar de uno a otro ya está en camino y la apertura se siente inmediata.
+  // Las precargas en vuelo se cancelan al CERRAR el visor (no al cambiar de
+  // foto: ahí interesa que terminen, son justo las que hacen que el vecino
+  // abra al instante). Sin esto quedaban peticiones de 2 MB descargándose
+  // después de cerrar, y en desarrollo el doble por el Strict Mode de React.
+  const prefetches = useRef(new Set<AbortController>());
+  const abortPrefetches = useCallback(() => {
+    for (const ac of prefetches.current) ac.abort();
+    prefetches.current.clear();
+  }, []);
   useEffect(() => {
     if (index === null) return;
     const t = setTimeout(() => {
@@ -93,7 +144,11 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
           // 2 MB del arranque del vecino: suficiente para que empiece al
           // instante al pasar a él (con preview lista, suele ser el vídeo casi
           // entero). Rango pequeño = no le roba banda al que ves ahora.
-          void fetch(`/api/media/${v.id}`, { headers: { Range: "bytes=0-2097151" } }).catch(() => {});
+          const ac = new AbortController();
+          prefetches.current.add(ac);
+          void fetch(`/api/media/${v.id}`, { headers: { Range: "bytes=0-2097151" }, signal: ac.signal })
+            .catch(() => {})
+            .finally(() => prefetches.current.delete(ac));
         } else if (v.posterUrl) {
           const img = new Image();
           img.src = v.posterUrl;
@@ -102,6 +157,18 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
     }, 400); // sin robarle ancho de banda al que estás viendo ahora
     return () => clearTimeout(t);
   }, [index, assets]);
+  useEffect(() => {
+    if (!open) abortPrefetches();
+  }, [open, abortPrefetches]);
+  useEffect(() => abortPrefetches, [abortPrefetches]);
+
+  // acercarse al final de lo cargado (deslizando o con el carrete) pide más
+  // biblioteca: así se puede recorrer entera desde el visor, no solo las 120
+  // primeras. `loadMore` ya se protege sola contra llamadas solapadas.
+  useEffect(() => {
+    if (index === null || !onNeedMore) return;
+    if (index >= assets.length - 15) onNeedMore();
+  }, [index, assets.length, onNeedMore]);
 
   const isLive = !!(a && a.kind === "photo" && a.isLive && a.liveVideoUrl);
   const liveStart = useCallback(() => {
@@ -140,30 +207,63 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
   const onTap = useCallback(() => {
     setChromeVisible((v) => !v);
   }, []);
+
+  /** Da por terminado YA el paso a la foto vecina que estaba animándose. */
+  const settleSwipe = useCallback(() => {
+    const s = swipe.current;
+    if (!s) return;
+    swipe.current = null;
+    s.controls.stop();
+    dragX.set(0);
+    go(s.dir);
+  }, [dragX, go]);
+
+  const kind = a?.kind;
   const onMediaPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (!mobile || isLive) return;
-      gesture.current = { active: true, x0: e.clientX, y0: e.clientY, t0: Date.now(), axis: null };
+      if (gesture.current.active) return; // ya hay un dedo mandando: el segundo no pinta nada
+      // la barra nativa del vídeo es intocable: ahí no hay gesto propio
+      if (kind === "video") {
+        const r = e.currentTarget.getBoundingClientRect();
+        if (e.clientY > r.bottom - NATIVE_CONTROLS_H) return;
+      }
+      settleSwipe(); // si venía una animación de paso, se cierra antes de empezar otra
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        /* algún navegador puede negarlo; el gesto sigue funcionando igual */
+      }
+      gesture.current = { id: e.pointerId, active: true, x0: e.clientX, y0: e.clientY, t0: Date.now(), axis: null };
     },
-    [mobile, isLive],
+    [mobile, isLive, kind, settleSwipe],
   );
-  const onMediaPointerMove = useCallback((e: React.PointerEvent) => {
-    const g = gesture.current;
-    if (!g.active) return;
-    const dx = e.clientX - g.x0;
-    const dy = e.clientY - g.y0;
-    if (!g.axis) {
-      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
-      g.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
-    }
-    if (g.axis === "y" && dy > 0) dragY.set(dy);
-    else if (g.axis === "x") dragX.set(dx);
-  }, [dragY, dragX]);
+  const onMediaPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      const g = gesture.current;
+      if (!g.active || e.pointerId !== g.id) return;
+      const dx = e.clientX - g.x0;
+      const dy = e.clientY - g.y0;
+      if (!g.axis) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        g.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+      }
+      if (g.axis === "y" && dy > 0) dragY.set(dy);
+      else if (g.axis === "x") dragX.set(dx);
+    },
+    [dragY, dragX],
+  );
   const onMediaPointerUp = useCallback(
     (e: React.PointerEvent) => {
       const g = gesture.current;
-      if (!g.active) return;
+      if (!g.active || e.pointerId !== g.id) return;
       g.active = false;
+      g.id = -1;
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ya liberado */
+      }
       const dx = e.clientX - g.x0;
       const dy = e.clientY - g.y0;
       const dt = Math.max(1, Date.now() - g.t0);
@@ -176,7 +276,18 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
         const canGo = dx < 0 ? index !== null && index < assets.length - 1 : index !== null && index > 0;
         if (committed && canGo) {
           const dir = dx < 0 ? 1 : -1; // +1 = siguiente (se arrastró hacia la izquierda)
-          void animate(dragX, -dir * w, { type: "spring", stiffness: 380, damping: 38, velocity: (dx / dt) * 1000 }).then(() => {
+          const controls = animate(dragX, -dir * w, {
+            type: "spring",
+            stiffness: 380,
+            damping: 38,
+            velocity: (dx / dt) * 1000,
+          });
+          swipe.current = { controls, dir };
+          void controls.then(() => {
+            // si ya se cerró el visor o el usuario volvió a tocar, este remate
+            // ya lo dio (o lo anuló) quien interrumpiera: aquí no se toca nada.
+            if (swipe.current?.controls !== controls) return;
+            swipe.current = null;
             dragX.set(0);
             go(dir);
           });
@@ -192,6 +303,37 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
     },
     [go, onClose, dragY, dragX, index, assets.length, onTap],
   );
+  /**
+   * `pointercancel`: el navegador se queda el gesto (gesto del sistema, llamada
+   * entrante, el dedo sale por el borde de la pantalla…). NO se decide nada con
+   * las últimas coordenadas — antes compartía handler con `pointerup` y un
+   * cancel a mitad podía cambiar de foto o cerrar el visor sin querer. Aquí
+   * solo se devuelve todo a su sitio.
+   */
+  const onMediaPointerCancel = useCallback(
+    (e: React.PointerEvent) => {
+      const g = gesture.current;
+      if (!g.active || e.pointerId !== g.id) return;
+      g.active = false;
+      g.id = -1;
+      g.axis = null;
+      animate(dragX, 0, { type: "spring", stiffness: 500, damping: 34 });
+      animate(dragY, 0, { type: "spring", stiffness: 420, damping: 34 });
+    },
+    [dragX, dragY],
+  );
+
+  // al cerrar el visor: se corta la animación de paso pendiente (si no, su
+  // `.then()` llamaba a onIndex y el visor se REABRÍA solo un instante después)
+  // y se limpia el gesto para que la próxima apertura empiece de cero.
+  useEffect(() => {
+    if (open) return;
+    swipe.current?.controls.stop();
+    swipe.current = null;
+    gesture.current = { id: -1, active: false, x0: 0, y0: 0, t0: 0, axis: null };
+    dragX.set(0);
+    dragY.set(0);
+  }, [open, dragX, dragY]);
 
   useEffect(() => {
     if (!open) return;
@@ -259,10 +401,11 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
                   onPointerDown={onMediaPointerDown}
                   onPointerMove={onMediaPointerMove}
                   onPointerUp={onMediaPointerUp}
-                  onPointerCancel={onMediaPointerUp}
+                  onPointerCancel={onMediaPointerCancel}
                 >
                   <motion.video
                     key={a.id}
+                    ref={videoRef}
                     src={`/api/media/${a.id}`}
                     poster={a.posterUrl ?? a.thumbUrl}
                     controls
@@ -313,7 +456,7 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
                   onPointerDown={isLive ? liveStart : onMediaPointerDown}
                   onPointerMove={isLive ? undefined : onMediaPointerMove}
                   onPointerUp={isLive ? liveStop : onMediaPointerUp}
-                  onPointerCancel={isLive ? undefined : onMediaPointerUp}
+                  onPointerCancel={isLive ? liveStop : onMediaPointerCancel}
                   onPointerLeave={isLive ? liveStop : undefined}
                   onContextMenu={isLive ? (e) => e.preventDefault() : undefined}
                 >

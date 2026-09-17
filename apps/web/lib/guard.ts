@@ -23,6 +23,22 @@ export function sameOrigin(request: Request): boolean {
   }
 }
 
+/**
+ * Para rutas GET que NO se pueden proteger con `sameOrigin()` porque son
+ * navegaciones o `src` de medios (ahí el navegador no manda `Origin`, y el
+ * `Referer` no siempre llega: bloquear por él se arriesga a romper la descarga
+ * o la reproducción en algún navegador). Se usa `Sec-Fetch-Site`, que lo pone
+ * el propio navegador y la página atacante no puede falsear: solo se rechaza
+ * lo que viene marcado explícitamente como de OTRO sitio. Si la cabecera no
+ * llega (navegador viejo), se deja pasar — igual que antes.
+ *
+ * Con esto, una web cualquiera ya no puede colar un <img src=".../api/dl-all">
+ * y poner al servidor a empaquetar la biblioteca entera en un ZIP.
+ */
+export function crossSite(request: Request): boolean {
+  return request.headers.get("sec-fetch-site") === "cross-site";
+}
+
 export function forbidden() {
   return Response.json({ error: "origen no permitido" }, { status: 403 });
 }

@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import { getAccessToken } from "@/lib/supabase/server";
+import { crossSite, forbidden } from "@/lib/guard";
 
 const API = process.env.UPSCALE_API_URL ?? "http://localhost:8080";
 
+export const runtime = "nodejs";
 export const maxDuration = 800;
 
 /** Descarga TODO (o `?ids=a,b,c`) en un ZIP. Hace de proxy con streaming. */
 export async function GET(request: Request) {
+  if (crossSite(request)) return forbidden();
   const token = await getAccessToken();
   if (!token) return NextResponse.redirect(new URL("/", request.url));
 
