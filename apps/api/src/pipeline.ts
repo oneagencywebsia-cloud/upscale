@@ -277,6 +277,22 @@ export async function ingestLocalFile(opts: {
   step("probe");
   const info = await probe(filePath, filename, contentType);
 
+  // El contenedor llegó roto de origen (típico: "moov atom not found", el
+  // archivo se cortó a mitad de la grabación o de la copia desde el móvil,
+  // ANTES de llegar aquí). Ningún reintento lo arregla — mejor rechazarlo ya,
+  // con un error claro, que meterlo en la biblioteca con una miniatura negra
+  // que ningún reproductor (ni el nuestro ni Windows) va a poder abrir nunca.
+  // NO con `headOnly`: ahí `filePath` es solo la CABECERA (unos MB) del
+  // original, y el índice moov de un .mov de iPhone suele ir al FINAL — un
+  // falso positivo rechazaría vídeos perfectamente sanos. Esa ruta ya tiene
+  // su propio barrido que completa metadatos con el archivo entero más tarde.
+  if (info.unreadable && !opts.headOnly) {
+    await rm(filePath, { force: true });
+    throw Object.assign(new Error("vídeo dañado: falta el índice interno (moov) o el contenedor es ilegible"), {
+      code: "UNREADABLE",
+    });
+  }
+
   // ---- Live Photo: el .MOV corto va PEGADO a la foto del mismo nombre ----
   const stem = filename.replace(/\.[^.]+$/, "").trim();
   if (info.kind === "video" && (info.durationS ?? 99) <= 6 && stem.length >= 3) {

@@ -121,4 +121,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.25.1-filereference-fresco";
+export const VERSION = "0.26.0-rechaza-videos-rotos";

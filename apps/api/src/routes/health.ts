@@ -344,4 +344,19 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
     );
     return { reabiertos: r.rowCount ?? 0 };
   });
+
+  // vídeos cuyo contenedor llegó roto de origen (duration_s nunca se pudo
+  // rellenar, ni siquiera con el barrido de fondo que reintenta durante días)
+  // — el mismo patrón confirmado a mano con ffprobe ("moov atom not found")
+  // en varios archivos de nombre no-iPhone. Solo lectura: no borra nada.
+  app.get("/v1/diag/videos-rotos", soloDueno, async (req) => {
+    const { userId } = principalOf(req);
+    const rows = await query<{ id: string; filename: string; bytes: string; uploaded_at: Date }>(
+      `select id, filename, bytes, uploaded_at from assets
+         where user_id = $1 and kind = 'video' and duration_s is null and deleted_at is null
+         order by uploaded_at desc`,
+      [userId],
+    );
+    return { n: rows.rowCount ?? 0, items: rows.rows.map((r) => ({ id: r.id, filename: r.filename, bytes: Number(r.bytes) })) };
+  });
 }

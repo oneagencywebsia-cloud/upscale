@@ -232,6 +232,11 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
         if ((err as { code?: string })?.code === "EMPTY") {
           return reply.code(400).send({ error: "el archivo llegó vacío (0 bytes)" });
         }
+        if ((err as { code?: string })?.code === "UNREADABLE") {
+          return reply.code(400).send({
+            error: "el vídeo llegó dañado (falta el índice interno del archivo) y no se puede reproducir — revisa la copia original antes de volver a subirlo",
+          });
+        }
         req.log.error({ err: (err as Error)?.message, stack: (err as Error)?.stack, filename, userId }, "fallo al subir asset");
         return reply.code(500).send({ error: "no se pudo procesar el archivo", detalle: (err as Error)?.message });
       }

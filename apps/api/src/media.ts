@@ -255,6 +255,13 @@ export interface Probe {
   lens: string | null;
   lat: number | null;
   lon: number | null;
+  /** El contenedor de vídeo llegó roto de origen (ffprobe no encuentra NINGÚN
+   *  stream ni duración — típico de un ".moov atom not found": el archivo se
+   *  cortó a mitad de la grabación o de la copia, antes incluso de llegar a
+   *  Upscale). NO se marca así el HEIC (ffprobe tampoco lo lee, pero eso es
+   *  NORMAL — se resuelve con heif-info/vipsheader más abajo). Ningún
+   *  reintento arregla esto: son bytes que nunca llegaron a existir. */
+  unreadable: boolean;
 }
 
 /** Convierte una fecha arbitraria a ISO. Devuelve null si no se puede parsear (no lanza). */
@@ -357,6 +364,12 @@ export async function probe(path: string, filename: string, contentType?: string
     else if (/\.dng$/i.test(ext)) codec = "DNG";
   }
 
+  // ffprobe no encontró NADA (ni un stream, ni duración de formato) para lo
+  // que por extensión/content-type es claramente un vídeo, y no es HEIC (ahí
+  // ffprobe fallando es el camino normal, resuelto arriba). Esto es lo que
+  // deja "moov atom not found": el archivo llegó cortado de origen.
+  const unreadable = kind === "video" && !isHeic && streams.length === 0 && !fmt.duration;
+
   return {
     kind,
     width,
@@ -371,6 +384,7 @@ export async function probe(path: string, filename: string, contentType?: string
     lens: tags["com.apple.quicktime.lens"] ?? null,
     lat: loc.lat,
     lon: loc.lon,
+    unreadable,
   };
 }
 
