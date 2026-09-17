@@ -1123,6 +1123,13 @@ async function downloadRangeResiliente(
   baseOffset: number,
   fh: import("node:fs/promises").FileHandle,
   isBackground: boolean,
+  // re-resuelve loc/dcId contra Telegram (fileReference nuevo) para el
+  // reintento. Sin esto, un fileReference caducado (habitual en un original
+  // subido hace semanas) falla EXACTAMENTE IGUAL en cada intento por más
+  // clientes distintos que se prueben — es la referencia la que está mal, no
+  // la conexión. `key` la construye cada llamante (docCache.delete + re-resolver,
+  // el mismo patrón que ya usa tgReadRangeLoc para la reproducción en directo).
+  refresh?: () => Promise<{ loc: Api.InputDocumentFileLocation; dcId?: number }>,
   intento = 0,
 ): Promise<void> {
   const REQ = 512 * 1024;
@@ -1153,7 +1160,13 @@ async function downloadRangeResiliente(
   } catch (e) {
     if (pos >= to || intento >= 2) throw e; // ya terminado, o sin más intentos
     const fresh = (await downloadClients(1))[0]!;
-    await downloadRangeResiliente(fresh, loc, dcId, pos, to, baseOffset, fh, isBackground, intento + 1);
+    // primer reintento: puede ser solo la conexión → se prueba tal cual con
+    // otro cliente. Si ESE también falla, el segundo (y último) reintento ya
+    // refresca loc/dcId de verdad, por si el problema es el fileReference.
+    const nextLoc = intento >= 1 && refresh ? await refresh() : { loc, dcId };
+    await downloadRangeResiliente(
+      fresh, nextLoc.loc, nextLoc.dcId, pos, to, baseOffset, fh, isBackground, refresh, intento + 1,
+    );
   }
 }
 
@@ -1165,6 +1178,7 @@ async function downloadDocToFile(
   baseOffset: number,
   streams: number,
   isBackground: boolean,
+  refresh?: () => Promise<{ loc: Api.InputDocumentFileLocation; dcId?: number }>,
 ): Promise<void> {
   const REQ = 512 * 1024;
   const per = Math.max(REQ, Math.ceil(total / streams / REQ) * REQ);
@@ -1175,7 +1189,7 @@ async function downloadDocToFile(
   for (let i = 0; i < nParts; i++) {
     const from = i * per;
     const to = Math.min(total, from + per);
-    jobs.push(downloadRangeResiliente(clients[i]!, loc, dcId, from, to, baseOffset, fh, isBackground));
+    jobs.push(downloadRangeResiliente(clients[i]!, loc, dcId, from, to, baseOffset, fh, isBackground, refresh));
   }
   await Promise.all(jobs);
 }
@@ -1193,6 +1207,11 @@ async function tgDownloadParallel(
   // generación de copia ligera en 2º plano, alargando justo el momento en
   // que más se nota el problema.
   isBackground = true,
+  // ver downloadRangeResiliente: re-resuelve el mensaje (fileReference nuevo)
+  // si un tramo falla dos veces seguidas. Sin esto, un original subido hace
+  // semanas con el fileReference ya caducado fallaba SIEMPRE, en todos los
+  // intentos, por más veces que se reintentara con conexiones distintas.
+  refresh?: () => Promise<{ loc: Api.InputDocumentFileLocation; dcId?: number }>,
 ): Promise<void> {
   const doc = msg.document as Api.Document | undefined;
   const total = Number(doc?.size) || 0;
@@ -1214,7 +1233,7 @@ async function tgDownloadParallel(
   const fh = await open(outPath, "w");
   try {
     await fh.truncate(total);
-    await downloadDocToFile(fh, loc, dcId, total, 0, streams, isBackground);
+    await downloadDocToFile(fh, loc, dcId, total, 0, streams, isBackground, refresh);
   } finally {
     await fh.close();
   }
@@ -1277,14 +1296,26 @@ async function ensureCached(key: string, streams = 4): Promise<string> {
             await fh.truncate(total);
             for (const p of parts) {
               const { loc, dcId } = await docLocationPart(key, p.index, p.msgId);
-              await downloadDocToFile(fh, loc, dcId, p.bytes, p.start, streams, true);
+              const partCacheKey = `${key}#p${p.index}`;
+              await downloadDocToFile(fh, loc, dcId, p.bytes, p.start, streams, true, async () => {
+                docCache.delete(partCacheKey); // fuerza re-resolver contra Telegram, no la caché de 20min
+                return docLocationPart(key, p.index, p.msgId);
+              });
             }
           } finally {
             await fh.close();
           }
         } else {
           const msg = await messageForKey(key);
-          await tgDownloadParallel(msg, tmp, streams);
+          await tgDownloadParallel(msg, tmp, streams, true, async () => {
+            const fresh = await messageForKey(key); // sin caché: mensaje y fileReference al día
+            const d = fresh.document as Api.Document | undefined;
+            if (!d) throw new Error("mensaje sin documento");
+            return {
+              loc: new Api.InputDocumentFileLocation({ id: d.id, accessHash: d.accessHash, fileReference: d.fileReference, thumbSize: "" }),
+              dcId: d.dcId,
+            };
+          });
         }
         await rm(cp, { force: true }).catch(() => {});
         await rename(tmp, cp);

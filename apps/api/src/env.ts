@@ -121,4 +121,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.25.0-copia-ligera-resiliente";
+export const VERSION = "0.25.1-filereference-fresco";
