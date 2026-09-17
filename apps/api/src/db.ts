@@ -1,13 +1,17 @@
 import pg from "pg";
 import { env } from "./env.js";
 
+/** Tope de conexiones del pool. Se exporta para que poolStats() no repita el
+ *  número a mano (si se toca aquí, el diagnóstico no se queda mintiendo). */
+export const POOL_MAX = 20;
+
 /** Pool de Postgres (Supabase). SSL requerido en el pooler de Supabase. */
 export const pool = new pg.Pool({
   connectionString: env.DATABASE_URL,
   ssl: env.DATABASE_URL.includes("localhost") || env.DATABASE_URL.includes("127.0.0.1")
     ? undefined
     : { rejectUnauthorized: false },
-  max: 20,
+  max: POOL_MAX,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 8_000, // en vez de esperar indefinidamente si el pool está lleno
   statement_timeout: 20_000, // una consulta lenta no bloquea una conexión para siempre
@@ -40,7 +44,7 @@ pool.on("error", (err) => {
  * antes de que las peticiones de usuario empiecen a hacer cola de verdad.
  */
 export function poolStats(): { total: number; idle: number; waiting: number; max: number } {
-  return { total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount, max: 20 };
+  return { total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount, max: POOL_MAX };
 }
 
 export async function query<T extends pg.QueryResultRow = pg.QueryResultRow>(
