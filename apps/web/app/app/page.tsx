@@ -9,9 +9,9 @@ export const dynamic = "force-dynamic";
 export default async function GalleryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ kind?: string; fav?: string }>;
+  searchParams: Promise<{ kind?: string; fav?: string; tooBig?: string }>;
 }) {
-  const { kind, fav } = await searchParams;
+  const { kind, fav, tooBig } = await searchParams;
   const filter = kind === "photo" || kind === "video" ? kind : undefined;
   const onlyFav = fav === "1";
 
@@ -53,6 +53,12 @@ export default async function GalleryPage({
         </div>
         <PrismMount />
       </div>
+      {tooBig === "1" && (
+        <div className="empty" role="status">
+          <h3>Ese archivo es demasiado grande para «Compartir»</h3>
+          <p>Súbelo con el botón «Subir» (o con el Atajo de iOS): esa vía no tiene tope de tamaño.</p>
+        </div>
+      )}
       <ErrorBoundary
         fallback={
           <div className="empty">

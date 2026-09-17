@@ -1,6 +1,6 @@
 import "server-only";
 import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type SetAllCookies } from "@supabase/ssr";
 
 /** Cliente Supabase para Server Components / route handlers (lee y escribe cookies). */
 export async function supabaseServer() {
@@ -11,13 +11,17 @@ export async function supabaseServer() {
     {
       cookies: {
         getAll: () => cookieStore.getAll(),
-        setAll: (toSet) => {
+        // el tipo va explícito: el parámetro de `setAll` no se puede inferir
+        // (la opción `cookies` es una unión de formas) y salía como `any`, lo
+        // que dejaba `tsc --noEmit` siempre en rojo y por tanto inservible como
+        // red de seguridad.
+        setAll: ((toSet) => {
           try {
             toSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
           } catch {
             /* llamado desde un Server Component: lo maneja el middleware */
           }
-        },
+        }) satisfies SetAllCookies,
       },
     },
   );

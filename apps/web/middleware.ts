@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type SetAllCookies } from "@supabase/ssr";
 import { safeNext } from "@/lib/safe-next";
 
 /** Refresca la sesión de Supabase en cada request y protege /app/*. */
@@ -12,11 +12,12 @@ export async function middleware(req: NextRequest) {
     {
       cookies: {
         getAll: () => req.cookies.getAll(),
-        setAll: (toSet) => {
+        // tipo explícito: sin él el parámetro entra como `any` (ver server.ts)
+        setAll: ((toSet) => {
           toSet.forEach(({ name, value }) => req.cookies.set(name, value));
           res = NextResponse.next({ request: req });
           toSet.forEach(({ name, value, options }) => res.cookies.set(name, value, options));
-        },
+        }) satisfies SetAllCookies,
       },
     },
   );

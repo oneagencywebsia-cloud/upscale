@@ -1,12 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { UploadToken } from "@upscale/shared";
 
 export default function TokenManager({ initialTokens }: { initialTokens: UploadToken[] }) {
   const router = useRouter();
   const [tokens, setTokens] = useState(initialTokens);
+  // tras crear un token se hace router.refresh(): el servidor manda ya la lista
+  // nueva, pero el useState de arriba solo mira su valor inicial — sin esto el
+  // token recién creado no aparecía en la lista hasta recargar la página.
+  useEffect(() => setTokens(initialTokens), [initialTokens]);
   const [fresh, setFresh] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 

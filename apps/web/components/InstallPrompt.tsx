@@ -17,9 +17,15 @@ export default function InstallPrompt() {
       e.preventDefault();
       setEvt(e as BIPEvent);
     };
+    const onInstalled = () => setEvt(null);
     window.addEventListener("beforeinstallprompt", onBip);
-    window.addEventListener("appinstalled", () => setEvt(null));
-    return () => window.removeEventListener("beforeinstallprompt", onBip);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBip);
+      // se quedaba enganchado: con el Strict Mode de React se registraba dos
+      // veces y en cada navegación se acumulaba otro más.
+      window.removeEventListener("appinstalled", onInstalled);
+    };
   }, []);
 
   if (!evt || hidden) return null;

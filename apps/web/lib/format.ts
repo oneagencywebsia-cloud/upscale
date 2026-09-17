@@ -12,11 +12,18 @@ export function bytesHuman(n: number): string {
   return `${v.toFixed(v < 10 ? 1 : 0).replace(".", ",")} ${u[i]}`;
 }
 
+/**
+ * m:ss, y h:mm:ss a partir de la hora — un vídeo de 2 h salía como "120:00".
+ * (Un vídeo de 0 s no existe, pero 0.4 s sí: se muestra "0:00", no "—".)
+ */
 export function durationHuman(s: number | null): string {
-  if (!s) return "—";
-  const m = Math.floor(s / 60);
-  const sec = Math.round(s % 60);
-  return `${m}:${String(sec).padStart(2, "0")}`;
+  if (s == null || !Number.isFinite(s) || s < 0) return "—";
+  const total = Math.round(s);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  const ss = String(sec).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
 }
 
 export function fpsHuman(fps: number | null): string {
@@ -27,26 +34,55 @@ export function bitrateHuman(bps: number | null): string {
   return bps ? `${(bps / 1_000_000).toFixed(1).replace(".", ",")} Mb/s` : "—";
 }
 
-const DAY_FMT = new Intl.DateTimeFormat("es-ES", { weekday: "long", day: "numeric", month: "long" });
-const TIME_FMT = new Intl.DateTimeFormat("es-ES", { hour: "2-digit", minute: "2-digit" });
+/**
+ * La API guarda y sirve `capturedAt` SIEMPRE en UTC (`...Z`). Agrupar por
+ * `iso.slice(0,10)` era agrupar por día UTC, y eso rompía dos cosas a la vez
+ * en España (UTC+1/+2):
+ *
+ *  - Una foto de la 01:30 de la madrugada cae en el día UTC ANTERIOR: salía
+ *    bajo el encabezado del día de antes, o peor, aparecían DOS secciones
+ *    seguidas con el mismo rótulo ("Miércoles" dos veces), porque la clave era
+ *    UTC pero el rótulo se formateaba en hora local.
+ *  - El HTML del servidor (contenedor en UTC) y el del navegador (Madrid) no
+ *    coincidían para esas fotos → error de hidratación de React.
+ *
+ * Se fija UNA zona horaria para clave, rótulo y hora, la misma en servidor y
+ * navegador. Configurable por si algún día hace falta otra.
+ */
+const TZ = process.env.NEXT_PUBLIC_UPSCALE_TZ || "Europe/Madrid";
 
+const KEY_FMT = new Intl.DateTimeFormat("es-ES", {
+  timeZone: TZ,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+const DAY_FMT = new Intl.DateTimeFormat("es-ES", { timeZone: TZ, weekday: "long", day: "numeric", month: "long" });
+const TIME_FMT = new Intl.DateTimeFormat("es-ES", { timeZone: TZ, hour: "2-digit", minute: "2-digit" });
+const DATE_FMT = new Intl.DateTimeFormat("es-ES", { timeZone: TZ, day: "2-digit", month: "2-digit", year: "numeric" });
+
+/** "2026-09-16" en la zona horaria de referencia. */
 export function dayKey(iso: string): string {
-  return iso.slice(0, 10);
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
+  const p = KEY_FMT.formatToParts(d);
+  const get = (t: string) => p.find((x) => x.type === t)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
 export function dayLabel(iso: string): string {
   const d = new Date(iso);
-  const today = new Date();
-  const yst = new Date();
-  yst.setDate(today.getDate() - 1);
-  if (dayKey(iso) === dayKey(today.toISOString())) return "Hoy";
-  if (dayKey(iso) === dayKey(yst.toISOString())) return "Ayer";
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
+  const now = Date.now();
+  if (dayKey(iso) === dayKey(new Date(now).toISOString())) return "Hoy";
+  if (dayKey(iso) === dayKey(new Date(now - 86_400_000).toISOString())) return "Ayer";
   const s = DAY_FMT.format(d);
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 export function timeLabel(iso: string): string {
-  return TIME_FMT.format(new Date(iso));
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "—" : TIME_FMT.format(d);
 }
 
 export interface DayGroup {
@@ -80,7 +116,9 @@ export function specRows(a: Asset): Array<[string, string]> {
   }
   rows.push(["Tamaño", bytesHuman(a.bytes)]);
   if (a.cameraModel) rows.push(["Cámara", [a.cameraMake, a.cameraModel].filter(Boolean).join(" ")]);
-  rows.push(["Capturado", `${new Date(a.capturedAt).toLocaleDateString("es-ES")} · ${timeLabel(a.capturedAt)}`]);
+  // misma zona horaria que los encabezados de día: si no, la ficha podía decir
+  // "16/09" bajo una sección titulada "martes 15".
+  rows.push(["Capturado", `${DATE_FMT.format(new Date(a.capturedAt))} · ${timeLabel(a.capturedAt)}`]);
   if (a.lat != null && a.lon != null) rows.push(["Lugar", `${a.lat.toFixed(4)}, ${a.lon.toFixed(4)}`]);
   return rows;
 }

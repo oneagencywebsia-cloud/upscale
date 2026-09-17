@@ -31,11 +31,18 @@ function probeFps(file: File): Promise<number | null> {
     const v = document.createElement("video");
     const url = URL.createObjectURL(file);
     let done = false;
+    let guard = 0;
     const finish = (fps: number | null) => {
       if (done) return;
       done = true;
+      window.clearTimeout(guard);
       try {
         v.pause();
+        // soltar el archivo de verdad: sin esto el navegador se queda con el
+        // decodificador y el buffer de un vídeo que puede ser de varios GB
+        // mientras dura la subida.
+        v.removeAttribute("src");
+        v.load();
       } catch {}
       URL.revokeObjectURL(url);
       resolve(fps);
@@ -67,12 +74,15 @@ function probeFps(file: File): Promise<number | null> {
       v.play().then(() => rvfc(tick)).catch(() => finish(null));
     };
     v.onerror = () => finish(null);
-    setTimeout(() => {
+    guard = window.setTimeout(() => {
       const elapsed = lastT - t0;
       finish(frames > 4 && elapsed > 0.2 ? Math.round(frames / elapsed) : null);
     }, 3500);
   });
 }
+
+/** Sin señales de vida durante este tiempo, se da por muerta la conexión. */
+const STALL_MS = 3 * 60 * 1000;
 
 function uploadOne(file: File, onPct: (p: number) => void, onProcessing: () => void): Promise<boolean> {
   return new Promise((resolve) => {
@@ -81,17 +91,50 @@ function uploadOne(file: File, onPct: (p: number) => void, onProcessing: () => v
     xhr.setRequestHeader("content-type", file.type || "application/octet-stream");
     xhr.setRequestHeader("x-filename", encodeURIComponent(file.name));
     xhr.setRequestHeader("x-captured-at", new Date(file.lastModified || Date.now()).toISOString());
+
+    // Un original ya puede ser de decenas de GB: con `xhr.timeout = 45 min` una
+    // subida perfectamente sana se abortaba a mitad por el simple hecho de ser
+    // grande (un vídeo de 30 GB por una subida doméstica son horas). En su
+    // lugar, no hay tope de duración: se vigila que la subida AVANCE. Y tras el
+    // último byte hay que darle su tiempo al servidor, que aún tiene que
+    // trocear y guardar el archivo antes de contestar.
+    let last = Date.now();
+    let uploaded = false;
+    const watchdog = window.setInterval(() => {
+      // Solo mientras se están mandando bytes. Una vez enviado el último, el
+      // servidor puede tardar lo que haga falta (trocear 30 GB hacia Telegram
+      // no es rápido) y cortar AQUÍ sería peor que esperar: el archivo se
+      // guardaría igual en el servidor y la app diría "Error".
+      if (uploaded || Date.now() - last <= STALL_MS) return;
+      window.clearInterval(watchdog);
+      try {
+        xhr.abort();
+      } catch {
+        /* ya estaba muerto */
+      }
+      resolve(false);
+    }, 5_000);
+    const stop = (ok: boolean) => {
+      window.clearInterval(watchdog);
+      resolve(ok);
+    };
+
     xhr.upload.onprogress = (e) => {
+      last = Date.now();
       if (e.lengthComputable) onPct(Math.min(99, Math.round((e.loaded / e.total) * 100)));
     };
     xhr.upload.onload = () => {
+      last = Date.now();
+      uploaded = true;
       onPct(100);
       onProcessing();
     };
-    xhr.onload = () => resolve(xhr.status >= 200 && xhr.status < 300);
-    xhr.onerror = () => resolve(false);
-    xhr.ontimeout = () => resolve(false);
-    xhr.timeout = 45 * 60 * 1000;
+    xhr.onprogress = () => (last = Date.now());
+    xhr.onload = () => stop(xhr.status >= 200 && xhr.status < 300);
+    xhr.onerror = () => stop(false);
+    xhr.onabort = () => stop(false);
+    xhr.ontimeout = () => stop(false);
+    xhr.timeout = 0; // sin tope: manda el vigilante de arriba
     xhr.send(file);
   });
 }
@@ -104,6 +147,19 @@ export default function Uploader({ onDone }: { onDone: () => void }) {
 
   const running = jobs !== null;
   const allSettled = running && jobs.every((j) => j.phase === "done" || j.phase === "error");
+
+  // Cerrar la pestaña a mitad de una subida de varios GB la tira entera y no
+  // hay forma de retomarla. Al menos que el navegador pregunte.
+  useEffect(() => {
+    if (!running || allSettled) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [running, allSettled]);
+
   const overall = running
     ? Math.round(
         jobs.reduce((s, j) => s + (j.phase === "done" || j.phase === "error" ? 100 : j.pct), 0) / jobs.length,
