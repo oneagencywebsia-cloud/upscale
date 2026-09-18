@@ -1295,29 +1295,70 @@ footer.status .dot {
   pointer-events: none;
   overflow: hidden;
   background:
-    radial-gradient(52% 44% at 78% 4%, color-mix(in srgb, var(--accent-2) 20%, transparent), transparent 72%),
-    radial-gradient(48% 42% at 14% 100%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 74%),
+    radial-gradient(58% 50% at 82% 2%, color-mix(in srgb, var(--accent-2) 38%, transparent), transparent 72%),
+    radial-gradient(54% 48% at 10% 102%, color-mix(in srgb, var(--accent) 32%, transparent), transparent 74%),
     var(--night);
 }
+.lib-aurora::before,
 .lib-aurora::after {
   content: "";
   position: absolute;
-  inset: -20%;
-  background: radial-gradient(38% 38% at 60% 65%, color-mix(in srgb, var(--accent-2) 14%, transparent), transparent 70%);
+  inset: -25%;
   transform-origin: center;
 }
-@media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {
+.lib-aurora::after {
+  background: radial-gradient(36% 36% at 60% 65%, color-mix(in srgb, var(--accent-2) 30%, transparent), transparent 70%);
+}
+.lib-aurora::before {
+  background: radial-gradient(30% 30% at 30% 30%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 72%);
+}
+@media (prefers-reduced-motion: no-preference) {
   .lib-aurora::after {
-    animation: libauroradrift 26s ease-in-out infinite alternate;
+    animation: libauroradrift 18s ease-in-out infinite alternate;
+  }
+  .lib-aurora::before {
+    animation: libauroradrift2 22s ease-in-out infinite alternate;
   }
 }
 @keyframes libauroradrift {
   0% {
-    transform: translate3d(-2%, -1%, 0) scale(1);
+    transform: translate3d(-4%, -3%, 0) scale(1);
   }
   100% {
-    transform: translate3d(2%, 2%, 0) scale(1.06);
+    transform: translate3d(5%, 4%, 0) scale(1.14);
   }
+}
+@keyframes libauroradrift2 {
+  0% {
+    transform: translate3d(3%, 4%, 0) scale(1.08) rotate(0deg);
+  }
+  100% {
+    transform: translate3d(-5%, -2%, 0) scale(0.96) rotate(-6deg);
+  }
+}
+
+/* Transición de "cubrir la pantalla" al tocar un acceso directo (pestaña,
+   tarjeta de álbum…) — se expande en círculo desde el punto tocado hasta
+   tapar toda la pantalla, navega, y se retira revelando la página nueva. */
+.nav-cover {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 120% at var(--cx) var(--cy), color-mix(in srgb, var(--accent-2) 55%, var(--night)) 0%, var(--night) 65%);
+}
+.nav-cover-glow {
+  position: absolute;
+  left: var(--cx);
+  top: var(--cy);
+  width: 46px;
+  height: 46px;
+  margin: -23px 0 0 -23px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 70%, white 10%);
+  filter: blur(18px);
+  opacity: 0.9;
 }
 
 .app-shell {
@@ -1450,6 +1491,9 @@ footer.status .dot {
   margin: 0 0 16px;
   font-size: 13.5px;
   color: var(--text-dim);
+}
+.gps-backfill .panel-lede {
+  margin: 10px 0 0;
 }
 .panel code {
   font-family: var(--font-mono);

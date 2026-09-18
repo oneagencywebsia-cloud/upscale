@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import type { Album } from "@upscale/shared";
+import { useCoverNav } from "./CoverTransition";
 
 /** Eco del icono de la app — mismo lenguaje visual que el EmptyMark de
  *  Gallery.tsx, para que "aún no tienes álbumes" siga sintiéndose Upscale. */
@@ -32,6 +33,7 @@ function EmptyMark() {
 
 export default function AlbumGrid({ initialAlbums, error }: { initialAlbums: Album[]; error: string | null }) {
   const router = useRouter();
+  const coverNav = useCoverNav();
   const [albums, setAlbums] = useState(initialAlbums);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
@@ -184,7 +186,15 @@ export default function AlbumGrid({ initialAlbums, error }: { initialAlbums: Alb
           </div>
         ) : (
           <div key={a.id} className="album-card-wrap">
-            <Link href={`/app/albumes/${a.id}`} className="album-card">
+            <Link
+              href={`/app/albumes/${a.id}`}
+              className="album-card"
+              onClick={(e) => {
+                if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                e.preventDefault();
+                coverNav(`/app/albumes/${a.id}`, { x: e.clientX, y: e.clientY });
+              }}
+            >
               <div className="album-cover">
                 {a.coverUrl ? <img src={a.coverUrl} alt="" loading="lazy" /> : <div className="album-cover-empty" aria-hidden="true" />}
               </div>

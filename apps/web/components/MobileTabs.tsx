@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
+import { useCoverNav } from "./CoverTransition";
 
 const MotionLink = motion.create(Link);
 
@@ -42,6 +43,7 @@ const I = {
 
 function Tab({ href, label, icon, active }: { href: string; label: string; icon: ReactNode; active: boolean }) {
   const [burst, setBurst] = useState(0);
+  const coverNav = useCoverNav();
 
   return (
     <MotionLink
@@ -50,6 +52,11 @@ function Tab({ href, label, icon, active }: { href: string; label: string; icon:
       aria-current={active}
       whileTap={{ scale: 0.82 }}
       onTapStart={() => setBurst((n) => n + 1)}
+      onClick={(e) => {
+        if (active || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        coverNav(href, { x: e.clientX, y: e.clientY });
+      }}
       transition={{ type: "spring", stiffness: 500, damping: 22 }}
     >
       <AnimatePresence>
