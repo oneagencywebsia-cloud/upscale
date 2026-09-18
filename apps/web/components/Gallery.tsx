@@ -9,6 +9,7 @@ import { durationHuman, groupByDay } from "@/lib/format";
 import Viewer from "./Viewer";
 import DensityControl from "./DensityControl";
 import AddToAlbumSheet from "./AddToAlbumSheet";
+import { useCoverAction } from "./CoverTransition";
 
 interface DayGroup {
   key: string;
@@ -80,6 +81,7 @@ export default function Gallery({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const coverAction = useCoverAction();
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
   const [assets, setAssets] = useState(flat);
   const [cursor, setCursor] = useState<string | null>(initialCursor);
@@ -613,7 +615,7 @@ export default function Gallery({
                   aria-label={a.filename}
                   aria-current={selected}
                   onPointerDown={(e) => onTilePointerDown(e, a.id)}
-                  onClick={() => {
+                  onClick={(e) => {
                     if (drag.current.didDrag) {
                       drag.current.didDrag = false;
                       return;
@@ -626,7 +628,8 @@ export default function Gallery({
                     // índice, abrir el 0 sería abrir OTRA foto (la más
                     // reciente) — justo el fallo que ya se arregló una vez.
                     const i = idxById.get(a.id);
-                    if (i !== undefined) openAt(i);
+                    if (i === undefined) return;
+                    coverAction({ x: e.clientX, y: e.clientY }, () => openAt(i));
                   }}
                 >
                   <img src={a.thumbUrl} alt={a.filename} loading="lazy" decoding="async" />

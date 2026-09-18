@@ -1346,19 +1346,16 @@ footer.status .dot {
   z-index: 80;
   pointer-events: none;
   background:
-    radial-gradient(120% 120% at var(--cx) var(--cy), color-mix(in srgb, var(--accent-2) 55%, var(--night)) 0%, var(--night) 65%);
+    radial-gradient(130% 130% at 28% 18%, color-mix(in srgb, var(--accent-2) 55%, var(--night)) 0%, var(--night) 68%);
 }
 .nav-cover-glow {
   position: absolute;
-  left: var(--cx);
-  top: var(--cy);
-  width: 46px;
-  height: 46px;
-  margin: -23px 0 0 -23px;
+  width: 72px;
+  height: 72px;
+  margin: -36px 0 0 -36px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--accent) 70%, white 10%);
-  filter: blur(18px);
-  opacity: 0.9;
+  background: color-mix(in srgb, var(--accent) 75%, white 15%);
+  filter: blur(22px);
 }
 
 .app-shell {

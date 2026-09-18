@@ -121,4 +121,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.27.4-transiciones-y-mantenimiento";
+export const VERSION = "0.27.5-arregla-parpadeo-transiciones";
