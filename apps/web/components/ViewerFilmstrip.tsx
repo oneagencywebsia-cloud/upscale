@@ -158,12 +158,17 @@ export default function ViewerFilmstrip({ assets, index, onIndex }: Props) {
       onIndex(best);
     }
     // el scroll nativo (con su inercia) sigue disparando este evento hasta que
-    // se asienta solo; en cuanto pasan 120 ms sin uno nuevo, se ha parado de
-    // verdad — ahí se ajusta el encaje final al centro exacto.
+    // se asienta solo; en cuanto pasan 220 ms sin uno nuevo, se ha parado de
+    // verdad — ahí se ajusta el encaje final al centro exacto. Con
+    // `scroll-snap-type: mandatory` el navegador ya encaja solo casi siempre;
+    // esto es red de seguridad, no el mecanismo principal — por eso el plazo
+    // es generoso: con 120ms este reencaje a veces se adelantaba a que la
+    // propia inercia nativa terminase de frenar, y el salto a "smooth" cortaba
+    // en seco ese frenado natural (se sentía como que se plantaba de golpe).
     window.clearTimeout(settleTimer.current);
     settleTimer.current = window.setTimeout(() => {
       if (best !== -1) centerOn(best, true);
-    }, 120);
+    }, 220);
   };
 
   // girar el móvil cambia el ancho de la tira y el de los rellenos: hay que

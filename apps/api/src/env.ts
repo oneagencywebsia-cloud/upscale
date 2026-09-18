@@ -121,4 +121,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.27.5-arregla-parpadeo-transiciones";
+export const VERSION = "0.27.6-visor-swipe-y-carrete";

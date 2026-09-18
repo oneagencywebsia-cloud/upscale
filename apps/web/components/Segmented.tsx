@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { motion } from "motion/react";
+import { useCoverNav } from "./CoverTransition";
 
 const FILTERS = [
   { key: "all", label: "Todo", href: "/app" },
@@ -14,6 +15,7 @@ const FILTERS = [
 export default function Segmented() {
   const pathname = usePathname();
   const sp = useSearchParams();
+  const coverNav = useCoverNav();
   if (pathname !== "/app") return null;
 
   const active = sp.get("fav") === "1" ? "fav" : sp.get("kind") ?? "all";
@@ -21,7 +23,17 @@ export default function Segmented() {
   return (
     <div className="seg" role="group" aria-label="Filtrar biblioteca">
       {FILTERS.map((f) => (
-        <Link key={f.key} href={f.href} role="button" aria-pressed={active === f.key}>
+        <Link
+          key={f.key}
+          href={f.href}
+          role="button"
+          aria-pressed={active === f.key}
+          onClick={(e) => {
+            if (active === f.key || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+            e.preventDefault();
+            coverNav(f.href, { x: e.clientX, y: e.clientY });
+          }}
+        >
           {active === f.key && (
             <motion.span
               layoutId="seg-pill"

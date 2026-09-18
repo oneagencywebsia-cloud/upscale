@@ -2677,8 +2677,13 @@ footer.status .dot {
 
   /* tira de miniaturas: el carrete de Fotos de verdad. Scroll NATIVO (no uno
      hecho a mano con JS) — así el navegador pone la inercia gratis al soltar
-     el dedo, en vez de quedarse parado en seco. scroll-snap ayuda al navegador
-     a encajar solo en el centro de cada miniatura al frenar. */
+     el dedo, en vez de quedarse parado en seco. `mandatory` (antes
+     `proximity`) deja que el propio navegador decelere Y encaje en el centro
+     de la miniatura como UN solo gesto nativo fluido; con `proximity` el
+     reencaje JS de más abajo (tras 120ms sin scroll) a veces se adelantaba a
+     que la inercia terminase de verdad, y el `scrollTo({behavior:'smooth'})`
+     forzado CORTABA en seco esa inercia — se sentía como que "se plantaba" al
+     soltar el dedo en vez de ir frenando poco a poco. */
   .vm-film {
     display: flex;
     align-items: center;
@@ -2687,7 +2692,7 @@ footer.status .dot {
     overflow-x: auto;
     overscroll-behavior-x: contain;
     scrollbar-width: none;
-    scroll-snap-type: x proximity;
+    scroll-snap-type: x mandatory;
     -webkit-overflow-scrolling: touch;
     -webkit-user-select: none;
     user-select: none;

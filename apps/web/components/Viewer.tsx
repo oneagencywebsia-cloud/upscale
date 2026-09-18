@@ -86,6 +86,10 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
   useEffect(() => {
     setChromeVisible(true);
     setSheetOpen(false);
+    // si el gesto de la foto anterior se quedó "activo" por lo que sea (ver
+    // onLostPointerCapture más abajo), no puede colarse a la foto nueva —
+    // arrancar cada foto con el gesto limpio de verdad.
+    gesture.current = { id: -1, active: false, x0: 0, y0: 0, t0: 0, axis: null };
     dragY.set(0);
     dragX.set(0);
   }, [a?.id, dragY, dragX]);
@@ -339,6 +343,15 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
     },
     [dragX, dragY],
   );
+  // `lostpointercapture`: red de seguridad ante el mismo fallo que
+  // `pointercancel` pero que este SIEMPRE dispara, pase lo que pase con el
+  // dedo (a diferencia de pointerup/pointercancel, que iOS a veces se traga
+  // sin avisar si interpreta el gesto como el arranque de un pellizco o un
+  // gesto del sistema). Sin esto, `gesture.current.active` se quedaba en
+  // `true` para siempre y CUALQUIER deslizamiento siguiente se ignoraba en
+  // `onMediaPointerDown` — hasta que un pellizco de 2 dedos forzaba a iOS a
+  // soltar la captura y sin querer "desatascaba" el gesto.
+  const onMediaLostPointerCapture = onMediaPointerCancel;
 
   // al cerrar el visor: se corta la animación de paso pendiente (si no, su
   // `.then()` llamaba a onIndex y el visor se REABRÍA solo un instante después)
@@ -419,6 +432,7 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
                   onPointerMove={onMediaPointerMove}
                   onPointerUp={onMediaPointerUp}
                   onPointerCancel={onMediaPointerCancel}
+                  onLostPointerCapture={onMediaLostPointerCapture}
                 >
                   <motion.video
                     key={a.id}
@@ -474,6 +488,7 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
                   onPointerMove={isLive ? undefined : onMediaPointerMove}
                   onPointerUp={isLive ? liveStop : onMediaPointerUp}
                   onPointerCancel={isLive ? liveStop : onMediaPointerCancel}
+                  onLostPointerCapture={isLive ? undefined : onMediaLostPointerCapture}
                   onPointerLeave={isLive ? liveStop : undefined}
                   onContextMenu={isLive ? (e) => e.preventDefault() : undefined}
                 >
