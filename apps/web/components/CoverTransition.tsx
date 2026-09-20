@@ -108,8 +108,8 @@ export default function CoverTransitionProvider({ children }: { children: React.
             className="nav-cover"
             initial={{ clipPath: `circle(0px at ${origin.x}px ${origin.y}px)` }}
             animate={{ clipPath: `circle(${radius}px at ${origin.x}px ${origin.y}px)` }}
-            exit={{ opacity: 0, transition: { duration: 0.3, ease: "easeOut" } }}
-            transition={{ duration: 0.44, ease: [0.65, 0, 0.16, 1] }}
+            exit={{ opacity: 0, transition: { duration: 0.16, ease: "easeOut" } }}
+            transition={{ duration: 0.24, ease: [0.5, 0, 0.1, 1] }}
             onAnimationComplete={() => {
               const run = runRef.current;
               runRef.current = null;
@@ -124,7 +124,7 @@ export default function CoverTransitionProvider({ children }: { children: React.
               style={{ left: origin.x, top: origin.y }}
               initial={{ scale: 0.6, opacity: 0.95 }}
               animate={{ scale: 3.4, opacity: 0 }}
-              transition={{ duration: 0.5, ease: "easeOut" }}
+              transition={{ duration: 0.28, ease: "easeOut" }}
               aria-hidden="true"
             />
           </motion.div>
