@@ -16,6 +16,7 @@ export default function GpsBackfill() {
   const [status, setStatus] = useState<Status>("idle");
   const [total, setTotal] = useState(0);
   const [actualizados, setActualizados] = useState(0);
+  const [pendientes, setPendientes] = useState<number | null>(null);
 
   async function run() {
     setStatus("running");
@@ -25,10 +26,11 @@ export default function GpsBackfill() {
       for (;;) {
         const r = await fetch("/api/gps-backfill", { method: "POST" });
         if (!r.ok) throw new Error("fallo");
-        const data = (await r.json()) as { procesados: number; actualizados: number };
+        const data = (await r.json()) as { procesados: number; actualizados: number; pendientes: number };
         setTotal((t) => t + data.procesados);
         setActualizados((a) => a + data.actualizados);
-        if (data.procesados < 40) break;
+        setPendientes(data.pendientes);
+        if (data.procesados === 0 || data.pendientes === 0) break;
       }
       setStatus("done");
     } catch {
@@ -47,10 +49,10 @@ export default function GpsBackfill() {
       >
         {status === "running" ? "Actualizando ubicaciones…" : "Actualizar ubicaciones en el mapa"}
       </motion.button>
-      {status === "running" && <p className="panel-lede">{total} fotos revisadas…</p>}
+      {status === "running" && <p className="panel-lede">{total} revisados, {actualizados} con ubicación{pendientes ? ` — quedan ${pendientes}` : ""}…</p>}
       {status === "done" && (
         <p className="panel-lede">
-          Listo — {total} fotos revisadas, {actualizados} con ubicación nueva encontrada.
+          Listo — {total} archivos revisados, {actualizados} con ubicación encontrada. El resto no traen GPS guardado.
         </p>
       )}
       {status === "error" && <p className="panel-lede">No se pudo completar. Reinténtalo.</p>}

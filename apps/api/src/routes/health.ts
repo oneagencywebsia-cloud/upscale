@@ -362,45 +362,54 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
       await query<{ id: string; kind: "photo" | "video"; original_key: string; filename: string; bytes: string }>(
         `select id, kind, original_key, filename, bytes from assets
            where user_id = $1 and lat is null and lon is null and deleted_at is null
-             and stored = true and not unrecoverable
+             and gps_checked_at is null and stored = true and not unrecoverable
            order by uploaded_at desc limit $2`,
         [userId, lote],
       )
     ).rows;
-    if (!rows.length) return { procesados: 0, actualizados: 0 };
+    if (!rows.length) return { procesados: 0, actualizados: 0, pendientes: 0 };
 
-    const { tgEnsureLocal, tgHeadTailTemp } = await import("../telegram.js");
+    const { tgHeadTailTemp } = await import("../telegram.js");
     const { probe } = await import("../media.js");
+    await mkdir(env.TMP_DIR, { recursive: true });
     let actualizados = 0;
-    for (const a of rows) {
-      let tmp: string | null = null;
-      let esPropio = false;
+
+    // El EXIF/GPS va al principio del archivo: bajar solo la cabecera (unos
+    // MB) en vez del original entero hace esto ~20x más rápido con el techo
+    // de ancho de banda de Telegram. Varios a la vez para solapar esperas.
+    const uno = async (a: (typeof rows)[number]) => {
+      const ext = a.filename.match(/\.[a-z0-9]{2,5}$/i)?.[0] ?? (a.kind === "video" ? ".mov" : ".jpg");
+      const tmp = join(env.TMP_DIR, `gps-${a.id}-${randomBytes(4).toString("hex")}${ext}`);
       try {
-        // vídeos grandes: cabecera+cola (el GPS suele ir en los metadatos del
-        // principio) en vez de bajar el original entero — mismo criterio que
-        // backfillDerivatives.
-        const grande = a.kind === "video" && Number(a.bytes) > 24 * 1024 * 1024;
-        if (grande) {
-          await mkdir(env.TMP_DIR, { recursive: true });
-          const ext = a.filename.match(/\.[a-z0-9]{2,5}$/i)?.[0] ?? ".mov";
-          tmp = join(env.TMP_DIR, `gps-${a.id}-${randomBytes(4).toString("hex")}${ext}`);
-          await tgHeadTailTemp(a.original_key, tmp);
-          esPropio = true;
-        } else {
-          tmp = await tgEnsureLocal(a.original_key, 3);
-        }
+        const esFoto = a.kind === "photo";
+        await tgHeadTailTemp(a.original_key, tmp, esFoto ? 3 * 1024 * 1024 : undefined, esFoto ? 512 * 1024 : undefined);
         const info = await probe(tmp, a.filename);
         if (info.lat != null && info.lon != null) {
-          await query("update assets set lat = $1, lon = $2 where id = $3", [info.lat, info.lon, a.id]);
+          await query("update assets set lat = $1, lon = $2, gps_checked_at = now() where id = $3", [info.lat, info.lon, a.id]);
           actualizados++;
+          return;
         }
       } catch {
-        /* sin GPS, o no se pudo leer — se pasa al siguiente sin bloquear el lote */
+        /* no se pudo leer — se marca como revisado igualmente para no atascar el lote */
       } finally {
-        if (tmp && esPropio) await rm(tmp, { force: true }).catch(() => {});
+        await rm(tmp, { force: true }).catch(() => {});
       }
-    }
-    return { procesados: rows.length, actualizados };
+      await query("update assets set gps_checked_at = now() where id = $1", [a.id]).catch(() => {});
+    };
+    const cola = [...rows];
+    await Promise.all(
+      Array.from({ length: 4 }, async () => {
+        for (let a = cola.shift(); a; a = cola.shift()) await uno(a);
+      }),
+    );
+
+    const rest = await query<{ n: string }>(
+      `select count(*) as n from assets
+         where user_id = $1 and lat is null and lon is null and deleted_at is null
+           and gps_checked_at is null and stored = true and not unrecoverable`,
+      [userId],
+    );
+    return { procesados: rows.length, actualizados, pendientes: Number(rest.rows[0]?.n ?? 0) };
   });
 
   // vídeos cuyo contenedor llegó roto de origen (duration_s nunca se pudo

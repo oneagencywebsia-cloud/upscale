@@ -3210,89 +3210,189 @@ footer.status .dot {
 }
 
 /* ===================================================================
-   Vista de mapa (/app/mapa) — Leaflet + teselas oscuras de CARTO.
+   Vista de mapa (/app/mapa) — Leaflet + CARTO (oscuro / voyager según tema).
    =================================================================== */
+.map-wrap {
+  position: relative;
+}
 .map-view {
   width: 100%;
-  height: calc(100dvh - 220px);
-  min-height: 420px;
-  border-radius: 20px;
+  height: calc(100dvh - 210px);
+  min-height: 440px;
+  border-radius: 22px;
   overflow: hidden;
   border: 1px solid var(--stroke);
   background: var(--night, #0c1018);
-  box-shadow: 0 14px 34px -22px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  box-shadow: 0 22px 50px -26px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 @media (max-width: 720px) {
   .map-view {
-    height: calc(100dvh - 180px);
-    border-radius: 14px;
+    height: calc(100dvh - 190px);
+    border-radius: 16px;
   }
 }
-/* miniatura circular en vez del pin por defecto de Leaflet, para que haga eco
-   del estilo "photo-forward" del resto de la app (ver .frame). */
+.map-chip {
+  position: absolute;
+  z-index: 500;
+  top: 14px;
+  left: 14px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  background: var(--glass-strong, rgba(20, 26, 40, 0.75));
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--stroke);
+  pointer-events: none;
+}
+.map-chip b {
+  color: var(--light, #fff);
+  font-family: var(--font-display);
+}
+.map-fit {
+  position: absolute;
+  z-index: 500;
+  top: 14px;
+  right: 14px;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--light, #fff);
+  background: var(--glass-strong, rgba(20, 26, 40, 0.75));
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--stroke);
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.map-fit:active {
+  transform: scale(0.9);
+}
+.map-view .leaflet-control-zoom {
+  border: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 8px 22px -10px rgba(0, 0, 0, 0.6);
+}
+.map-view .leaflet-control-zoom a {
+  width: 38px;
+  height: 38px;
+  line-height: 38px;
+  color: var(--light, #fff);
+  background: var(--glass-strong, rgba(20, 26, 40, 0.8));
+  border-bottom: 1px solid var(--stroke);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+.map-view .leaflet-control-attribution {
+  background: color-mix(in srgb, var(--night, #0c1018) 70%, transparent);
+  color: var(--text-mute, #8b90a0);
+  font-size: 10px;
+  border-radius: 8px 0 0 0;
+}
+.map-view .leaflet-control-attribution a {
+  color: var(--text-dim);
+}
+/* marcador tipo pin: miniatura redondeada con borde de marca y "colita" */
 .map-thumb-marker {
   background: transparent;
   border: 0;
 }
 .map-thumb-ring {
+  position: relative;
   display: block;
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  overflow: hidden;
-  border: 2px solid var(--accent, #1c8fac);
-  box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.7), 0 0 0 3px color-mix(in srgb, var(--night, #0c1018) 70%, transparent);
-  background: var(--glass-strong, #1a2130);
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  border: 2.5px solid #fff;
+  box-shadow: 0 10px 20px -8px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(0, 0, 0, 0.25);
+  background: #131313;
+  transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.4);
+}
+.map-thumb-ring::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -9px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  background: #fff;
+  transform: rotate(45deg);
+  border-radius: 0 0 3px 0;
+  z-index: -1;
+}
+.map-thumb-marker:hover .map-thumb-ring {
+  transform: translateY(-3px) scale(1.12);
 }
 .map-thumb-ring img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
+  border-radius: 11px;
 }
-.marker-cluster {
-  background: color-mix(in srgb, var(--accent) 28%, transparent);
+/* burbuja de grupo: degradado de la marca + contador */
+.map-cluster {
+  background: transparent;
+  border: 0;
 }
-.marker-cluster div {
-  background: var(--glass-strong, #1a2130);
-  border: 1px solid var(--stroke);
-  color: var(--light, #e8ecf4);
-  font-family: var(--font-mono);
-  font-weight: 600;
+.map-cluster-bubble {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: linear-gradient(140deg, var(--accent-2, #4a7cff), var(--accent, #1c8fac));
+  border: 3px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 28%, transparent), 0 12px 24px -8px rgba(0, 0, 0, 0.7);
+  font-family: var(--font-display);
+  font-size: 14px;
+  transition: transform 0.18s ease;
+}
+.map-cluster:hover .map-cluster-bubble {
+  transform: scale(1.1);
+}
+.map-cluster-bubble b {
+  font-weight: 700;
 }
 .map-popup {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  align-items: center;
-  min-width: 160px;
+  gap: 10px;
+  align-items: stretch;
+  width: 200px;
 }
 .map-popup img {
   width: 100%;
-  max-width: 220px;
-  max-height: 220px;
-  border-radius: 12px;
+  height: 180px;
+  border-radius: 14px;
   object-fit: cover;
-  border: 1px solid var(--stroke);
+  display: block;
 }
 .map-popup a {
+  text-align: center;
+  padding: 9px 12px;
+  border-radius: 12px;
   font-size: 12.5px;
-  color: var(--accent);
+  color: #fff;
   text-decoration: none;
   font-weight: 600;
+  background: linear-gradient(140deg, var(--accent-2, #4a7cff), var(--accent, #1c8fac));
 }
-.map-popup a:hover {
-  text-decoration: underline;
-}
-.leaflet-popup-content-wrapper {
+.map-popup-wrap .leaflet-popup-content-wrapper {
   background: var(--glass-strong, #1a2130);
   color: var(--light, #e8ecf4);
-  border-radius: 14px;
+  border-radius: 20px;
+  padding: 4px;
   border: 1px solid var(--stroke);
+  box-shadow: 0 24px 50px -16px rgba(0, 0, 0, 0.7);
 }
-.leaflet-popup-tip {
+.map-popup-wrap .leaflet-popup-content {
+  margin: 8px;
+}
+.map-popup-wrap .leaflet-popup-tip {
   background: var(--glass-strong, #1a2130);
-}
-.leaflet-container a.leaflet-popup-close-button {
-  color: var(--text-mute, #8b90a0);
 }
