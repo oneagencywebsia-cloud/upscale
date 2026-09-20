@@ -121,4 +121,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.27.8-animaciones-variadas";
+export const VERSION = "0.27.9-cover-filtros-rapido";

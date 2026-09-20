@@ -1,7 +1,7 @@
 "use client";
 
-import { createContext, useCallback, useContext, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 
 interface Origin {
@@ -100,14 +100,30 @@ export default function CoverTransitionProvider({ children }: { children: React.
     }
   };
 
+  const activeRef = useRef(false);
   const retreat = useCallback(() => {
     clearSafety();
+    activeRef.current = false;
     setOrigin(null);
   }, []);
+
+  // Cambiar solo el ?kind=/?fav= (Todo/Fotos/Vídeos) NO remonta el template,
+  // así que nadie avisaba de "ya llegó" y el overlay esperaba al temporizador
+  // de seguridad (2,5 s). El cambio de URL es la señal real en ese caso.
+  const pathname = usePathname();
+  const sp = useSearchParams();
+  const urlKey = `${pathname}?${sp.toString()}`;
+  const lastUrl = useRef(urlKey);
+  useEffect(() => {
+    if (lastUrl.current === urlKey) return;
+    lastUrl.current = urlKey;
+    if (activeRef.current && modeRef.current === "nav" && runRef.current === null) retreat();
+  }, [urlKey, retreat]);
 
   const trigger = useCallback((o: Origin, run: () => void, mode: Mode) => {
     if (runRef.current) return; // ya hay una transición en marcha
     runRef.current = run;
+    activeRef.current = true;
     modeRef.current = mode;
     if (!deck.current.length) deck.current = makeDeck(lastVariant.current);
     const v = deck.current.shift()!;
