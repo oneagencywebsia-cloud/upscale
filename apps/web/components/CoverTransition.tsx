@@ -10,6 +10,20 @@ interface Origin {
 }
 
 type Mode = "nav" | "action";
+type Variant = "circle" | "diamond" | "wipe" | "shutter" | "blinds";
+
+/** Duración de la fase de cubrir de cada estilo (s). */
+const DUR: Record<Variant, number> = { circle: 0.24, diamond: 0.26, wipe: 0.26, shutter: 0.24, blinds: 0.32 };
+const VARIANTS: Variant[] = ["circle", "wipe", "diamond", "shutter", "blinds"];
+const BLIND_COUNT = 7;
+
+/** Baraja los estilos y los va sacando de uno en uno: nunca repite el mismo
+ *  dos veces seguidas, pero el orden cambia cada vuelta. */
+function makeDeck(last?: Variant): Variant[] {
+  const d = [...VARIANTS].sort(() => Math.random() - 0.5);
+  if (d[0] === last) d.push(d.shift()!);
+  return d;
+}
 
 interface CoverApi {
   trigger: (origin: Origin, run: () => void, mode: Mode) => void;
@@ -17,6 +31,11 @@ interface CoverApi {
 }
 
 const CoverCtx = createContext<CoverApi | null>(null);
+
+function manhattanToCorner(x: number, y: number): number {
+  if (typeof window === "undefined") return 0;
+  return Math.ceil(Math.max(x, window.innerWidth - x) + Math.max(y, window.innerHeight - y));
+}
 
 function radiusToCorner(x: number, y: number): number {
   if (typeof window === "undefined") return 0;
@@ -67,6 +86,9 @@ export function useCoverArrived(): () => void {
 
 export default function CoverTransitionProvider({ children }: { children: React.ReactNode }) {
   const [origin, setOrigin] = useState<Origin | null>(null);
+  const [variant, setVariant] = useState<Variant>("circle");
+  const deck = useRef<Variant[]>([]);
+  const lastVariant = useRef<Variant | undefined>(undefined);
   const runRef = useRef<(() => void) | null>(null);
   const modeRef = useRef<Mode>("nav");
   const safetyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -87,6 +109,10 @@ export default function CoverTransitionProvider({ children }: { children: React.
     if (runRef.current) return; // ya hay una transición en marcha
     runRef.current = run;
     modeRef.current = mode;
+    if (!deck.current.length) deck.current = makeDeck(lastVariant.current);
+    const v = deck.current.shift()!;
+    lastVariant.current = v;
+    setVariant(v);
     setOrigin(o);
   }, []);
 
@@ -97,6 +123,9 @@ export default function CoverTransitionProvider({ children }: { children: React.
   }, [retreat]);
 
   const radius = origin ? radiusToCorner(origin.x, origin.y) : 0;
+  const manhattan = origin ? manhattanToCorner(origin.x, origin.y) : 0;
+  const T = DUR[variant];
+  const ease = [0.5, 0, 0.1, 1] as const;
 
   return (
     <CoverCtx.Provider value={{ trigger, arrived }}>
@@ -106,10 +135,10 @@ export default function CoverTransitionProvider({ children }: { children: React.
           <motion.div
             key="cover"
             className="nav-cover"
-            initial={{ clipPath: `circle(0px at ${origin.x}px ${origin.y}px)` }}
-            animate={{ clipPath: `circle(${radius}px at ${origin.x}px ${origin.y}px)` }}
+            initial={{ opacity: 0.99 }}
+            animate={{ opacity: 1 }}
             exit={{ opacity: 0, transition: { duration: 0.16, ease: "easeOut" } }}
-            transition={{ duration: 0.24, ease: [0.5, 0, 0.1, 1] }}
+            transition={{ duration: T }}
             onAnimationComplete={() => {
               const run = runRef.current;
               runRef.current = null;
@@ -119,14 +148,98 @@ export default function CoverTransitionProvider({ children }: { children: React.
               safetyTimer.current = setTimeout(retreat, modeRef.current === "action" ? 240 : 2500);
             }}
           >
-            <motion.span
-              className="nav-cover-glow"
-              style={{ left: origin.x, top: origin.y }}
-              initial={{ scale: 0.6, opacity: 0.95 }}
-              animate={{ scale: 3.4, opacity: 0 }}
-              transition={{ duration: 0.28, ease: "easeOut" }}
-              aria-hidden="true"
-            />
+            {variant === "circle" && (
+              <>
+                <motion.div
+                  className="nav-cover-fill"
+                  initial={{ clipPath: `circle(0px at ${origin.x}px ${origin.y}px)` }}
+                  animate={{ clipPath: `circle(${radius}px at ${origin.x}px ${origin.y}px)` }}
+                  transition={{ duration: T, ease }}
+                />
+                <motion.span
+                  className="nav-cover-glow"
+                  style={{ left: origin.x, top: origin.y }}
+                  initial={{ scale: 0.6, opacity: 0.95 }}
+                  animate={{ scale: 3.4, opacity: 0 }}
+                  transition={{ duration: 0.28, ease: "easeOut" }}
+                  aria-hidden="true"
+                />
+              </>
+            )}
+            {variant === "diamond" && (
+              <>
+                <motion.div
+                  className="nav-cover-fill alt"
+                  initial={{ clipPath: `polygon(${origin.x}px ${origin.y}px, ${origin.x}px ${origin.y}px, ${origin.x}px ${origin.y}px, ${origin.x}px ${origin.y}px)` }}
+                  animate={{
+                    clipPath: `polygon(${origin.x}px ${origin.y - manhattan}px, ${origin.x + manhattan}px ${origin.y}px, ${origin.x}px ${origin.y + manhattan}px, ${origin.x - manhattan}px ${origin.y}px)`,
+                  }}
+                  transition={{ duration: T, ease }}
+                />
+                <motion.span
+                  className="nav-cover-glow"
+                  style={{ left: origin.x, top: origin.y }}
+                  initial={{ scale: 0.6, opacity: 0.95 }}
+                  animate={{ scale: 3.4, opacity: 0 }}
+                  transition={{ duration: 0.28, ease: "easeOut" }}
+                  aria-hidden="true"
+                />
+              </>
+            )}
+            {variant === "wipe" && (
+              <>
+                <motion.div
+                  className="nav-cover-wipe alt"
+                  initial={{ x: "-112%" }}
+                  animate={{ x: "0%" }}
+                  transition={{ duration: T, ease }}
+                />
+                <motion.div
+                  className="nav-cover-wipe"
+                  initial={{ x: "-112%" }}
+                  animate={{ x: "0%" }}
+                  transition={{ duration: T, ease, delay: 0.05 }}
+                />
+              </>
+            )}
+            {variant === "shutter" && (
+              <>
+                <motion.div
+                  className="nav-cover-half top"
+                  initial={{ scaleY: 0 }}
+                  animate={{ scaleY: 1 }}
+                  transition={{ duration: T, ease }}
+                />
+                <motion.div
+                  className="nav-cover-half bottom"
+                  initial={{ scaleY: 0 }}
+                  animate={{ scaleY: 1 }}
+                  transition={{ duration: T, ease }}
+                />
+                <motion.span
+                  className="nav-cover-line"
+                  initial={{ scaleX: 0, opacity: 1 }}
+                  animate={{ scaleX: 1, opacity: 0 }}
+                  transition={{ duration: T + 0.08, ease: "easeOut" }}
+                  aria-hidden="true"
+                />
+              </>
+            )}
+            {variant === "blinds" &&
+              Array.from({ length: BLIND_COUNT }, (_, i) => (
+                <motion.div
+                  key={i}
+                  className={`nav-cover-blind ${i % 2 ? "alt" : ""}`}
+                  style={{
+                    left: `${(i * 100) / BLIND_COUNT}%`,
+                    width: `${100 / BLIND_COUNT + 0.4}%`,
+                    transformOrigin: i % 2 ? "bottom" : "top",
+                  }}
+                  initial={{ scaleY: 0 }}
+                  animate={{ scaleY: 1 }}
+                  transition={{ duration: 0.2, ease, delay: i * 0.02 }}
+                />
+              ))}
           </motion.div>
         )}
       </AnimatePresence>

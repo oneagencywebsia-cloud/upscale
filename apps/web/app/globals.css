@@ -1345,8 +1345,63 @@ footer.status .dot {
   inset: 0;
   z-index: 80;
   pointer-events: none;
+  overflow: hidden;
+}
+.nav-cover-fill,
+.nav-cover-wipe,
+.nav-cover-half,
+.nav-cover-blind {
+  position: absolute;
   background:
     radial-gradient(130% 130% at 28% 18%, color-mix(in srgb, var(--accent-2) 55%, var(--night)) 0%, var(--night) 68%);
+}
+.nav-cover-fill {
+  inset: 0;
+}
+.nav-cover-fill.alt,
+.nav-cover-blind.alt {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 45%, var(--night)) 0%, var(--night) 70%);
+}
+/* barrido diagonal: dos paneles inclinados, el de color va un pelín delante */
+.nav-cover-wipe {
+  top: 0;
+  bottom: 0;
+  left: -18%;
+  width: 136%;
+  clip-path: polygon(0 0, 100% 0, 92% 100%, 0 100%);
+}
+.nav-cover-wipe.alt {
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+  left: -12%;
+}
+/* persiana: dos mitades que se cierran hacia el centro con una línea de luz */
+.nav-cover-half {
+  left: 0;
+  right: 0;
+  height: 50.5%;
+}
+.nav-cover-half.top {
+  top: 0;
+  transform-origin: top;
+}
+.nav-cover-half.bottom {
+  bottom: 0;
+  transform-origin: bottom;
+}
+.nav-cover-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  margin-top: -1px;
+  background: color-mix(in srgb, var(--accent) 80%, white 20%);
+  box-shadow: 0 0 22px 4px color-mix(in srgb, var(--accent) 70%, transparent);
+  transform-origin: center;
+}
+.nav-cover-blind {
+  top: 0;
+  bottom: 0;
 }
 .nav-cover-glow {
   position: absolute;
