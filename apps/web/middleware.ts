@@ -2,7 +2,17 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient, type SetAllCookies } from "@supabase/ssr";
 import { safeNext } from "@/lib/safe-next";
 
-/** Refresca la sesión de Supabase en cada request y protege /app/*. */
+/** Refresca la sesión de Supabase y protege /app/*.
+ *
+ *  Usa `getSession()` (lee la cookie y SOLO llama a Supabase si el token está a
+ *  punto de caducar y hay que refrescarlo). Antes usaba `getUser()`, que hace
+ *  un viaje de red a Supabase en CADA petición: páginas, /api/* y hasta cada
+ *  miniatura — la causa principal de que todo fuera lento.
+ *
+ *  Es seguro: aquí solo se decide una redirección de comodidad. Quien sirve
+ *  datos valida el token de verdad: el layout de /app con `getUser()` y la API
+ *  con `/auth/v1/user`. Una cookie falsificada pasa este filtro pero no ve
+ *  nada. */
 export async function middleware(req: NextRequest) {
   let res = NextResponse.next({ request: req });
 
@@ -23,12 +33,12 @@ export async function middleware(req: NextRequest) {
   );
 
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
 
   const { pathname } = req.nextUrl;
   const protectedPath = pathname === "/app" || pathname.startsWith("/app/");
-  if (protectedPath && !user) {
+  if (protectedPath && !session) {
     const url = req.nextUrl.clone();
     url.pathname = "/";
     url.search = "";
@@ -40,6 +50,9 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|favicon-32.png|icons/|icon.svg|icon-maskable.svg|icon-192.png|icon-512.png|apple-icon.png|apple-touch-icon.png|manifest.webmanifest|sw.js).*)",
+    // `_api/` queda FUERA: es el proxy a la API de Upscale (miniaturas con URL
+    // firmada por HMAC, sin sesión). Pasar cada miniatura por el middleware
+    // era un viaje a Supabase por imagen.
+    "/((?!_next/static|_next/image|_api/|favicon.ico|favicon-32.png|icons/|icon.svg|icon-maskable.svg|icon-192.png|icon-512.png|apple-icon.png|apple-touch-icon.png|manifest.webmanifest|sw.js).*)",
   ],
 };

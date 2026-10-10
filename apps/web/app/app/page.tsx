@@ -24,36 +24,36 @@ export default async function GalleryPage({
   const filter = kind === "photo" || kind === "video" ? kind : undefined;
   const onlyFav = fav === "1";
 
+  // Las tres consultas son independientes: en paralelo (antes iban en serie,
+  // sumando sus latencias en cada carga y cada refresco).
+  const [list, cams, store] = await Promise.allSettled([
+    // SOLO la primera página: la biblioteca puede tener cientos de miles de
+    // archivos. El resto entra por scroll infinito (cursor keyset).
+    listAssets({ limit: 120, kind: filter, fav: onlyFav, q, camera, from, to }),
+    listCameras(),
+    getStorage(),
+  ]);
+
   let items: Awaited<ReturnType<typeof listAssets>>["items"] = [];
   let cursor: string | null = null;
   let error: string | null = null;
-  try {
-    // SOLO la primera página: la biblioteca puede tener cientos de miles de
-    // archivos. El resto entra por scroll infinito (cursor keyset).
-    const data = await listAssets({ limit: 120, kind: filter, fav: onlyFav, q, camera, from, to });
-    items = data.items;
-    cursor = data.nextCursor ?? null;
-  } catch {
+  if (list.status === "fulfilled") {
+    items = list.value.items;
+    cursor = list.value.nextCursor ?? null;
+  } else {
     error = "No se pudo conectar con el servidor de Upscale.";
   }
 
-  let cameras: string[] = [];
-  try {
-    cameras = (await listCameras()).cameras;
-  } catch {
-    /* si falla, el desplegable de cámara sale vacío */
-  }
+  // si falla, el desplegable de cámara sale vacío
+  const cameras = cams.status === "fulfilled" ? cams.value.cameras : [];
 
   // Totales REALES de toda la biblioteca (un sum/count en la BD), no solo de lo
-  // que se ha cargado en pantalla.
+  // que se ha cargado en pantalla. Si falla, se enseña lo cargado.
   let totalCount = items.length;
   let totalBytes = items.reduce((s, a) => s + a.bytes, 0);
-  try {
-    const s = await getStorage();
-    totalCount = s.count;
-    totalBytes = s.usedBytes;
-  } catch {
-    /* si falla, se enseña lo cargado */
+  if (store.status === "fulfilled") {
+    totalCount = store.value.count;
+    totalBytes = store.value.usedBytes;
   }
 
   const groups = groupByDay(items);

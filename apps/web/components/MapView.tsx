@@ -20,6 +20,9 @@ const TILES = {
 const ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OSM</a> &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>';
 
+/** Para meter una URL dentro de un atributo HTML construido a mano. */
+const esc = (v: string) => v.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
 function isLightTheme(): boolean {
   const t = document.documentElement.getAttribute("data-theme");
   if (t) return t === "light";
@@ -62,6 +65,11 @@ export default function MapView({ points }: { points: MapPoint[] }) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cluster = (L as any).markerClusterGroup({
         maxClusterRadius: 58,
+        // con miles de puntos, añadirlos de golpe congelaba la pestaña: se
+        // meten por tandas sin bloquear el hilo principal
+        chunkedLoading: true,
+        chunkInterval: 80,
+        chunkDelay: 20,
         spiderfyOnMaxZoom: true,
         showCoverageOnHover: false,
         animate: true,
@@ -83,7 +91,7 @@ export default function MapView({ points }: { points: MapPoint[] }) {
       for (const p of points) {
         const icon = L.divIcon({
           className: "map-thumb-marker",
-          html: `<span class="map-thumb-ring"><img src="${p.thumbUrl}" alt="" loading="lazy" /></span>`,
+          html: `<span class="map-thumb-ring"><img src="${esc(p.thumbUrl)}" alt="" loading="lazy" decoding="async" /></span>`,
           iconSize: [46, 54],
           iconAnchor: [23, 52],
           popupAnchor: [0, -50],
@@ -92,8 +100,8 @@ export default function MapView({ points }: { points: MapPoint[] }) {
         const popupEl = document.createElement("div");
         popupEl.className = "map-popup";
         popupEl.innerHTML = `
-          <img src="${p.thumbUrl}" alt="" />
-          <a href="/api/media/${p.id}" target="_blank" rel="noopener">Ver a tamaño completo</a>
+          <img src="${esc(p.thumbUrl)}" alt="" />
+          <a href="/api/media/${encodeURIComponent(p.id)}" target="_blank" rel="noopener">Ver a tamaño completo</a>
         `;
         marker.bindPopup(popupEl, { closeButton: false, maxWidth: 240, className: "map-popup-wrap" });
         cluster.addLayer(marker);

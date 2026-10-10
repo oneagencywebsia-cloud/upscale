@@ -1,7 +1,4 @@
-"use client";
-
 import Link from "next/link";
-import { motion } from "motion/react";
 import AuthButtons from "./AuthButtons";
 
 const FEATURES = [
@@ -23,6 +20,9 @@ const FEATURES = [
   },
 ];
 
+/** Las animaciones de entrada son CSS puro (`.rise`): con `motion` + `initial`
+ *  el HTML del servidor llegaba con todo en opacidad 0 y la portada se veía en
+ *  blanco hasta que el JS terminaba de hidratar. */
 export default function Landing({ loggedIn, next }: { loggedIn: boolean; next: string }) {
   return (
     <div className="landing">
@@ -44,24 +44,16 @@ export default function Landing({ loggedIn, next }: { loggedIn: boolean; next: s
       </header>
 
       <section className="hero">
-        <motion.p className="eyebrow" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
-          NUBE DE FOTOS PERSONAL
-        </motion.p>
-        <motion.h2 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.08 }}>
+        <p className="eyebrow rise">NUBE DE FOTOS PERSONAL</p>
+        <h2 className="rise" style={{ ["--d" as string]: "0.08s" }}>
           Tus fotos, <span className="ul">al máximo</span>.
-        </motion.h2>
-        <motion.p className="lede" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.16 }}>
+        </h2>
+        <p className="lede rise" style={{ ["--d" as string]: "0.16s" }}>
           Sube el carrete de tu iPhone a la nube y guárdalo en su calidad original.
           Descárgalo idéntico cuando quieras.
-        </motion.p>
+        </p>
 
-        <motion.div
-          id="registrar"
-          className="hero-cta"
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, delay: 0.24 }}
-        >
+        <div id="registrar" className="hero-cta rise" style={{ ["--d" as string]: "0.24s" }}>
           {loggedIn ? (
             <Link className="btn primary" href={next}>
               Entrar a tu biblioteca
@@ -69,23 +61,16 @@ export default function Landing({ loggedIn, next }: { loggedIn: boolean; next: s
           ) : (
             <AuthButtons next={next} label="Registrar" />
           )}
-        </motion.div>
+        </div>
       </section>
 
       <section className="features">
         {FEATURES.map((f, i) => (
-          <motion.article
-            key={f.t}
-            className="feature"
-            initial={{ opacity: 0, y: 24 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-80px" }}
-            transition={{ duration: 0.5, delay: i * 0.05 }}
-          >
+          <article key={f.t} className="feature rise rise-scroll" style={{ ["--d" as string]: `${i * 0.05}s` }}>
             <span className="feature-n">{String(i + 1).padStart(2, "0")}</span>
             <h3>{f.t}</h3>
             <p>{f.d}</p>
-          </motion.article>
+          </article>
         ))}
       </section>
 
