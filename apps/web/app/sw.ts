@@ -21,12 +21,21 @@ const serwist = new Serwist({
       matcher: ({ url }) => url.pathname.startsWith("/api") || url.pathname.startsWith("/_api"),
       handler: new NetworkOnly(),
     },
-    // Navegaciones (documentos HTML/RSC): red primero. Así un despliegue nuevo
-    // se coge siempre estando online y no se sirve un HTML viejo que apunta a
-    // bundles que ya no existen (era lo que reventaba la app tras cada deploy).
+    // La app (/app/**) es de datos en vivo y por usuario: ni HTML ni RSC se
+    // guardan en caché. Antes las navegaciones caían a una copia guardada si el
+    // servidor tardaba más de 4 s en contestar — justo cuando está cargado — y
+    // se veía una biblioteca vieja o de otra sesión. Sin red no hay nada útil
+    // que enseñar de todos modos (las miniaturas tampoco se cachean).
+    {
+      matcher: ({ sameOrigin, url }) => sameOrigin && (url.pathname === "/app" || url.pathname.startsWith("/app/")),
+      handler: new NetworkOnly(),
+    },
+    // Resto de navegaciones (portada…): red primero, sin plazo corto. Así un
+    // despliegue nuevo se coge siempre estando online y no se sirve un HTML
+    // viejo que apunta a bundles que ya no existen.
     {
       matcher: ({ request }) => request.mode === "navigate",
-      handler: new NetworkFirst({ cacheName: "pages", networkTimeoutSeconds: 4 }),
+      handler: new NetworkFirst({ cacheName: "pages" }),
     },
     ...defaultCache,
   ],

@@ -1,8 +1,8 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { motion, AnimatePresence } from "motion/react";
+import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 
 interface Origin {
   x: number;
@@ -87,25 +87,47 @@ export function useCoverArrived(): () => void {
 export default function CoverTransitionProvider({ children }: { children: React.ReactNode }) {
   const [origin, setOrigin] = useState<Origin | null>(null);
   const [variant, setVariant] = useState<Variant>("circle");
+  // clave única por transición: cada cubierta es un montaje nuevo (si dos
+  // compartían clave, `AnimatePresence` reutilizaba la anterior y su
+  // `onAnimationComplete` no volvía a dispararse).
+  const [seq, setSeq] = useState(0);
+  const reduceMotion = useReducedMotion();
   const deck = useRef<Variant[]>([]);
   const lastVariant = useRef<Variant | undefined>(undefined);
   const runRef = useRef<(() => void) | null>(null);
   const modeRef = useRef<Mode>("nav");
+  const activeRef = useRef(false);
+  const runTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const safetyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const clearSafety = () => {
-    if (safetyTimer.current) {
-      clearTimeout(safetyTimer.current);
-      safetyTimer.current = null;
-    }
+  const clearTimers = () => {
+    if (runTimer.current) clearTimeout(runTimer.current);
+    if (safetyTimer.current) clearTimeout(safetyTimer.current);
+    runTimer.current = null;
+    safetyTimer.current = null;
   };
 
-  const activeRef = useRef(false);
+  /** Ejecuta la acción pendiente UNA sola vez (idempotente). Es lo único que
+   *  navega: pase lo que pase con la animación, el toque nunca se pierde. */
+  const flush = useCallback(() => {
+    const run = runRef.current;
+    runRef.current = null;
+    if (!run) return false;
+    try {
+      run();
+    } catch {
+      /* una acción rota no puede dejar la pantalla tapada */
+    }
+    return true;
+  }, []);
+
   const retreat = useCallback(() => {
-    clearSafety();
+    clearTimers();
+    flush(); // si por lo que sea aún quedaba la acción sin lanzar, se lanza ya
     activeRef.current = false;
     setOrigin(null);
-  }, []);
+  }, [flush]);
+  useEffect(() => clearTimers, []);
 
   // Cambiar solo el ?kind=/?fav= (Todo/Fotos/Vídeos) NO remonta el template,
   // así que nadie avisaba de "ya llegó" y el overlay esperaba al temporizador
@@ -120,23 +142,52 @@ export default function CoverTransitionProvider({ children }: { children: React.
     if (activeRef.current && modeRef.current === "nav" && runRef.current === null) retreat();
   }, [urlKey, retreat]);
 
-  const trigger = useCallback((o: Origin, run: () => void, mode: Mode) => {
-    if (runRef.current) return; // ya hay una transición en marcha
-    runRef.current = run;
-    activeRef.current = true;
-    modeRef.current = mode;
-    if (!deck.current.length) deck.current = makeDeck(lastVariant.current);
-    const v = deck.current.shift()!;
-    lastVariant.current = v;
-    setVariant(v);
-    setOrigin(o);
-  }, []);
+  const trigger = useCallback(
+    (o: Origin, run: () => void, mode: Mode) => {
+      // Sin animaciones si el sistema lo pide, o si ya hay una cubierta puesta
+      // (segundo toque mientras la primera sigue ahí): se actúa directamente.
+      // Antes el segundo toque se descartaba en silencio y dejaba la
+      // navegación bloqueada hasta recargar la página.
+      if (reduceMotion || activeRef.current) {
+        run();
+        return;
+      }
+      runRef.current = run;
+      activeRef.current = true;
+      modeRef.current = mode;
+      if (!deck.current.length) deck.current = makeDeck(lastVariant.current);
+      const v = deck.current.shift()!;
+      lastVariant.current = v;
+      setVariant(v);
+      setSeq((n) => n + 1);
+      setOrigin(o);
+      // Red de seguridad: si `onAnimationComplete` no llega (pestaña en segundo
+      // plano, animación cortada…) la acción se lanza igualmente.
+      runTimer.current = setTimeout(() => {
+        flush();
+        safetyTimer.current = setTimeout(retreat, mode === "action" ? 240 : 2500);
+      }, DUR[v] * 1000 + 160);
+    },
+    [reduceMotion, flush, retreat],
+  );
 
   const arrived = useCallback(() => {
     // una acción en la misma página se retira con su propio respiro corto;
     // "llegada" solo aplica a una navegación real de verdad
-    if (modeRef.current === "nav") retreat();
+    if (activeRef.current && modeRef.current === "nav") retreat();
   }, [retreat]);
+
+  const onCovered = useCallback(() => {
+    if (!flush()) return; // ya lanzada (o animación de salida): nada que hacer
+    if (runTimer.current) clearTimeout(runTimer.current);
+    runTimer.current = null;
+    // red de seguridad: si nunca llega el aviso de "arrived" (error,
+    // navegación cancelada…) no se queda tapado para siempre
+    if (safetyTimer.current) clearTimeout(safetyTimer.current);
+    safetyTimer.current = setTimeout(retreat, modeRef.current === "action" ? 240 : 2500);
+  }, [flush, retreat]);
+
+  const api = useMemo(() => ({ trigger, arrived }), [trigger, arrived]);
 
   const radius = origin ? radiusToCorner(origin.x, origin.y) : 0;
   const manhattan = origin ? manhattanToCorner(origin.x, origin.y) : 0;
@@ -144,25 +195,18 @@ export default function CoverTransitionProvider({ children }: { children: React.
   const ease = [0.5, 0, 0.1, 1] as const;
 
   return (
-    <CoverCtx.Provider value={{ trigger, arrived }}>
+    <CoverCtx.Provider value={api}>
       {children}
       <AnimatePresence>
         {origin && (
           <motion.div
-            key="cover"
+            key={`cover-${seq}`}
             className="nav-cover"
             initial={{ opacity: 0.99 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0, transition: { duration: 0.16, ease: "easeOut" } }}
             transition={{ duration: T }}
-            onAnimationComplete={() => {
-              const run = runRef.current;
-              runRef.current = null;
-              run?.();
-              // red de seguridad: si nunca llega el aviso de "arrived" (error,
-              // navegación cancelada…) no se queda tapado para siempre
-              safetyTimer.current = setTimeout(retreat, modeRef.current === "action" ? 240 : 2500);
-            }}
+            onAnimationComplete={onCovered}
           >
             {variant === "circle" && (
               <>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "motion/react";
@@ -45,6 +45,63 @@ function EmptyMark() {
   );
 }
 
+/** Primera página fresca + lo ya paginado que sea más antiguo que ella. Se toma
+ *  la primera página como verdad (así se ven altas y bajas) y se conserva el
+ *  resto — si no, el scroll infinito se rebobinaría solo. */
+function mergeFirstPage(prev: AssetListItem[], first: AssetListItem[]): AssetListItem[] {
+  if (!prev.length) return first;
+  if (!first.length) return prev;
+  const oldest = first[first.length - 1]!.capturedAt;
+  const seen = new Set(first.map((a) => a.id));
+  const tail = prev.filter((a) => a.capturedAt < oldest && !seen.has(a.id));
+  return [...first, ...tail];
+}
+
+/** Huella barata de una lista (orden + favoritos) para saber si algo cambió. */
+const sigOf = (xs: AssetListItem[]) => xs.map((a) => (a.isFavorite ? `${a.id}*` : a.id)).join("|");
+
+interface TileProps {
+  a: AssetListItem;
+  selected: boolean;
+  selecting: boolean;
+  onDown: (e: React.PointerEvent, id: string) => void;
+  onActivate: (id: string) => void;
+}
+
+/** Una celda de la rejilla. `memo` + manejadores estables: seleccionar una foto,
+ *  abrir el visor o cargar otra página ya NO re-renderiza las miles de celdas
+ *  de la biblioteca, solo la que cambia. */
+const Tile = memo(function Tile({ a, selected, selecting, onDown, onActivate }: TileProps) {
+  return (
+    <button
+      data-tile-id={a.id}
+      className="frame tilt tile-in"
+      role="listitem"
+      aria-label={a.filename}
+      aria-current={selected}
+      onPointerDown={(e) => onDown(e, a.id)}
+      onClick={() => onActivate(a.id)}
+    >
+      <img src={a.thumbUrl} alt={a.filename} loading="lazy" decoding="async" />
+      {a.isFavorite && (
+        <span className="badge fav" aria-hidden="true">
+          ★
+        </span>
+      )}
+      {a.kind === "video" && (
+        <span className="badge vid">
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8 5v14l11-7z" />
+          </svg>
+          {durationHuman(a.durationS)}
+        </span>
+      )}
+      {a.isLive && <span className="badge live">LIVE</span>}
+      {selecting && <span className={`selmark ${selected ? "on" : ""}`} aria-hidden="true" />}
+    </button>
+  );
+});
+
 export default function Gallery({
   groups,
   error,
@@ -82,8 +139,10 @@ export default function Gallery({
   const searchParams = useSearchParams();
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
   const [assets, setAssets] = useState(flat);
+  // siempre la última lista, para manejadores estables que no se recrean con ella
+  const assetsRef = useRef(assets);
+  assetsRef.current = assets;
   const [cursor, setCursor] = useState<string | null>(initialCursor);
-  const [loadingMore, setLoadingMore] = useState(false);
   const sentinel = useRef<HTMLDivElement | null>(null);
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const [selecting, setSelecting] = useState(false);
@@ -103,47 +162,52 @@ export default function Gallery({
   // debajo de la lista de "Vídeos" por ser más antiguas que su primera página).
   const filterKey = `${kind ?? ""}|${fav ? 1 : 0}|${q ?? ""}|${camera ?? ""}|${from ?? ""}|${to ?? ""}`;
   const lastFilter = useRef(filterKey);
+  // generación del filtro actual: una página pedida para el filtro ANTERIOR que
+  // llega tarde se descarta (antes se añadía debajo de la lista nueva y
+  // mezclaba fotos de "Todo" dentro de "Vídeos").
+  const gen = useRef(0);
+  const inflight = useRef<AbortController | null>(null);
+  const loadingRef = useRef(false);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const backoff = useRef({ until: 0, n: 0 });
   useEffect(() => {
     const changed = lastFilter.current !== filterKey;
     lastFilter.current = filterKey;
     if (changed) {
+      gen.current++;
+      inflight.current?.abort();
+      inflight.current = null;
+      loadingRef.current = false;
+      window.clearTimeout(retryTimer.current);
+      backoff.current = { until: 0, n: 0 };
       paged.current = false;
+      setSel(new Set());
       setAssets(flat);
       setCursor(initialCursor);
       return;
     }
-    setAssets((prev) => {
-      if (!prev.length) return flat;
-      if (!flat.length) return prev;
-      const oldest = flat[flat.length - 1]!.capturedAt;
-      const seen = new Set(flat.map((a) => a.id));
-      const tail = prev.filter((a) => a.capturedAt < oldest && !seen.has(a.id));
-      return [...flat, ...tail];
-    });
+    setAssets((prev) => mergeFirstPage(prev, flat));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flat, filterKey]);
-  // El refresco automático trae SOLO la primera página, con SU cursor. Si se
-  // adoptara tal cual, cada 25 s el scroll infinito se rebobinaría al principio
-  // y, estando abajo del todo con 10 páginas cargadas, volvería a pedir esas 10
-  // páginas una a una para no añadir nada (dedupe) — decenas de peticiones
-  // inútiles a la API en una biblioteca grande. Solo se adopta mientras no se
-  // haya paginado (el cambio de filtro lo reinicia arriba).
+  // Solo se adopta el cursor de la primera página mientras no se haya paginado
+  // (si no, el scroll infinito se rebobinaría al principio en cada refresco).
   useEffect(() => {
     if (paged.current) return;
     setCursor(initialCursor);
   }, [initialCursor]);
 
   // ---- scroll infinito: la biblioteca puede tener cientos de miles ----
-  // Si la API falla, NO se reintenta a lo loco: el observador se vuelve a
-  // suscribir cada vez que cambia `loadMore` (y eso pasa en cada intento), así
-  // que un error sostenido se convertía en una tanda de peticiones a toda
-  // velocidad contra una API que ya está en problemas. Se espera un poco más
-  // en cada fallo seguido.
-  const backoff = useRef({ until: 0, n: 0 });
+  // Si la API falla, NO se reintenta a lo loco: se espera más en cada fallo
+  // seguido (5 s, 10 s, 20 s… hasta 60 s) y se reintenta sola, sin obligar a
+  // subir y bajar el scroll.
+  const loadMoreRef = useRef<() => Promise<void>>(async () => {});
   const loadMore = useCallback(async () => {
-    if (loadingMore || !cursor) return;
+    if (loadingRef.current || !cursor) return;
     if (Date.now() < backoff.current.until) return;
-    setLoadingMore(true);
+    loadingRef.current = true;
+    const myGen = gen.current;
+    const ac = new AbortController();
+    inflight.current = ac;
     try {
       const params = new URLSearchParams({ cursor, limit: String(PAGE) });
       if (kind) params.set("kind", kind);
@@ -156,9 +220,10 @@ export default function Gallery({
         if (to) params.set("to", to);
       }
       const url = albumId ? `/api/albums/${albumId}/assets?${params}` : `/api/assets?${params}`;
-      const r = await fetch(url, { cache: "no-store" });
+      const r = await fetch(url, { cache: "no-store", signal: ac.signal });
       if (!r.ok) throw new Error("no se pudo cargar más");
       const data = (await r.json()) as { items: AssetListItem[]; nextCursor: string | null };
+      if (myGen !== gen.current) return; // llegó tarde: ya es otra lista
       paged.current = true;
       setAssets((prev) => {
         const seen = new Set(prev.map((a) => a.id));
@@ -166,14 +231,27 @@ export default function Gallery({
       });
       setCursor(data.nextCursor ?? null);
       backoff.current = { until: 0, n: 0 };
-    } catch {
+    } catch (e) {
+      if (myGen !== gen.current || (e as Error)?.name === "AbortError") return;
       const n = backoff.current.n + 1;
-      backoff.current = { n, until: Date.now() + Math.min(60_000, 5_000 * 2 ** (n - 1)) };
-      setToast("No se pudieron cargar más archivos. Baja otra vez para reintentar.");
+      const wait = Math.min(60_000, 5_000 * 2 ** (n - 1));
+      backoff.current = { n, until: Date.now() + wait };
+      setToast("No se pudieron cargar más archivos. Reintentando…");
+      window.clearTimeout(retryTimer.current);
+      retryTimer.current = setTimeout(() => void loadMoreRef.current(), wait + 50);
     } finally {
-      setLoadingMore(false);
+      if (myGen === gen.current) loadingRef.current = false;
+      if (inflight.current === ac) inflight.current = null;
     }
-  }, [cursor, loadingMore, kind, fav, albumId, q, camera, from, to]);
+  }, [cursor, kind, fav, albumId, q, camera, from, to]);
+  loadMoreRef.current = loadMore;
+  useEffect(
+    () => () => {
+      inflight.current?.abort();
+      window.clearTimeout(retryTimer.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     const el = sentinel.current;
@@ -191,28 +269,53 @@ export default function Gallery({
     return () => clearTimeout(t);
   }, [toast]);
 
-  // la biblioteca se refresca sola: al volver a la pestaña y cada 25 s. Así
-  // aparecen los archivos que van entrando por Telegram sin recargar a mano.
+  // La biblioteca se pone al día sola (archivos que entran por Telegram, subidas
+  // desde otro dispositivo), pero SIN el `router.refresh()` de antes cada 25 s:
+  // eso volvía a pedir al servidor la página entera (usuario, cámaras, totales,
+  // 120 archivos) y re-renderizaba todas las celdas aunque no hubiera nada
+  // nuevo — los tirones periódicos. Ahora se pide solo la primera página (una
+  // petición ligera) y SOLO si algo ha cambiado se refresca la pantalla.
+  const polling = useRef(false);
+  const lastPoll = useRef(0);
   useEffect(() => {
-    let busy = false;
-    let cool: ReturnType<typeof setTimeout> | undefined;
-    const tick = () => {
-      if (busy || document.hidden || openIdx !== null || selecting) return;
-      busy = true;
-      router.refresh();
-      cool = setTimeout(() => (busy = false), 3000);
+    if (albumId) return;
+    const ac = new AbortController();
+    const poll = async () => {
+      if (polling.current || document.hidden || openIdx !== null || selecting) return;
+      if (Date.now() - lastPoll.current < 10_000) return;
+      polling.current = true;
+      lastPoll.current = Date.now();
+      try {
+        const params = new URLSearchParams({ limit: String(PAGE) });
+        if (kind) params.set("kind", kind);
+        if (fav) params.set("fav", "1");
+        if (q) params.set("q", q);
+        if (camera) params.set("camera", camera);
+        if (from) params.set("from", from);
+        if (to) params.set("to", to);
+        const r = await fetch(`/api/assets?${params}`, { cache: "no-store", signal: ac.signal });
+        if (!r.ok) return;
+        const data = (await r.json()) as { items?: AssetListItem[] };
+        const first = data.items ?? [];
+        if (!first.length) return;
+        if (sigOf(first) !== sigOf(assetsRef.current.slice(0, first.length))) router.refresh();
+      } catch {
+        /* sin red o cancelado: se reintenta en el siguiente ciclo */
+      } finally {
+        polling.current = false;
+      }
     };
-    const iv = setInterval(tick, 25_000);
-    const onVis = () => !document.hidden && tick();
+    const iv = setInterval(poll, 30_000);
+    const onVis = () => !document.hidden && void poll();
     window.addEventListener("focus", onVis);
     document.addEventListener("visibilitychange", onVis);
     return () => {
       clearInterval(iv);
-      clearTimeout(cool);
+      ac.abort();
       window.removeEventListener("focus", onVis);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [router, openIdx, selecting]);
+  }, [router, albumId, kind, fav, q, camera, from, to, openIdx, selecting]);
 
   // índices O(1). TODOS los hooks van aquí arriba, antes de cualquier return.
   // Los días se recalculan desde `assets` (no desde la prop) para que el scroll
@@ -223,6 +326,10 @@ export default function Gallery({
     assets.forEach((a, i) => m.set(a.id, i));
     return m;
   }, [assets]);
+  const idxRef = useRef(idxById);
+  idxRef.current = idxById;
+  const selectingRef = useRef(selecting);
+  selectingRef.current = selecting;
 
   // ---- arrastrar para seleccionar (mantener pulsado y deslizar) ----
   const drag = useRef({ armed: false, active: false, startId: "", didDrag: false, x: 0, y: 0, timer: 0 as number });
@@ -317,7 +424,7 @@ export default function Gallery({
   useEffect(() => () => warm.current?.abort(), []);
   const openAt = useCallback(
     (idx: number) => {
-      const a = assets[idx];
+      const a = assetsRef.current[idx];
       if (a?.kind === "video") {
         warm.current?.abort();
         const ac = new AbortController();
@@ -326,8 +433,9 @@ export default function Gallery({
       }
       setOpenIdx(idx);
     },
-    [assets],
+    [],
   );
+  const closeViewer = useCallback(() => setOpenIdx(null), []);
 
   const toggleSel = useCallback((id: string) => {
     setSel((s) => {
@@ -336,6 +444,25 @@ export default function Gallery({
       return n;
     });
   }, []);
+
+  const onTileActivate = useCallback(
+    (id: string) => {
+      if (drag.current.didDrag) {
+        drag.current.didDrag = false;
+        return;
+      }
+      if (selectingRef.current) {
+        toggleSel(id);
+        return;
+      }
+      // sin `?? 0`: si por lo que sea el id no estuviera en el índice, abrir el
+      // 0 sería abrir OTRA foto (la más reciente) — justo el fallo que ya se
+      // arregló una vez.
+      const i = idxRef.current.get(id);
+      if (i !== undefined) openAt(i);
+    },
+    [toggleSel, openAt],
+  );
 
   async function favorite(id: string, value: boolean) {
     setAssets((as) => as.map((a) => (a.id === id ? { ...a, isFavorite: value } : a)));
@@ -460,12 +587,20 @@ export default function Gallery({
       </div>
     );
   }
-  if (!assets.length) {
+  // ¿hay algún filtro activo? Con filtros y 0 resultados NO se puede quitar la
+  // barra: es donde está el buscador, y sin él no había forma de borrar la
+  // búsqueda (salía «Tu biblioteca está vacía» y desaparecían los controles).
+  const filtering = !!(kind || fav || q || camera || from || to);
+  if (!assets.length && !filtering) {
     return (
       <div className="empty">
         <EmptyMark />
-        <h3>Tu biblioteca está vacía</h3>
-        <p>Sube desde el iPhone con el botón «Subir» (o con el Atajo, ver Ajustes).</p>
+        <h3>{albumId ? "Este álbum está vacío" : "Tu biblioteca está vacía"}</h3>
+        <p>
+          {albumId
+            ? "Añade fotos y vídeos desde la biblioteca: selecciónalos y pulsa «Añadir a álbum»."
+            : "Sube desde el iPhone con el botón «Subir» (o con el Atajo, ver Ajustes)."}
+        </p>
       </div>
     );
   }
@@ -475,69 +610,71 @@ export default function Gallery({
       <div className="gallery-toolbar">
         <DensityControl value={density} onChange={setDensity} />
 
-        <div className="gt-filters">
-          <div className={`gt-search ${searchOpen ? "open" : ""}`}>
-            <button
-              type="button"
-              aria-label="Buscar"
-              aria-pressed={searchOpen}
-              onClick={() => setSearchOpen((v) => !v)}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="11" cy="11" r="7" />
-                <path d="M21 21l-4.3-4.3" strokeLinecap="round" />
-              </svg>
-            </button>
-            <input
-              type="search"
-              placeholder="Buscar por nombre…"
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              onFocus={() => setSearchOpen(true)}
-            />
-          </div>
-
-          {cameras.length > 0 && (
-            <div className="gt-camera">
-              <select
-                aria-label="Filtrar por cámara"
-                value={camera ?? ""}
-                onChange={(e) => updateQuery({ camera: e.target.value || undefined })}
+        {!albumId && (
+          <div className="gt-filters">
+            <div className={`gt-search ${searchOpen ? "open" : ""}`}>
+              <button
+                type="button"
+                aria-label="Buscar"
+                aria-pressed={searchOpen}
+                onClick={() => setSearchOpen((v) => !v)}
               >
-                <option value="">Todas las cámaras</option>
-                {cameras.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="M21 21l-4.3-4.3" strokeLinecap="round" />
+                </svg>
+              </button>
+              <input
+                type="search"
+                placeholder="Buscar por nombre…"
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                onFocus={() => setSearchOpen(true)}
+              />
             </div>
-          )}
 
-          <div className="gt-daterange">
-            <input
-              type="date"
-              aria-label="Desde"
-              value={from ? from.slice(0, 10) : ""}
-              onChange={(e) => updateQuery({ from: e.target.value || undefined })}
-            />
-            <span>–</span>
-            <input
-              type="date"
-              aria-label="Hasta"
-              value={to ? toInclusiveDisplay(to) : ""}
-              onChange={(e) => updateQuery({ to: e.target.value ? toExclusive(e.target.value) : undefined })}
-            />
+            {cameras.length > 0 && (
+              <div className="gt-camera">
+                <select
+                  aria-label="Filtrar por cámara"
+                  value={camera ?? ""}
+                  onChange={(e) => updateQuery({ camera: e.target.value || undefined })}
+                >
+                  <option value="">Todas las cámaras</option>
+                  {cameras.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="gt-daterange">
+              <input
+                type="date"
+                aria-label="Desde"
+                value={from ? from.slice(0, 10) : ""}
+                onChange={(e) => updateQuery({ from: e.target.value || undefined })}
+              />
+              <span>–</span>
+              <input
+                type="date"
+                aria-label="Hasta"
+                value={to ? toInclusiveDisplay(to) : ""}
+                onChange={(e) => updateQuery({ to: e.target.value ? toExclusive(e.target.value) : undefined })}
+              />
+            </div>
+
+            <Link href="/app/mapa" className="gt-mapbtn" aria-label="Ver mapa" title="Ver mapa">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M9 20l-6 -3v-13l6 3l6 -3l6 3v13l-6 -3l-6 3z" strokeLinejoin="round" />
+                <path d="M9 7v13" strokeLinecap="round" />
+                <path d="M15 10v13" strokeLinecap="round" />
+              </svg>
+            </Link>
           </div>
-
-          <Link href="/app/mapa" className="gt-mapbtn" aria-label="Ver mapa" title="Ver mapa">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M9 20l-6 -3v-13l6 3l6 -3l6 3v13l-6 -3l-6 3z" strokeLinejoin="round" />
-              <path d="M9 7v13" strokeLinecap="round" />
-              <path d="M15 10v13" strokeLinecap="round" />
-            </svg>
-          </Link>
-        </div>
+        )}
 
         <div className="gt-actions">
           <button
@@ -587,6 +724,13 @@ export default function Gallery({
         </div>
       </div>
 
+      {!assets.length && (
+        <div className="empty" role="status">
+          <h3>Sin resultados</h3>
+          <p>Nada coincide con los filtros actuales. Cambia o borra la búsqueda para ver más.</p>
+        </div>
+      )}
+
       {liveGroups.map((g) => (
         <section className="daygroup" key={g.key}>
           <h3>
@@ -602,52 +746,16 @@ export default function Gallery({
             onPointerUp={endDrag}
             onPointerCancel={endDrag}
           >
-            {g.items.map((a) => {
-              const selected = sel.has(a.id);
-              return (
-                <button
-                  key={a.id}
-                  data-tile-id={a.id}
-                  className="frame tilt tile-in"
-                  role="listitem"
-                  aria-label={a.filename}
-                  aria-current={selected}
-                  onPointerDown={(e) => onTilePointerDown(e, a.id)}
-                  onClick={() => {
-                    if (drag.current.didDrag) {
-                      drag.current.didDrag = false;
-                      return;
-                    }
-                    if (selecting) {
-                      toggleSel(a.id);
-                      return;
-                    }
-                    // sin `?? 0`: si por lo que sea el id no estuviera en el
-                    // índice, abrir el 0 sería abrir OTRA foto (la más
-                    // reciente) — justo el fallo que ya se arregló una vez.
-                    const i = idxById.get(a.id);
-                    if (i !== undefined) openAt(i);
-                  }}
-                >
-                  <img src={a.thumbUrl} alt={a.filename} loading="lazy" decoding="async" />
-                  {a.isFavorite && (
-                    <span className="badge fav" aria-hidden="true">
-                      ★
-                    </span>
-                  )}
-                  {a.kind === "video" && (
-                    <span className="badge vid">
-                      <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M8 5v14l11-7z" />
-                      </svg>
-                      {durationHuman(a.durationS)}
-                    </span>
-                  )}
-                  {a.isLive && <span className="badge live">LIVE</span>}
-                  {selecting && <span className={`selmark ${selected ? "on" : ""}`} aria-hidden="true" />}
-                </button>
-              );
-            })}
+            {g.items.map((a) => (
+              <Tile
+                key={a.id}
+                a={a}
+                selected={sel.has(a.id)}
+                selecting={selecting}
+                onDown={onTilePointerDown}
+                onActivate={onTileActivate}
+              />
+            ))}
           </div>
         </section>
       ))}
@@ -701,7 +809,7 @@ export default function Gallery({
         // cargado pide la página siguiente. Antes, abrir una foto y deslizar
         // se paraba en seco en la número 120 aunque hubiera 1.450.
         onNeedMore={cursor ? loadMore : undefined}
-        onClose={() => setOpenIdx(null)}
+        onClose={closeViewer}
         onIndex={setOpenIdx}
         onFavorite={favorite}
         onDelete={del}
