@@ -3,7 +3,6 @@ import { groupByDay, bytesHuman } from "@/lib/format";
 import Gallery from "@/components/Gallery";
 import PrismMount from "@/components/PrismMount";
 import ErrorBoundary from "@/components/ErrorBoundary";
-import LibraryAurora from "@/components/LibraryAurora";
 
 export const dynamic = "force-dynamic";
 
@@ -60,7 +59,6 @@ export default async function GalleryPage({
 
   return (
     <>
-      <LibraryAurora />
       <div className="app">
         <div className="libhead">
           <div>

@@ -2,7 +2,6 @@ import { headers } from "next/headers";
 import { listTokens } from "@/lib/api";
 import TokenManager from "@/components/TokenManager";
 import IngestBind from "@/components/IngestBind";
-import GpsBackfill from "@/components/GpsBackfill";
 import PreviewsRetry from "@/components/PreviewsRetry";
 
 export const dynamic = "force-dynamic";
@@ -81,16 +80,6 @@ export default async function AjustesPage() {
           — para ese usa Telegram.
         </p>
         <TokenManager initialTokens={tokens} />
-      </section>
-
-      <section className="panel">
-        <h3>Mapa — ubicaciones</h3>
-        <p className="panel-lede">
-          Las fotos subidas antes de este arreglo no sacaban su ubicación GPS del EXIF (solo los
-          vídeos la tenían). Pulsa para revisar las fotos existentes y rellenar su ubicación en el
-          mapa.
-        </p>
-        <GpsBackfill />
       </section>
 
       <section className="panel">

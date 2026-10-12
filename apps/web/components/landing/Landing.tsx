@@ -1,5 +1,6 @@
 import Link from "next/link";
 import AuthButtons from "./AuthButtons";
+import Aurora from "@/components/Aurora";
 
 const FEATURES = [
   {
@@ -26,7 +27,7 @@ const FEATURES = [
 export default function Landing({ loggedIn, next }: { loggedIn: boolean; next: string }) {
   return (
     <div className="landing">
-      <div className="landing-bg" aria-hidden="true" />
+      <Aurora section="landing" />
 
       <header className="landing-nav">
         <div className="brand">

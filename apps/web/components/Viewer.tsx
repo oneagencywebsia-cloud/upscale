@@ -30,9 +30,11 @@ interface Props {
   onNeedMore?: () => void;
   /** viendo dentro de un álbum: "Borrar" solo desagrupa, no borra de la biblioteca */
   inAlbum?: boolean;
+  /** abre la hoja «Añadir a álbum» para este archivo (no se ofrece dentro de un álbum) */
+  onAddToAlbum?: (id: string) => void;
 }
 
-export default function Viewer({ assets, index, onClose, onIndex, onFavorite, onDelete, onNeedMore, inAlbum }: Props) {
+export default function Viewer({ assets, index, onClose, onIndex, onFavorite, onDelete, onNeedMore, inAlbum, onAddToAlbum }: Props) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -568,6 +570,11 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
                   <button className="vm-iconbtn" onClick={() => onFavorite(a.id, !a.isFavorite)} aria-label={a.isFavorite ? "Quitar de favoritos" : "Favorito"}>
                     <svg width="21" height="21" viewBox="0 0 24 24" fill={a.isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8"><path d="M12 17.3 6.2 20l1.1-6.3L2.5 9.2l6.4-.9L12 2.5l3.1 5.8 6.4.9-4.8 4.5L17.8 20z" /></svg>
                   </button>
+                  {onAddToAlbum && (
+                    <button className="vm-iconbtn" onClick={() => onAddToAlbum(a.id)} aria-label="Añadir a álbum">
+                      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="14" height="14" rx="2.4" /><path d="M10 9v6M7 12h6" /><path d="M9 3h9a2 2 0 0 1 2 2v11" /></svg>
+                    </button>
+                  )}
                   <button className="vm-iconbtn" onClick={() => setSheetOpen(true)} aria-label="Información">
                     <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="9" /><path d="M12 11v5.5" strokeLinecap="round" /><circle cx="12" cy="8" r="0.9" fill="currentColor" stroke="none" /></svg>
                   </button>
@@ -619,6 +626,12 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
                 </a>
               </div>
               <div className="viewer-actions">
+                {onAddToAlbum && (
+                  <button className="btn" onClick={() => onAddToAlbum(a.id)}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="14" height="14" rx="2.4" /><path d="M10 9v6M7 12h6" /><path d="M9 3h9a2 2 0 0 1 2 2v11" /></svg>
+                    Añadir a álbum
+                  </button>
+                )}
                 {a.liveVideoUrl && <a className="btn" href={a.liveVideoUrl}>Vídeo Live</a>}
                 <button
                   className="btn ghost"

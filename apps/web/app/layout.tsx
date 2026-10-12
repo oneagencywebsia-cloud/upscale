@@ -25,7 +25,7 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-const THEME_INIT = `try{var t=localStorage.getItem('upscale-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}`;
+const THEME_INIT = `try{var d=document.documentElement,t=localStorage.getItem('upscale-theme');if(t)d.setAttribute('data-theme',t);if(localStorage.getItem('upscale-motion')==='off')d.setAttribute('data-motion','off')}catch(e){}`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

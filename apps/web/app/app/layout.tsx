@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import { getUser } from "@/lib/supabase/server";
+import { getAsset } from "@/lib/api";
+import { profileOf } from "@/lib/profile";
 import TopBar from "@/components/TopBar";
 import Aurora from "@/components/Aurora";
 import InstallPrompt from "@/components/InstallPrompt";
@@ -12,14 +14,23 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const user = await getUser();
   if (!user) redirect("/");
 
+  const profile = profileOf(user);
+  // solo quien eligió una foto de su biblioteca como avatar paga esta petición
+  let photoUrl: string | null = null;
+  if (profile.avatar.style === "photo" && profile.avatar.a) {
+    photoUrl = await getAsset(profile.avatar.a)
+      .then((a) => a.thumbUrl)
+      .catch(() => null);
+  }
+
   return (
     <CoverTransitionProvider>
       <Aurora />
       <div className="app-shell">
-        <TopBar email={user.email ?? "cuenta"} />
+        <TopBar profile={profile} photoUrl={photoUrl} />
         {children}
       </div>
-      <MobileTabs />
+      <MobileTabs profile={profile} photoUrl={photoUrl} />
       <InstallPrompt />
     </CoverTransitionProvider>
   );
