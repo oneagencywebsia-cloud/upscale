@@ -1968,29 +1968,78 @@ footer.status .dot {
   background: rgba(6, 10, 18, 0.72);
   border: 1px solid rgba(255, 214, 140, 0.3);
 }
+/* Indicador de selección (estilo Fotos de iOS): círculo de cristal translúcido
+   abajo a la derecha; al marcarlo se tiñe del color de la marca y aparece un
+   tick dibujado como máscara SVG (el de antes eran dos bordes girados, que
+   quedaban descentrados). Sin backdrop-filter: hay uno por cada celda y
+   desenfocar miles de capas era justo lo que hacía ir a tirones. */
 .frame .selmark {
   position: absolute;
   right: 8px;
   bottom: 8px;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
-  border: 2px solid #fff;
-  background: rgba(0, 0, 0, 0.25);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
   z-index: 3;
+  pointer-events: none;
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  background: radial-gradient(120% 120% at 30% 20%, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.1) 60%);
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.3),
+    0 2px 8px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 .frame .selmark.on {
-  background: var(--accent);
-  border-color: var(--accent);
+  border-color: rgba(255, 255, 255, 0.95);
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--accent-2) 82%, transparent),
+    color-mix(in srgb, var(--accent) 88%, transparent)
+  );
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.25),
+    0 3px 12px color-mix(in srgb, var(--accent) 55%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  animation: selmark-pop 0.24s cubic-bezier(0.2, 1.4, 0.4, 1) backwards;
 }
 .frame .selmark.on::after {
   content: "";
   position: absolute;
-  inset: 4px 5px;
-  border-left: 2px solid var(--on-accent);
-  border-bottom: 2px solid var(--on-accent);
-  transform: rotate(-45deg) translateY(-1px);
+  inset: 0;
+  background: #fff;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M6.2 12.6l3.9 3.9 7.7-8.2' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/></svg>") center / 78% no-repeat;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M6.2 12.6l3.9 3.9 7.7-8.2' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/></svg>") center / 78% no-repeat;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+}
+@keyframes selmark-pop {
+  from {
+    transform: scale(0.55);
+    opacity: 0.4;
+  }
+}
+/* la celda marcada se hunde un poco y se tiñe, para verla de un vistazo */
+.frame img {
+  transition: transform 0.18s ease;
+}
+.frame[aria-current="true"] img {
+  transform: scale(0.93);
+}
+.frame[aria-current="true"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .frame .selmark.on {
+    animation: none;
+  }
+  .frame img {
+    transition: none;
+  }
 }
 
 .selbar {
@@ -2025,6 +2074,18 @@ footer.status .dot {
 }
 .selbar .btn {
   flex: 0 0 auto;
+}
+.selbar > span b {
+  font-variant-numeric: tabular-nums;
+}
+.selbar > span i {
+  font-style: normal;
+}
+/* en pantallas estrechas solo el número: el texto no cabe junto a 3 botones */
+@media (max-width: 520px) {
+  .selbar .selbar-long {
+    display: none;
+  }
 }
 
 /* ===================================================================
