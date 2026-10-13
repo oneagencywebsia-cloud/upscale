@@ -615,15 +615,30 @@ export default function Gallery({
   // búsqueda (salía «Tu biblioteca está vacía» y desaparecían los controles).
   const filtering = !!(kind || fav || q || camera || from || to);
   if (!assets.length && !filtering) {
+    if (albumId) {
+      return (
+        <div className="empty">
+          <EmptyMark />
+          <h3>Este álbum está vacío</h3>
+          <p>Añade fotos y vídeos desde la biblioteca: selecciónalos y pulsa «Añadir a álbum».</p>
+        </div>
+      );
+    }
+    // Primer contacto: tres pasos y un botón grande. Nada más.
     return (
-      <div className="empty">
+      <div className="empty empty-first">
         <EmptyMark />
-        <h3>{albumId ? "Este álbum está vacío" : "Tu biblioteca está vacía"}</h3>
-        <p>
-          {albumId
-            ? "Añade fotos y vídeos desde la biblioteca: selecciónalos y pulsa «Añadir a álbum»."
-            : "Sube desde el iPhone con el botón «Subir» (o con el Atajo, ver Ajustes)."}
-        </p>
+        <h3>Aquí vivirán tus recuerdos</h3>
+        <p>Empieza con una sola foto. Tarda 10 segundos.</p>
+        <ol className="first-steps">
+          <li><b>1</b><span>Pulsa <em>Subir</em></span></li>
+          <li><b>2</b><span>Elige fotos, vídeos o audios</span></li>
+          <li><b>3</b><span>¡Listo! Se guardan tal cual, sin perder calidad</span></li>
+        </ol>
+        <button className="btn primary" type="button" onClick={() => window.dispatchEvent(new Event("upscale:pick"))}>
+          Subir mis primeras fotos
+        </button>
+        <small>En el ordenador también puedes arrastrarlas hasta aquí.</small>
       </div>
     );
   }
@@ -822,11 +837,19 @@ export default function Gallery({
           </button>
           {!albumId && (
             <button className="btn ghost sm" onClick={() => setAddToAlbumOpen(true)}>
-              Añadir a álbum
+              <span className="sb-lg">Añadir a álbum</span>
+              <span className="sb-sm">Álbum</span>
             </button>
           )}
           <button className="btn ghost sm" onClick={bulkDelete}>
-            {albumId ? "Quitar del álbum" : "Borrar"}
+            {albumId ? (
+              <>
+                <span className="sb-lg">Quitar del álbum</span>
+                <span className="sb-sm">Quitar</span>
+              </>
+            ) : (
+              "Borrar"
+            )}
           </button>
         </motion.div>
       )}
