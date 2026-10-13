@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { redirect } from "next/navigation";
 import { getUser } from "@/lib/supabase/server";
 import { safeNext } from "@/lib/safe-next";
@@ -13,6 +13,20 @@ export const dynamic = "force-dynamic";
 const TITLE = "Upscale — guarda tus fotos y vídeos en calidad original";
 const DESC =
   "Sube tus fotos, vídeos y música a la nube sin perder calidad. Gratis hasta 5 GB, sin tarjeta. Descárgalos idénticos cuando quieras.";
+
+// Páginas públicas: se deja hacer zoom con los dedos (accesibilidad). La app
+// (/app) lo mantiene bloqueado porque el visor gestiona sus propios gestos.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  userScalable: true,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#0a0d14" },
+    { media: "(prefers-color-scheme: light)", color: "#eef1f7" },
+  ],
+};
 
 export async function generateMetadata(): Promise<Metadata> {
   const base = await siteUrl();

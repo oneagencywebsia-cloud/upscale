@@ -1,8 +1,22 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import LegalPage from "@/components/legal/LegalPage";
 import { legalInfo } from "@/lib/legal";
 
 export const dynamic = "force-dynamic";
+// Páginas públicas: se deja hacer zoom con los dedos (accesibilidad). La app
+// (/app) lo mantiene bloqueado porque el visor gestiona sus propios gestos.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  userScalable: true,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#0a0d14" },
+    { media: "(prefers-color-scheme: light)", color: "#eef1f7" },
+  ],
+};
+
 export const metadata: Metadata = {
   title: "Términos de uso",
   description: "Las reglas sencillas para usar Upscale: tus archivos, los planes, límites y qué esperar del servicio.",
