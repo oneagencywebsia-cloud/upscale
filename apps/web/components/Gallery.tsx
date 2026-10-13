@@ -772,7 +772,10 @@ export default function Gallery({
 
       {selecting && sel.size > 0 && (
         <motion.div className="selbar" initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }}>
-          <span>{sel.size} seleccionados</span>
+          <span>
+            <b>{sel.size}</b>
+            <i className="selbar-long"> seleccionado{sel.size === 1 ? "" : "s"}</i>
+          </span>
           <button className="btn sm" onClick={() => downloadZip([...sel])}>
             Descargar
           </button>
