@@ -6,6 +6,7 @@ resolución, mismos FPS, mismos bits — y lo devuelve exactamente igual.
 - **Identidad:** [`docs/BRANDING.md`](docs/BRANDING.md)
 - **Arquitectura:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - **Puesta en marcha:** [`docs/DEPLOY.md`](docs/DEPLOY.md)
+- **Pendiente de hacer (claves, legal, cobro, dominio):** [`docs/PENDIENTE.md`](docs/PENDIENTE.md)
 - **Mockup (diseño iOS 26):** https://claude.ai/code/artifact/885c8db0-ef92-4dbb-a9ba-2bff42864067
 
 ## Qué incluye

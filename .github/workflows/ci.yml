@@ -1,0 +1,27 @@
+name: ci
+
+# Comprobación rápida en cada PR: que API y web compilen (tipos). La imagen
+# completa se construye al fusionar en main (build.yml).
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tipos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: API
+        run: pnpm --filter @upscale/api exec tsc --noEmit
+      - name: Web
+        run: pnpm --filter @upscale/web exec tsc --noEmit
