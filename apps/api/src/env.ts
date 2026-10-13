@@ -8,6 +8,9 @@ const base = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_ANON_KEY: z.string().min(10),
   SUPABASE_JWT_SECRET: z.string().optional(), // ya no se usa; se deja por compatibilidad
+  // Opcional: con ella, «borrar mi cuenta» también elimina el usuario de Supabase
+  // (sin ella se borran todos sus datos y archivos, pero el acceso queda).
+  SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
 
   WEB_ORIGIN: z.string().default("http://localhost:3001"),
 
@@ -134,4 +137,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.30.0-multiusuario";
+export const VERSION = "0.31.0-borrar-cuenta";

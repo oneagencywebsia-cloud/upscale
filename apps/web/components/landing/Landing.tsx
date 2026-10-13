@@ -12,7 +12,17 @@ import { PLANS, REFERRAL, gbHuman, priceHuman } from "@/lib/plans";
  *  Estructura (una idea por pantalla, de menos a más compromiso):
  *  1 promesa + UN botón · 2 cómo funciona (3 pasos) · 3 por qué · 4 precio
  *  (gratis primero, el resto plegado) · 5 invita y gana · 6 dudas · 7 botón. */
-export default function Landing({ loggedIn, next, invited }: { loggedIn: boolean; next: string; invited: boolean }) {
+export default function Landing({
+  loggedIn,
+  next,
+  invited,
+  goodbye = false,
+}: {
+  loggedIn: boolean;
+  next: string;
+  invited: boolean;
+  goodbye?: boolean;
+}) {
   const free = PLANS[0];
   const paid = PLANS.slice(1);
 
@@ -34,7 +44,10 @@ export default function Landing({ loggedIn, next, invited }: { loggedIn: boolean
 
       <main>
         <section className="hero" id="empezar" aria-labelledby="hero-h">
-          {invited && !loggedIn && (
+          {goodbye && !loggedIn && (
+            <p className="gift rise" role="status">Tu cuenta y tus archivos se han borrado. ¡Gracias por probar Upscale!</p>
+          )}
+          {invited && !loggedIn && !goodbye && (
             <p className="gift rise">🎁 Un amigo te regala <b>+{gbHuman(REFERRAL.invitedBonusBytes)}</b> de espacio</p>
           )}
           <p className="eyebrow rise">TUS FOTOS, VÍDEOS Y MÚSICA</p>
@@ -135,6 +148,8 @@ export default function Landing({ loggedIn, next, invited }: { loggedIn: boolean
 
       <footer className="landing-foot">
         <span>© Upscale</span>
+        <Link href="/privacidad">Privacidad</Link>
+        <Link href="/terminos">Términos</Link>
         <a href="/llms.txt">Info para IAs</a>
       </footer>
     </div>

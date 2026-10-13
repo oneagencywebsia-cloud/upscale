@@ -4,6 +4,8 @@ import TokenManager from "@/components/TokenManager";
 import IngestBind from "@/components/IngestBind";
 import GpsBackfill from "@/components/GpsBackfill";
 import PreviewsRetry from "@/components/PreviewsRetry";
+import DeleteAccount from "@/components/DeleteAccount";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -28,15 +30,30 @@ export default async function AjustesPage() {
       <div className="libhead">
         <div>
           <h2>Ajustes</h2>
-          <p>Cómo subir cada tipo de archivo sin perder calidad</p>
+          <p>Tu cuenta y tus datos</p>
         </div>
       </div>
 
       <section className="panel">
-        <h3>Fotos y vídeos normales</h3>
+        <h3>Subir tus cosas</h3>
         <p className="panel-lede">
-          Botón <b>Subir</b> de la barra (o «Compartir → Explorar → Archivos» en iPhone). Las
-          <b> fotos</b> van byte a byte. Los <b>vídeos 1080p/30</b> también.
+          Pulsa el botón <b>↑</b> de arriba y elige lo que quieras, o arrástralo a la página. Fotos, vídeos y audio, todo a la vez.
+        </p>
+        <p className="panel-lede">
+          Consejo: en iPhone, los vídeos 4K a 60 fps pueden llegar reducidos si los subes desde el navegador (lo hace iOS, no Upscale).
+        </p>
+      </section>
+
+      <section className="panel">
+        <h3>Tus datos</h3>
+        <p className="panel-lede">Descarga todo en un ZIP, con los originales intactos. Tuyo siempre.</p>
+        <p>
+          <a className="btn primary" href="/api/dl-all" download>
+            Descargar todo (ZIP)
+          </a>
+        </p>
+        <p className="panel-lede">
+          <Link href="/privacidad">Privacidad</Link> · <Link href="/terminos">Términos</Link>
         </p>
       </section>
 
@@ -77,29 +94,30 @@ export default async function AjustesPage() {
 
       )}
 
-      <section className="panel">
+      <details className="panel adv">
+        <summary>Opciones avanzadas</summary>
+      <section className="adv-sec">
         <h3>Atajo de iOS (opcional, para lotes de fotos / vídeo normal)</h3>
         <p className="panel-lede">
           Crea un token y úsalo en un Atajo como cabecera <code>X-Upload-Token</code>. Endpoint:{" "}
           <code>{endpoint}</code>. Estructura: <i>Repetir con cada</i> →{" "}
           <i>Obtener contenido de la URL</i> (POST, cabecera del token, cuerpo = Archivo =
           <i> Elemento de repetición</i>). Recuerda: por esta vía el vídeo 4K/60 llega recodificado
-          — para ese usa Telegram.
+          {verTelegram ? " — para ese usa Telegram." : "."}
         </p>
         <TokenManager initialTokens={tokens} />
       </section>
 
-      <section className="panel">
+      <section className="adv-sec">
         <h3>Mapa — ubicaciones</h3>
         <p className="panel-lede">
-          Las fotos subidas antes de este arreglo no sacaban su ubicación GPS del EXIF (solo los
-          vídeos la tenían). Pulsa para revisar las fotos existentes y rellenar su ubicación en el
-          mapa.
+          Si algunas fotos no salen en el mapa, pulsa para revisar tus fotos y rellenar su
+          ubicación (la que lleve cada foto).
         </p>
         <GpsBackfill />
       </section>
 
-      <section className="panel">
+      <section className="adv-sec">
         <h3>Vídeos que tardan o no cargan</h3>
         <p className="panel-lede">
           Cada vídeo tiene una copia ligera para reproducirse rápido; si falló varias veces, se
@@ -108,6 +126,14 @@ export default async function AjustesPage() {
         </p>
         <PreviewsRetry />
       </section>
+      </details>
+
+      <section className="panel danger-zone">
+        <h3>Borrar mi cuenta</h3>
+        <p className="panel-lede">Elimina tu cuenta y todos tus archivos para siempre. Descarga antes lo que quieras conservar.</p>
+        <DeleteAccount />
+      </section>
+
     </div>
   );
 }

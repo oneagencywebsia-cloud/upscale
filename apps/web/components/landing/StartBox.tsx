@@ -37,6 +37,9 @@ export default function StartBox({
         <div className="start-open">
           <p className="start-q">¿Cómo quieres entrar?</p>
           <AuthButtons next={next} label="Seguir" />
+          <p className="start-legal">
+            Al continuar aceptas los <Link href="/terminos">Términos</Link> y la <Link href="/privacidad">Privacidad</Link>.
+          </p>
           <button type="button" className="auth-switch" onClick={() => setOpen(false)}>
             ← Atrás
           </button>

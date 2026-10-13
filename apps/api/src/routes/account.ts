@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { query } from "../db.js";
-import { requireUser, requireAdmin, principalOf } from "../auth.js";
+import { requireUser, requireAdmin, principalOf, esAdmin } from "../auth.js";
+import { iniciarBorradoCuenta, borrandoCuenta, puedeBorrarAuth } from "../deleteAccount.js";
 import {
   PLAN_LIST,
   PLANS,
@@ -80,6 +81,27 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     const r = await apuntarListaEspera(userId, (req.body as { plan?: unknown } | undefined)?.plan);
     return r.ok ? r : reply.code(r.status).send({ error: r.error });
   });
+
+  // Borrar la cuenta y TODO lo suyo. Pide escribir BORRAR (evita toques por error).
+  // Responde 202 al instante: el borrado de archivos sigue en segundo plano.
+  app.post(
+    "/v1/me/delete",
+    { preHandler: requireUser, config: { rateLimit: { max: 10, timeWindow: "1 hour" } } },
+    async (req, reply) => {
+      const p = principalOf(req);
+      const confirm = (req.body as { confirm?: unknown } | undefined)?.confirm;
+      if (typeof confirm !== "string" || confirm.trim().toUpperCase() !== "BORRAR") {
+        return reply.code(400).send({ error: "escribe BORRAR para confirmar" });
+      }
+      // la cuenta del dueño tiene atada la ingesta de Telegram: no se borra por accidente
+      if (await esAdmin(p)) {
+        return reply.code(403).send({ error: "la cuenta de administración no se puede borrar desde aquí" });
+      }
+      if (borrandoCuenta(p.userId)) return reply.code(202).send({ ok: true, yaEnCurso: true });
+      iniciarBorradoCuenta(p.userId, req.log);
+      return reply.code(202).send({ ok: true, accesoTambien: puedeBorrarAuth() });
+    },
+  );
 
   // ---- administración de códigos (solo administrador) ----
   app.get("/v1/admin/codes", { preHandler: requireAdmin }, async () => ({

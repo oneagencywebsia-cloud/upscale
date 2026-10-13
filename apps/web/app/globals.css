@@ -4687,3 +4687,152 @@ html {
 .landing-foot a {
   color: inherit;
 }
+
+/* ===================================================================
+   Legal, ajustes sencillos y borrar cuenta
+   =================================================================== */
+.start-legal {
+  margin: 4px 0 0;
+  max-width: 34ch;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--text-mute);
+}
+.start-legal a,
+.panel-lede a,
+.legal-body a {
+  color: var(--accent);
+}
+.landing-foot {
+  flex-wrap: wrap;
+}
+
+.legal-body {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px clamp(16px, 4vw, 40px) 40px;
+}
+.legal-body h1 {
+  margin: 0 0 4px;
+  font: 800 clamp(30px, 6vw, 42px) var(--font-display);
+  letter-spacing: -0.03em;
+}
+.legal-updated {
+  margin: 0 0 20px;
+  font: 12px var(--font-mono);
+  color: var(--text-mute);
+}
+.legal-summary {
+  margin: 0 0 28px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.legal-summary ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 4px;
+}
+.legal-body h2 {
+  margin: 28px 0 8px;
+  font: 700 19px var(--font-display);
+  letter-spacing: -0.01em;
+}
+.legal-body p,
+.legal-body li {
+  color: var(--text-dim);
+  line-height: 1.65;
+  font-size: 15px;
+}
+.legal-body ul {
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
+}
+.legal-body b {
+  color: var(--light);
+}
+
+.adv > summary {
+  cursor: pointer;
+  list-style: none;
+  font: 700 17px var(--font-display);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+}
+.adv > summary::-webkit-details-marker {
+  display: none;
+}
+.adv > summary::after {
+  content: "+";
+  font: 500 24px var(--font-display);
+  color: var(--accent);
+  transition: transform 0.2s;
+}
+.adv[open] > summary::after {
+  transform: rotate(45deg);
+}
+.adv-sec {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--stroke);
+}
+.adv-sec h3 {
+  margin-top: 0;
+}
+
+.btn.danger {
+  color: #fff;
+  background: var(--danger);
+  border-color: transparent;
+}
+.btn.danger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.danger-zone {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--stroke));
+}
+.danger-form {
+  display: grid;
+  gap: 12px;
+}
+.danger-form p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 14.5px;
+}
+.danger-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+.danger-form input {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--stroke-strong);
+  background: var(--glass);
+  color: var(--light);
+  font: 600 16px var(--font-mono);
+  letter-spacing: 0.08em;
+}
+.danger-form input:focus-visible {
+  outline: 2px solid var(--danger);
+  outline-offset: 1px;
+}
+.danger-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.danger-actions .btn {
+  flex: 1 1 140px;
+  justify-content: center;
+  min-height: 44px;
+}
