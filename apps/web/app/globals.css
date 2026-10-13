@@ -1918,6 +1918,10 @@ footer.status .dot {
 }
 
 .gallery-toolbar {
+  /* su propio nivel por encima de las fotos: sin esto el menú «···» se veía
+     encima pero los toques los recibía la rejilla de debajo */
+  position: relative;
+  z-index: 30;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -5349,4 +5353,119 @@ html {
 .pform > .pfield,
 .psec > .pfield {
   flex: none;
+}
+
+/* ===================================================================
+   Hoja de descarga (DownloadSheet.tsx) — reutiliza .atas-* de arriba
+   =================================================================== */
+.dls-tip,
+.dls-foot,
+.dls-msg {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+.dls-foot {
+  font-size: 12px;
+  color: var(--text-mute);
+}
+.dls-msg {
+  color: var(--danger);
+}
+.dls-wait {
+  display: flex;
+  gap: 6px;
+  padding: 18px 0;
+  justify-content: center;
+}
+.dls-wait i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: dls-b 1s ease-in-out infinite;
+}
+.dls-wait i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.dls-wait i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes dls-b {
+  0%, 80%, 100% {
+    opacity: 0.25;
+    transform: scale(0.8);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.dls-list {
+  display: grid;
+  gap: 8px;
+  overflow-y: auto;
+  min-height: 0;
+  max-height: 46vh;
+  -webkit-overflow-scrolling: touch;
+}
+.dls-part {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 60px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px solid var(--stroke);
+  background: color-mix(in srgb, var(--light) 5%, transparent);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.dls-part:active {
+  transform: scale(0.99);
+}
+.dls-part:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.dls-part.done {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.dls-n {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font: 800 15px var(--font-display);
+  color: var(--on-accent);
+  background: linear-gradient(135deg, var(--accent-2), var(--accent));
+}
+.dls-part.done .dls-n {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+.dls-t {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.dls-t b {
+  font: 700 15px var(--font-display);
+  color: var(--light);
+}
+.dls-t i {
+  font: normal 12px var(--font-mono);
+  color: var(--text-dim);
+}
+.dls-go {
+  flex: none;
+  font: 700 13px var(--font-display);
+  color: var(--accent);
 }

@@ -1,4 +1,4 @@
-import { createReadStream, createWriteStream, existsSync } from "node:fs";
+import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, rm, stat } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import { Transform, type Readable } from "node:stream";
@@ -31,12 +31,19 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Asset, AssetListItem, AssetKind } from "../types.js";
 import { env } from "../env.js";
 import { query, one } from "../db.js";
-import archiver from "archiver";
-import { put, signedUrl, remove, blobToLocalFile } from "../storage.js";
+import { put, signedUrl, remove } from "../storage.js";
 import { ingestLocalFile } from "../pipeline.js";
 import { requireUser, requireUploadToken, principalOf } from "../auth.js";
 import { cuotaDe, premiarInvitacion } from "../accounts.js";
 import { cogerHueco } from "../uploadSlots.js";
+import { servirZip, filtroDe, filasDe, repartirEnPartes } from "../zipDownload.js";
+
+/** «parte 2 de 5» desde ?part=2&of=5 (solo cambia el nombre del archivo). */
+function parteDe(q: Record<string, unknown>): { n: number; de: number } | null {
+  const n = Math.floor(Number(q.part));
+  const de = Math.floor(Number(q.of));
+  return n >= 1 && de >= 2 && n <= de && de <= 500 ? { n, de } : null;
+}
 
 interface Row {
   id: string; user_id: string; kind: AssetKind; filename: string; mime: string; bytes: string;
@@ -124,25 +131,6 @@ async function withUrls(r: Row): Promise<AssetListItem> {
       ? await signedUrl(r.live_video_key, { expiresIn: 3600, downloadName: r.filename.replace(/\.[^.]+$/, "") + ".mov" })
       : null,
   };
-}
-
-/**
- * Un solo ZIP a la vez en TODO el proceso.
- *
- * Cada ZIP mantiene una ventana de descargas grandes en el disco del VPS con
- * su propio presupuesto de espacio; dos o tres a la vez (un doble clic en
- * "descargar todo", una pestaña recargada) multiplicaban ese presupuesto por
- * el número de ZIPs y podían llenar el disco entre todos — además de repartir
- * el mismo techo de ancho de banda de Telegram entre varias descargas, con lo
- * que TODAS van más lentas y ninguna acaba antes. Mejor decirlo claro.
- */
-let zipEnCurso = false;
-
-/** Nombre seguro dentro del ZIP: sin rutas ni ".." (el nombre viene de la
- *  cabecera X-Filename de quien subió el archivo, no del servidor). */
-function nombreZipSeguro(nm: string): string {
-  const base = nm.replace(/[\\/]+/g, "_").replace(/^\.+/, "_").replace(/[\x00-\x1f]/g, "");
-  return base.slice(0, 180) || "archivo";
 }
 
 function logAccess(userId: string, assetId: string | null, action: "view" | "download", ua?: string) {
@@ -348,260 +336,36 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ---------- descargar TODO (o una selección) en un ZIP ----------
-  // El nombre del ZIP lleva el rango de fechas: "Recuerdos del 2026-07-01 al 2026-09-08.zip".
-  // Al descomprimir queda esa carpeta con todos los originales dentro.
+  // POST (lo normal): la selección va en el cuerpo — con cientos de fotos los ids
+  // no caben en una URL. GET se mantiene por compatibilidad (enlaces antiguos).
+  // El nombre lleva el rango de fechas: "Recuerdos del 2026-07-01 al 2026-09-08.zip".
+  const zipBody = { bodyLimit: 8 * 1024 * 1024 };
   app.get("/v1/assets/zip", { preHandler: requireUser }, async (req, reply) => {
     const { userId } = principalOf(req);
-    const rawIds = (req.query as Record<string, unknown>).ids;
-    // ?ids=a&ids=b llega como array: sin esto, `.split` reventaba con un 500.
-    const idsStr = typeof rawIds === "string" ? rawIds : Array.isArray(rawIds) ? rawIds.join(",") : null;
-    const idList = idsStr
-      ? idsStr.split(",").map((s) => String(s).trim()).filter((s) => ES_UUID.test(s)).slice(0, 20000)
-      : null;
-    if (idsStr && !idList?.length) return reply.code(400).send({ error: "ningún id válido en ?ids" });
+    const q = req.query as Record<string, unknown>;
+    return servirZip(req, reply, userId, filtroDe(q), { parte: parteDe(q) });
+  });
+  app.post("/v1/assets/zip", { preHandler: requireUser, ...zipBody }, async (req, reply) => {
+    const { userId } = principalOf(req);
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    return servirZip(req, reply, userId, filtroDe(b), { parte: parteDe(b) });
+  });
 
-    if (zipEnCurso) {
-      return reply
-        .code(409)
-        .send({ error: "ya hay una descarga en ZIP en curso; espera a que termine y vuelve a intentarlo" });
-    }
-
-    const params: unknown[] = [userId];
-    let sql = `select a.id, a.kind, a.filename, a.captured_at, a.original_key, a.bytes
-                 from assets a where a.user_id = $1 and a.deleted_at is null`;
-    if (idList) {
-      params.push(idList);
-      sql += ` and a.id = any($2::uuid[])`;
-    }
-    sql += " order by a.captured_at asc, a.id asc";
-    const rows = (await query<{ id: string; kind: string; filename: string; captured_at: Date; original_key: string; bytes: string }>(sql, params)).rows;
-    if (!rows.length) return reply.code(404).send({ error: "nada que descargar" });
-
-    const ymd = (d: Date) => new Date(d).toISOString().slice(0, 10);
-    const d1 = ymd(rows[0]!.captured_at);
-    const d2 = ymd(rows[rows.length - 1]!.captured_at);
-    const name = (d1 === d2 ? `Recuerdos ${d1}` : `Recuerdos del ${d1} al ${d2}`).replace(/[^\w .\-]/g, "");
-
-    // A partir de aquí el ZIP es "el" ZIP en curso: el finally del final lo
-    // libera pase lo que pase (fin normal, error o cancelación del navegador).
-    zipEnCurso = true;
-    try {
-    reply.hijack(); // tomamos el socket: escribimos el ZIP a mano en reply.raw
-    reply.raw.setHeader("Content-Type", "application/zip");
-    reply.raw.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${name}.zip"; filename*=UTF-8''${encodeURIComponent(name)}.zip`,
-    );
-    reply.raw.setHeader("Cache-Control", "no-store");
-
-    const archive = archiver("zip", { store: true, forceZip64: true });
-    archive.on("warning", (e) => req.log.warn({ err: e.message }, "zip: warning"));
-    archive.on("error", (e) => {
-      req.log.error({ err: e.message }, "zip: error");
-      reply.raw.destroy();
-    });
-    archive.pipe(reply.raw);
-
-    const used = new Set<string>();
-    let added = 0;
-    let failed = 0;
-
-    // Si el navegador corta la descarga del ZIP hay que parar DE VERDAD: sin
-    // esto seguían corriendo las descargas de la ventana de prefetch (varios
-    // GB cada una) para un ZIP que ya no lee nadie.
-    let abortado = false;
-    let terminado = false; // el bucle ya no va a usar más archivos
-    reply.raw.once("close", () => {
-      abortado = true;
-    });
-
-    // Los originales se bajan a la caché de disco (tgEnsureLocal). El
-    // limpiador de esa caché (pruneCache en telegram.ts) borra por antigüedad
-    // en cuanto se pasa del presupuesto, y NO sabe nada de este ZIP: podía
-    // borrar el archivo que archiver está a punto de abrir → 'error' ENOENT →
-    // se destruía el socket y el ZIP entero se iba al traste a media
-    // descarga. pinCachedFile() lo marca como "en uso" mientras dura su
-    // entrada en el ZIP (es justo para lo que existe; ya lo usa el worker de
-    // previews). Solo aplica al motor telegram; con "local" no hay caché que
-    // limpiar y los originales son los archivos de verdad.
-    const pin: ((p: string) => () => void) | null =
-      env.STORAGE_DRIVER === "telegram"
-        ? await import("../telegram.js").then((m) => m.pinCachedFile).catch(() => null)
-        : null;
-
-    // Ventana de prefetch: se bajan CONC archivos a la vez (y cada uno con varios
-    // hilos por dentro) mientras el ZIP escribe el anterior. Store mode, byte a byte.
-    //
-    // PERO el prefetch ya no puede ser "3 archivos" a secas: desde que un
-    // original puede pesar 20-100 GB, tres en vuelo son 300 GB en el disco del
-    // VPS antes de escribir la primera entrada — se llena el disco y se cae
-    // TODO (ingesta, previews, subidas), no solo el ZIP. Se limita también por
-    // BYTES en vuelo, con un presupuesto sacado del espacio libre real.
-    const CONC = 3;
-    let presupuesto = 8 * 1024 * 1024 * 1024; // suelo razonable si statfs falla
-    try {
-      const { statfs } = await import("node:fs/promises");
-      const dir = env.STORAGE_DRIVER === "telegram" ? env.TG_CACHE_DIR : env.STORAGE_DIR;
-      const s = await statfs(dir);
-      // la mitad de lo libre, nunca más de 64 GB: el resto del sistema
-      // (ingesta, transcodificaciones) sigue necesitando disco mientras tanto.
-      presupuesto = Math.min(64 * 1024 * 1024 * 1024, Math.max(2 * 1024 * 1024 * 1024, Math.floor(s.bavail * s.bsize * 0.5)));
-    } catch {
-      /* sistema de archivos raro: nos quedamos con el suelo */
-    }
-
-    const inflight = new Map<number, Promise<string | null>>();
-    const enVuelo = new Map<number, number>(); // índice -> bytes reservados
-    const pins = new Map<number, () => void>(); // índice -> soltar el pin
-    const bytesEnVuelo = () => [...enVuelo.values()].reduce((n, x) => n + x, 0);
-    const kickoff = (i: number) => {
-      if (i >= rows.length || inflight.has(i) || abortado) return;
-      const b = Number(rows[i]!.bytes) || 0;
-      // SIEMPRE se permite al menos una descarga, aunque ese archivo solo ya
-      // se salga del presupuesto — si no, un vídeo más grande que el
-      // presupuesto no se descargaría nunca y el ZIP se quedaría colgado.
-      if (inflight.size > 0 && bytesEnVuelo() + b > presupuesto) return;
-      enVuelo.set(i, b);
-      inflight.set(
-        i,
-        blobToLocalFile(rows[i]!.original_key)
-          .then((p) => {
-            // Pin EN CUANTO está en disco, no al llegarle el turno: un archivo
-            // descargado por adelantado puede pasarse horas esperando (mientras
-            // se comprime un vídeo enorme anterior) y el limpiador de caché lo
-            // habría borrado por antiguo justo antes de usarlo.
-            // `terminado`: una descarga de la ventana que acaba DESPUÉS de que
-            // el bucle haya cortado no debe dejar un pin colgado — ese archivo
-            // sería intocable para el limpiador de caché el resto de la vida
-            // del proceso.
-            if (p && pin && !terminado && !pins.has(i)) pins.set(i, pin(p));
-            return p;
-          })
-          .catch(() => null),
-      );
+  // Antes de descargar «todo»: cuánto es y en cuántas partes conviene bajarlo
+  // (en el móvil un ZIP de decenas de GB no es razonable). Cada parte lleva sus ids.
+  app.post("/v1/assets/zip/plan", { preHandler: requireUser, ...zipBody }, async (req, reply) => {
+    const { userId } = principalOf(req);
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const filtro = filtroDe(b);
+    if (filtro.ids && !filtro.ids.length) return reply.code(400).send({ error: "ningún id válido" });
+    const max = Math.min(Math.max(Number(b.maxPartBytes) || 2 * 1024 ** 3, 100 * 1024 ** 2), 20 * 1024 ** 3);
+    const rows = await filasDe(userId, filtro);
+    const parts = repartirEnPartes(rows, max);
+    return {
+      count: rows.length,
+      bytes: rows.reduce((n, r) => n + (Number(r.bytes) || 0), 0),
+      parts,
     };
-    const soltarPin = (i: number) => {
-      pins.get(i)?.();
-      pins.delete(i);
-    };
-    for (let i = 0; i < CONC; i++) kickoff(i);
-
-    const nameFor = (r: { filename: string; kind: string; id: string }) => {
-      // El nombre viene de X-Filename al subir: si trae "/" o "..", el ZIP
-      // saldría con rutas dentro (zip-slip) y al descomprimir escribiría fuera
-      // de la carpeta. Se neutraliza aquí, que es donde se construye la entrada.
-      let nm = nombreZipSeguro(r.filename || `${r.kind}_${r.id}`);
-      if (!/\.[a-z0-9]{2,5}$/i.test(nm)) nm += r.kind === "video" ? ".mov" : r.kind === "audio" ? ".m4a" : ".jpg";
-      if (used.has(nm)) {
-        const dot = nm.lastIndexOf(".");
-        const stem = dot > 0 ? nm.slice(0, dot) : nm;
-        const ext = dot > 0 ? nm.slice(dot) : "";
-        let k = 2;
-        while (used.has(`${stem}_${k}${ext}`)) k++;
-        nm = `${stem}_${k}${ext}`;
-      }
-      used.add(nm);
-      return nm;
-    };
-
-    for (let i = 0; i < rows.length; i++) {
-      if (abortado || reply.raw.destroyed) break;
-      const r = rows[i]!;
-      if (!inflight.has(i)) kickoff(i); // el presupuesto pudo dejarlo fuera antes
-      const local = await inflight.get(i)!;
-      inflight.delete(i);
-      enVuelo.delete(i);
-      // Rellenar la ventana: puede entrar más de uno si los que acaban de
-      // salir liberaron presupuesto.
-      for (let j = i + 1; j < Math.min(rows.length, i + 1 + CONC); j++) kickoff(j);
-      // El archivo puede haber desaparecido entre la descarga y su turno (una
-      // limpieza de caché agresiva, un borrado manual). Antes eso llegaba a
-      // archiver como un ENOENT → evento 'error' → socket destruido → el ZIP
-      // ENTERO se cortaba a mitad. Ahora se reintenta una vez y, si aún no
-      // está, se salta ese archivo y el ZIP continúa con el resto.
-      let ruta = local;
-      if (ruta && !existsSync(ruta)) {
-        req.log.warn({ id: r.id }, "zip: el original ya no estaba en disco, se rebaja de nuevo");
-        ruta = await blobToLocalFile(r.original_key).catch(() => null);
-        if (ruta && pin && !pins.has(i)) pins.set(i, pin(ruta));
-        if (ruta && !existsSync(ruta)) ruta = null;
-      }
-      if (!ruta) {
-        soltarPin(i);
-        failed++;
-        req.log.warn({ id: r.id }, "zip: archivo omitido");
-        continue;
-      }
-      const local2 = ruta;
-      const nm = nameFor(r);
-      try {
-        await new Promise<void>((resolve) => {
-          // Espera a que archiver TERMINE esta entrada antes de seguir: es lo
-          // que mantiene la ventana de prefetch en su sitio (si no, se
-          // encolarían de golpe miles de entradas y se dispararían todas las
-          // descargas a la vez).
-          //
-          // Antes había un `setTimeout(done, 120_000)` fijo. Con originales de
-          // decenas de GB eso se queda corto por definición: archiver tiene
-          // que leer el archivo ENTERO del disco (y mandarlo por el socket, al
-          // ritmo del que descarga) para cerrar la entrada — 20 GB no caben en
-          // 2 minutos ni con disco rápido. El plazo saltaba, el bucle seguía
-          // adelante y se perdía todo el control de flujo. Ahora el criterio es
-          // PROGRESO, no tiempo: mientras el ZIP siga escribiendo bytes
-          // (archive.pointer() sube), se espera lo que haga falta; solo se
-          // abandona si pasan 10 minutos sin escribir ni un byte.
-          let ultimo = archive.pointer();
-          let quieto = 0;
-          let iv: ReturnType<typeof setInterval> | null = null;
-          const done = () => {
-            if (iv) clearInterval(iv);
-            iv = null;
-            archive.off("entry", done);
-            archive.off("error", done);
-            resolve();
-          };
-          iv = setInterval(() => {
-            if (abortado || reply.raw.destroyed) return done();
-            const ahora = archive.pointer();
-            if (ahora > ultimo) {
-              ultimo = ahora;
-              quieto = 0;
-              return;
-            }
-            if (++quieto >= 20) {
-              req.log.warn({ id: r.id, nm }, "zip: entrada sin progreso 10 min, se abandona");
-              done();
-            }
-          }, 30_000);
-          archive.once("entry", done);
-          archive.once("error", done);
-          archive.file(local2, { name: nm, date: new Date(r.captured_at) });
-        });
-      } finally {
-        soltarPin(i);
-      }
-      added++;
-    }
-    // Soltar los pines que queden (ventana de prefetch al cortar, archivos
-    // saltados): si no, esos archivos se quedarían intocables para el limpiador
-    // de caché PARA SIEMPRE y el disco no se recuperaría nunca.
-    terminado = true;
-    for (const i of [...pins.keys()]) soltarPin(i);
-    req.log.info({ userId, added, failed }, "zip: finalizando");
-    try {
-      // finalize() sobre un socket ya cerrado (el usuario canceló) rechaza;
-      // como la respuesta está hijacked, ese rechazo llegaría al manejador de
-      // errores de Fastify, que intentaría responder sobre una respuesta ya
-      // tomada. Se traga aquí, que es donde se sabe qué pasó.
-      if (abortado || reply.raw.destroyed) archive.abort();
-      else await archive.finalize();
-    } catch (e) {
-      req.log.warn({ err: (e as Error)?.message }, "zip: cierre con incidencias");
-      if (!reply.raw.destroyed) reply.raw.destroy();
-    }
-    } finally {
-      zipEnCurso = false;
-    }
   });
 
   // ---------- listar ----------

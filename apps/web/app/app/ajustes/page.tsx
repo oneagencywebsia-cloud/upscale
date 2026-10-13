@@ -4,6 +4,7 @@ import TokenManager from "@/components/TokenManager";
 import IngestBind from "@/components/IngestBind";
 import PreviewsRetry from "@/components/PreviewsRetry";
 import DeleteAccount from "@/components/DeleteAccount";
+import DownloadAllButton from "@/components/DownloadAllButton";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -47,9 +48,7 @@ export default async function AjustesPage() {
         <h3>Tus datos</h3>
         <p className="panel-lede">Descarga todo en un ZIP, con los originales intactos. Tuyo siempre.</p>
         <p>
-          <a className="btn primary" href="/api/dl-all" download>
-            Descargar todo (ZIP)
-          </a>
+          <DownloadAllButton />
         </p>
         <p className="panel-lede">
           <Link href="/privacidad">Privacidad</Link> · <Link href="/terminos">Términos</Link>

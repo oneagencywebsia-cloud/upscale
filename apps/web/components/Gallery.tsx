@@ -9,6 +9,8 @@ import { durationHuman, groupByDay } from "@/lib/format";
 import Viewer from "./Viewer";
 import DensityControl from "./DensityControl";
 import AddToAlbumSheet from "./AddToAlbumSheet";
+import DownloadSheet from "./DownloadSheet";
+import { descargarUno, descargarZip, UMBRAL_DIRECTO, type FuenteZip } from "@/lib/download";
 import BrandMark from "./BrandMark";
 
 interface DayGroup {
@@ -574,24 +576,41 @@ export default function Gallery({
     router.refresh();
   }
 
-  function downloadZip(ids?: string[]) {
-    const qs = ids && ids.length ? `?ids=${ids.join(",")}` : "";
-    const url = `/api/dl-all${qs}`;
-    // <a target="_blank"> abre Safari (en PWA standalone) y ahí sí sale el gestor
-    // de descargas de iOS. El .zip se guarda en Archivos → Descargas.
-    const a = document.createElement("a");
-    a.href = url;
-    a.target = "_blank";
-    a.rel = "noopener";
-    a.download = "";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setToast(
-      ids && ids.length
-        ? `Preparando ZIP de ${ids.length}… se guardará en Archivos › Descargas`
-        : `Preparando ZIP de ${assets.length}… tarda un rato; se guarda en Archivos › Descargas`,
-    );
+  // Descargas. Una sola cosa = el original directo (sin ZIP). Varias = ZIP pedido
+  // por POST (la selección no cabe en una URL). Si es MUCHO (descargar todo, o
+  // selecciones de varios GB) se enseña antes la hoja con tamaño y partes.
+  const [dlSheet, setDlSheet] = useState<{ fuente: FuenteZip; titulo: string } | null>(null);
+
+  function downloadSelection(ids: string[]) {
+    if (ids.length === 1) {
+      descargarUno(ids[0]!);
+      setToast("Descargando…");
+      return;
+    }
+    const peso = new Map(assets.map((a) => [a.id, a.bytes]));
+    const bytes = ids.reduce((n, id) => n + (peso.get(id) ?? 0), 0);
+    if (bytes > UMBRAL_DIRECTO) {
+      setDlSheet({ fuente: { ids }, titulo: "Descargar selección" });
+      return;
+    }
+    descargarZip({ ids });
+    setToast(`Preparando ZIP de ${ids.length}… se guardará en Descargas`);
+  }
+
+  function downloadAll() {
+    setDlSheet({
+      fuente: {
+        ids: null,
+        kind: kind ?? null,
+        fav,
+        album: albumId ?? null,
+        q: q ?? null,
+        camera: camera ?? null,
+        from: from ?? null,
+        to: to ?? null,
+      },
+      titulo: "Descargar todo",
+    });
   }
 
   async function bulkDelete() {
@@ -755,7 +774,7 @@ export default function Gallery({
                   role="menuitem"
                   onClick={() => {
                     setMenuOpen(false);
-                    downloadZip();
+                    downloadAll();
                   }}
                 >
                   Descargar todo ({(total || assets.length).toLocaleString("es-ES")})
@@ -854,7 +873,7 @@ export default function Gallery({
             <b>{sel.size}</b>
             <i className="selbar-long"> seleccionado{sel.size === 1 ? "" : "s"}</i>
           </span>
-          <button className="btn sm" onClick={() => downloadZip([...sel])}>
+          <button className="btn sm" onClick={() => downloadSelection([...sel])}>
             Descargar
           </button>
           {!albumId && (
@@ -875,6 +894,8 @@ export default function Gallery({
           </button>
         </motion.div>
       )}
+
+      {dlSheet && <DownloadSheet fuente={dlSheet.fuente} titulo={dlSheet.titulo} onClose={() => setDlSheet(null)} />}
 
       {addIds && (
         <AddToAlbumSheet

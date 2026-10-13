@@ -177,3 +177,13 @@ Pensada para que cualquiera la entienda en segundos y acabe registrándose:
 - **Borrar cuenta**: Ajustes → «Borrar mi cuenta» (escribir BORRAR) → `POST /v1/me/delete` (202, borrado por tandas en segundo plano: archivos del almacén, filas, álbumes, tokens, accesos, canjes, perfil; y el usuario de Supabase si hay `SUPABASE_SERVICE_ROLE_KEY`). La cuenta de administración (ingesta atada) no se puede borrar así.
 - **Ajustes** simple: subir, descargar todo (ZIP) y borrar cuenta; lo técnico (Atajo de iOS, mapa, vídeos sin vista previa) va plegado en «Opciones avanzadas».
 - Pendiente: cobro real (Stripe).
+
+## Descargas (ZIP)
+`apps/api/src/zipDownload.ts` + `DownloadSheet` en la web.
+- **Una foto/vídeo** → enlace directo al original (`/api/dl/:id`, sin ZIP). **Varios** → ZIP pedido con **POST** (`/v1/assets/zip`, la selección va en el cuerpo: con cientos de fotos los ids no caben en una URL; `GET ?ids=` sigue por compatibilidad).
+- Filtros iguales a los de la galería (`kind`, `fav`, `album`, `q`, `camera`, `from`, `to`): «Descargar todo» baja exactamente lo que se ve filtrado.
+- **Partes**: `POST /v1/assets/zip/plan` devuelve cuántos elementos/bytes son y los reparte en partes (2 GB en móvil, 8 GB en ordenador; un original más grande es su propia parte). La hoja de descarga (`DownloadSheet`) sale solo si es «descargar todo» o la selección pesa más de 1,5 GB; si no, se descarga directamente.
+- **Sin errores por archivos malos**: un archivo que falla se omite y el ZIP añade `LEEME - archivos omitidos.txt` con la lista. Nombres repetidos (también por mayúsculas) se renombran. Zip64 solo si hace falta (>3,5 GB).
+- **Rápido**: las cabeceras salen al instante (el navegador enseña la descarga ya), hasta 6 archivos se bajan en paralelo (2 «grandes» como máximo, con presupuesto de bytes según el disco libre).
+- **Cupos**: `ZIP_MAX_PER_USER` (1) y `ZIP_MAX_CONCURRENT` (3). Al cancelar en el navegador el hueco se libera al instante y se corta también la petición a la API.
+- Errores (ya hay una descarga, demasiadas a la vez, nada que bajar) salen como una página legible en la pestaña de descarga, no como JSON.
