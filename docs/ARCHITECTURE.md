@@ -43,6 +43,16 @@ Capa con tres motores, elegido por `STORAGE_DRIVER`. Interfaz común:
 `/v1/blob` no usa sesión: el enlace lleva un token HMAC temporal firmado con
 `BLOB_SECRET` (`storage.signedUrl`). Cambiar de motor es solo variables de entorno.
 
+### Audio
+
+Tercer tipo de archivo (`kind = 'audio'`, migración 025): música, notas de voz, podcasts
+(`.mp3 .m4a .aac .wav .flac .ogg .opus .aiff .caf .amr .wma`). `probe()` lo clasifica con
+ffprobe: hay pista de audio y NINGUNA de vídeo real (la carátula incrustada cuenta como
+`attached_pic`, no como vídeo). La «portada» es la carátula del archivo si la trae o una tarjeta
+generada con la marca (ondas de sonido y nombre, con un tono propio por archivo). Se reproduce
+con `<audio>` en el visor desde el original (sin copia ligera: no hace falta). El servidor de
+archivos (`/v1/blob`) sirve los tipos MIME de audio; sin ellos el navegador se niega a reproducirlos.
+
 ### Sin pérdida de calidad + Live Photos
 
 Como se guarda el archivo **byte a byte**, todo lo que el iPhone embebe (HDR/Dolby

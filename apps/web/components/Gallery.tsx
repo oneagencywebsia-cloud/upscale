@@ -86,6 +86,14 @@ const Tile = memo(function Tile({ a, selected, selecting, onDown, onActivate }: 
           {durationHuman(a.durationS)}
         </span>
       )}
+      {a.kind === "audio" && (
+        <span className="badge vid aud">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M9 18V5l12-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm12-2a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          {durationHuman(a.durationS)}
+        </span>
+      )}
       {a.isLive && <span className="badge live">LIVE</span>}
       {selecting && <span className={`selmark ${selected ? "on" : ""}`} aria-hidden="true" />}
     </button>

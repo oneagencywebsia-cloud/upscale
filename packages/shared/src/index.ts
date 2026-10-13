@@ -1,6 +1,6 @@
 /** Tipos compartidos entre la API y la web de Upscale. */
 
-export type AssetKind = "photo" | "video";
+export type AssetKind = "photo" | "video" | "audio";
 
 /** Fila de la tabla `assets` tal y como la sirve la API (camelCase, fechas ISO). */
 export interface Asset {

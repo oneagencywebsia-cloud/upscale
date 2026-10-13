@@ -3,6 +3,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { AssetKind } from "../types.js";
 import { ping, one, query, poolStats } from "../db.js";
 import { env, VERSION } from "../env.js";
 import { requireUploadToken, requireAdmin, principalOf } from "../auth.js";
@@ -364,7 +365,7 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
     const { userId } = principalOf(req);
     const lote = Math.min(100, Math.max(1, Number((req.query as { n?: string }).n) || 40));
     const rows = (
-      await query<{ id: string; kind: "photo" | "video"; original_key: string; filename: string; bytes: string }>(
+      await query<{ id: string; kind: AssetKind; original_key: string; filename: string; bytes: string }>(
         `select id, kind, original_key, filename, bytes from assets
            where user_id = $1 and lat is null and lon is null and deleted_at is null
              and gps_checked_at is null and stored = true and not unrecoverable
@@ -383,7 +384,7 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
     // MB) en vez del original entero hace esto ~20x más rápido con el techo
     // de ancho de banda de Telegram. Varios a la vez para solapar esperas.
     const uno = async (a: (typeof rows)[number]) => {
-      const ext = a.filename.match(/\.[a-z0-9]{2,5}$/i)?.[0] ?? (a.kind === "video" ? ".mov" : ".jpg");
+      const ext = a.filename.match(/\.[a-z0-9]{2,5}$/i)?.[0] ?? (a.kind === "video" ? ".mov" : a.kind === "audio" ? ".m4a" : ".jpg");
       const tmp = join(env.TMP_DIR, `gps-${a.id}-${randomBytes(4).toString("hex")}${ext}`);
       try {
         const esFoto = a.kind === "photo";

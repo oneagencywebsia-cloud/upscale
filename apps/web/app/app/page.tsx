@@ -22,7 +22,7 @@ export default async function GalleryPage({
   }>;
 }) {
   const { kind, fav, sort, tooBig, q, camera, from, to } = await searchParams;
-  const filter = kind === "photo" || kind === "video" ? kind : undefined;
+  const filter = kind === "photo" || kind === "video" || kind === "audio" ? kind : undefined;
   const onlyFav = fav === "1";
   const sortAdded = sort === "added";
 

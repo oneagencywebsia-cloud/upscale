@@ -274,7 +274,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
         }
         if ((err as { code?: string })?.code === "UNREADABLE") {
           return reply.code(400).send({
-            error: "el vídeo llegó dañado (falta el índice interno del archivo) y no se puede reproducir — revisa la copia original antes de volver a subirlo",
+            error: "el archivo llegó dañado (falta su índice interno) y no se puede reproducir — revisa la copia original antes de volver a subirlo",
           });
         }
         req.log.error({ err: (err as Error)?.message, stack: (err as Error)?.stack, filename, userId }, "fallo al subir asset");
@@ -491,7 +491,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
       // saldría con rutas dentro (zip-slip) y al descomprimir escribiría fuera
       // de la carpeta. Se neutraliza aquí, que es donde se construye la entrada.
       let nm = nombreZipSeguro(r.filename || `${r.kind}_${r.id}`);
-      if (!/\.[a-z0-9]{2,5}$/i.test(nm)) nm += r.kind === "video" ? ".mov" : ".jpg";
+      if (!/\.[a-z0-9]{2,5}$/i.test(nm)) nm += r.kind === "video" ? ".mov" : r.kind === "audio" ? ".m4a" : ".jpg";
       if (used.has(nm)) {
         const dot = nm.lastIndexOf(".");
         const stem = dot > 0 ? nm.slice(0, dot) : nm;
@@ -626,7 +626,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
       : "";
     let sql = `select ${A}${cursorCol} from assets a where a.user_id = $1 and a.deleted_at is null`;
 
-    if (q.kind === "photo" || q.kind === "video") {
+    if (q.kind === "photo" || q.kind === "video" || q.kind === "audio") {
       params.push(q.kind);
       sql += ` and a.kind = $${params.length}`;
     }

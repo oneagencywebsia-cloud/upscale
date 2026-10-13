@@ -215,11 +215,15 @@ export function mediaColas(): { nucleos: number; esperaLigero: number; esperaPes
 
 const VIDEO_EXT = new Set([".mov", ".mp4", ".m4v", ".hevc", ".avci", ".3gp", ".avi", ".mkv", ".webm"]);
 const IMAGE_EXT = new Set([".heic", ".heif", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".tiff", ".dng", ".avif"]);
+export const AUDIO_EXT = new Set([".mp3", ".m4a", ".m4b", ".aac", ".wav", ".flac", ".ogg", ".oga", ".opus", ".aif", ".aiff", ".caf", ".amr", ".wma"]);
 const EXT_MIME: Record<string, string> = {
   ".heic": "image/heic", ".heif": "image/heif", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
   ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif", ".tiff": "image/tiff",
   ".dng": "image/x-adobe-dng", ".mov": "video/quicktime", ".mp4": "video/mp4",
   ".m4v": "video/x-m4v", ".avi": "video/x-msvideo", ".mkv": "video/x-matroska", ".webm": "video/webm",
+  ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".m4b": "audio/mp4", ".aac": "audio/aac", ".wav": "audio/wav",
+  ".flac": "audio/flac", ".ogg": "audio/ogg", ".oga": "audio/ogg", ".opus": "audio/ogg", ".aif": "audio/aiff",
+  ".aiff": "audio/aiff", ".caf": "audio/x-caf", ".amr": "audio/amr", ".wma": "audio/x-ms-wma",
 };
 
 /**
@@ -229,11 +233,12 @@ const EXT_MIME: Record<string, string> = {
  */
 export function extFor(filename: string, contentType?: string): string {
   const e = extname(filename).toLowerCase();
-  if (VIDEO_EXT.has(e) || IMAGE_EXT.has(e)) return e;
+  if (VIDEO_EXT.has(e) || IMAGE_EXT.has(e) || AUDIO_EXT.has(e)) return e;
   const byMime = Object.entries(EXT_MIME).find(([, m]) => m === contentType)?.[0];
   if (byMime) return byMime;
   if (contentType?.startsWith("video/")) return ".mov";
   if (contentType?.startsWith("image/")) return ".jpg";
+  if (contentType?.startsWith("audio/")) return ".m4a";
   return e || ".bin";
 }
 
@@ -289,6 +294,7 @@ function parseIso6709(s: string | undefined): { lat: number | null; lon: number 
 export async function probe(path: string, filename: string, contentType?: string): Promise<Probe> {
   const ext = extFor(filename, contentType);
   const looksVideo = VIDEO_EXT.has(ext) || (contentType?.startsWith("video/") ?? false);
+  const looksAudio = AUDIO_EXT.has(ext) || (contentType?.startsWith("audio/") ?? false);
 
   let data: any = {};
   try {
@@ -314,12 +320,18 @@ export async function probe(path: string, filename: string, contentType?: string
   // duración > 0.3 s, o audio, o varios frames.
   const looksVideoByProbe =
     (durationS ?? 0) > 0.3 || !!audio || nbFrames > 1;
-  const kind: AssetKind = looksVideo || looksVideoByProbe ? "video" : "photo";
+  // AUDIO: hay pista de audio y NINGUNA de vídeo real. La carátula incrustada de un
+  // mp3/m4a aparece como stream "video" (mjpeg/png) con disposition attached_pic=1:
+  // no cuenta como vídeo. Un .mp4/.mov con vídeo de verdad sigue siendo vídeo.
+  const realVideo = !!v && v.disposition?.attached_pic !== 1;
+  const isAudio = !realVideo && (!!audio || (looksAudio && streams.length === 0));
+  const kind: AssetKind = isAudio ? "audio" : looksVideo || looksVideoByProbe ? "video" : "photo";
 
   const fps = kind === "video" ? (parseRate(v?.avg_frame_rate) ?? parseRate(v?.r_frame_rate)) : null;
+  const audioBitrate = kind === "audio" ? Number(audio?.bit_rate) || Number(fmt.bit_rate) || null : null;
   const videoBitrate = kind === "video"
     ? Number(v?.bit_rate) || Number(fmt.bit_rate) || null
-    : null;
+    : audioBitrate;
 
   let loc = parseIso6709(
     tags["com.apple.quicktime.location.ISO6709"] ?? tags["location"] ?? tags["location-eng"],
@@ -358,9 +370,10 @@ export async function probe(path: string, filename: string, contentType?: string
 
   const isHeic = /\.(heic|heif)$/i.test(ext) || !!contentType?.includes("heic") || !!contentType?.includes("heif");
 
-  let width: number | null = v?.width ?? null;
-  let height: number | null = v?.height ?? null;
-  let codec: string | null = v?.codec_name ?? null;
+  // audio: sin dimensiones (la carátula no es "la resolución"); el códec es el del audio
+  let width: number | null = kind === "audio" ? null : v?.width ?? null;
+  let height: number | null = kind === "audio" ? null : v?.height ?? null;
+  let codec: string | null = kind === "audio" ? audio?.codec_name ?? null : v?.codec_name ?? null;
 
   // Para HEIC: ffprobe de bookworm NO lo lee, y lo que a veces devuelve (mjpeg
   // 700x599…) es la MINIATURA incrustada, no la foto. Se ignora y se saca la
@@ -392,7 +405,7 @@ export async function probe(path: string, filename: string, contentType?: string
   // que por extensión/content-type es claramente un vídeo, y no es HEIC (ahí
   // ffprobe fallando es el camino normal, resuelto arriba). Esto es lo que
   // deja "moov atom not found": el archivo llegó cortado de origen.
-  const unreadable = kind === "video" && !isHeic && streams.length === 0 && !fmt.duration;
+  const unreadable = (kind === "video" || kind === "audio") && !isHeic && streams.length === 0 && !fmt.duration;
 
   return {
     kind,
@@ -551,6 +564,56 @@ export async function extractFrame(src: string, out: string, maxW = 1600): Promi
 export const makePoster = extractFrame;
 
 /**
+ * «Portada» de un AUDIO (1600×1600 JPEG): la carátula incrustada si la tiene
+ * (mp3/m4a con portada), y si no, una tarjeta de marca generada — cristal de
+ * anochecer, ondas de sonido y el nombre — con un tono propio por archivo (a
+ * partir de `seed`) para que en la rejilla no sean todas iguales.
+ */
+export async function audioPoster(src: string, out: string, title: string, seed: string): Promise<void> {
+  try {
+    // carátula incrustada: ffmpeg la saca como un "vídeo" de 1 fotograma
+    await run(env.FFMPEG_PATH, ["-y", "-i", src, "-an", "-frames:v", "1", "-vf", "scale='min(1600,iw)':-2", "-q:v", "3", out], RUN_OPTS);
+    const st = await import("node:fs/promises").then((m) => m.stat(out));
+    if (st.size > 1024) return;
+  } catch {
+    /* sin carátula: se genera la tarjeta */
+  }
+  const hue = parseInt(seed.slice(0, 6), 16) % 360;
+  const bars = Array.from({ length: 31 }, (_, i) => {
+    // contorno de onda determinista y agradable (suma de senos), distinto por seed
+    const ph = (parseInt(seed.slice(6, 10), 16) % 100) / 16;
+    const h = 90 + 330 * Math.abs(Math.sin(i * 0.42 + ph) * 0.65 + Math.sin(i * 0.17 + ph * 2) * 0.35);
+    const x = 140 + i * 42;
+    return `<rect x="${x}" y="${800 - h / 2}" width="20" height="${h}" rx="10" fill="url(#w)" opacity="${0.55 + 0.45 * (h / 420)}"/>`;
+  }).join("");
+  const name = title.replace(/\.[^.]+$/, "").slice(0, 28).replace(/[<>&"']/g, "");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1600" viewBox="0 0 1600 1600">
+    <defs>
+      <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${hue},45%,22%)"/><stop offset="0.6" stop-color="#0d1530"/><stop offset="1" stop-color="#0a0d14"/></linearGradient>
+      <radialGradient id="sun" cx="0.78" cy="0.82" r="0.7"><stop offset="0" stop-color="#ffe3a8" stop-opacity="0.5"/><stop offset="0.3" stop-color="#7adcec" stop-opacity="0.25"/><stop offset="1" stop-color="#4fc5dc" stop-opacity="0"/></radialGradient>
+      <linearGradient id="w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b6f1fb"/><stop offset="1" stop-color="#3fb4cf"/></linearGradient>
+    </defs>
+    <rect width="1600" height="1600" fill="url(#bg)"/><rect width="1600" height="1600" fill="url(#sun)"/>
+    <g>${bars}</g>
+    <text x="800" y="1240" text-anchor="middle" font-family="sans-serif" font-weight="700" font-size="84" fill="#eef2fb" opacity="0.92">${name}</text>
+    <text x="800" y="1330" text-anchor="middle" font-family="sans-serif" font-size="46" letter-spacing="10" fill="#7adcec" opacity="0.8">AUDIO</text>
+  </svg>`;
+  await sharp(Buffer.from(svg)).jpeg({ quality: 88 }).toFile(out);
+}
+
+/** Póster grande (JPEG) de cualquier tipo: fotograma, foto reescalada o portada de audio. */
+export async function derivePoster(
+  kind: AssetKind,
+  src: string,
+  out: string,
+  meta: { filename: string; sha256: string },
+): Promise<void> {
+  if (kind === "video") return extractFrame(src, out);
+  if (kind === "audio") return audioPoster(src, out, meta.filename, meta.sha256);
+  return imagePoster(src, out);
+}
+
+/**
  * Copia LIGERA para reproducir dentro de la app (1080p, ~5 Mbps). NO sustituye
  * al original: el original sigue intacto en el almacén y es lo que se descarga.
  *
@@ -623,7 +686,7 @@ export async function makePreview(
 
 /** Miniatura de reserva: cuadro oscuro. Nunca falla (sharp la crea de cero). */
 export async function placeholderThumb(out: string, kind: AssetKind): Promise<void> {
-  const bg = kind === "video" ? { r: 18, g: 23, b: 38 } : { r: 26, g: 30, b: 45 };
+  const bg = kind === "video" ? { r: 18, g: 23, b: 38 } : kind === "audio" ? { r: 20, g: 32, b: 56 } : { r: 26, g: 30, b: 45 };
   await sharp({ create: { width: 640, height: 640, channels: 3, background: bg } })
     .webp({ quality: 60 })
     .toFile(out);
