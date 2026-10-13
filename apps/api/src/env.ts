@@ -11,6 +11,15 @@ const base = z.object({
 
   WEB_ORIGIN: z.string().default("http://localhost:3001"),
 
+  /** Administradores (coma-separados): ids de usuario de Supabase y/o emails.
+   *  Solo ellos pueden tocar lo GLOBAL: la ingesta de Telegram (atarla a una
+   *  cuenta, saltarla, forzarla) y los diagnósticos del servidor. Sin esto,
+   *  cualquier cuenta registrada podía secuestrar el inbox de Telegram del
+   *  dueño. Si no se define, el admin es la cuenta a la que ya está atada la
+   *  ingesta (Ajustes → «Recibir aquí los vídeos de Telegram»). */
+  ADMIN_USER_IDS: z.string().optional(),
+  ADMIN_EMAILS: z.string().optional(),
+
   // telegram = canal privado de Telegram (coste 0, no tu PC ni tu VPS) — POR DEFECTO
   // local | r2
   STORAGE_DRIVER: z.enum(["telegram", "local", "r2"]).default("telegram"),

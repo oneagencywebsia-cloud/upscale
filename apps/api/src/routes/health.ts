@@ -5,7 +5,7 @@ import { randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { ping, one, query, poolStats } from "../db.js";
 import { env, VERSION } from "../env.js";
-import { requireUploadToken, principalOf } from "../auth.js";
+import { requireUploadToken, requireAdmin, principalOf } from "../auth.js";
 import { ingestSnapshot, ingestState, ingestTickNow, ingestSkipPending, ingestResume, previewWorkerMetrics } from "../ingest.js";
 
 function firstLine(cmd: string, args: string[]): Promise<string> {
@@ -33,6 +33,11 @@ function firstLine(cmd: string, args: string[]): Promise<string> {
  * seguir usando el mismo token del Atajo de iOS que ya existe.
  */
 const soloDueno = { preHandler: requireUploadToken } as const;
+
+/** Lo GLOBAL del servidor (ingesta de Telegram, diagnóstico de la conexión): solo
+ *  administradores. `soloDueno` es solo «con identidad» y vale para lo que
+ *  únicamente toca los datos del propio usuario. */
+const soloAdmin = { preHandler: requireAdmin } as const;
 
 /** ¿esa key es de un archivo de ESTE usuario? (evita firmar/inspeccionar lo ajeno) */
 async function keyDelUsuario(userId: string, key: string): Promise<boolean> {
@@ -78,7 +83,7 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // qué herramientas de imagen hay en el contenedor (para depurar HEIC/rotación)
-  app.get("/v1/diag/tools", soloDueno, async () => ({
+  app.get("/v1/diag/tools", soloAdmin, async () => ({
     version: VERSION,
     convert: await firstLine("convert", ["-version"]),
     vips: await firstLine("vips", ["--version"]),
@@ -91,7 +96,7 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
 
   // ¿va rápido Telegram? conexiones vivas, caché y prueba de velocidad real.
   // ?key=orig/... para medir con un original concreto; si no, coge el último vídeo.
-  app.get("/v1/diag/storage", soloDueno, async (req) => {
+  app.get("/v1/diag/storage", soloAdmin, async (req) => {
     const { tgDiag } = await import("../telegram.js");
     // ?big=1: el vídeo más pesado de verdad (para probar sostenida con algo
     // de cientos de MB), en vez del último subido (que puede ser pequeño).
@@ -224,7 +229,7 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
   // la conexión si no ve ningún byte salir durante ~30s, y una prueba de
   // cientos de MB tarda mucho más que eso. ?mb=N (por defecto 300, máx 2000).
   // ?big=1 usa el vídeo más pesado de la biblioteca; ?key=orig/... uno concreto.
-  app.get("/v1/diag/speedtest", soloDueno, async (req, reply) => {
+  app.get("/v1/diag/speedtest", soloAdmin, async (req, reply) => {
     const { tgSustainedSpeedTest } = await import("../telegram.js");
     const q = req.query as { mb?: string; streams?: string };
     const key = await keyDiag(req);
@@ -282,7 +287,7 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // diagnóstico de la ingesta desde Telegram (sin datos sensibles)
-  app.get("/v1/ingest/status", soloDueno, async () => {
+  app.get("/v1/ingest/status", soloAdmin, async () => {
     const lastId = await one<{ v: string }>("select v from kv where k = 'ingest:last_id'").catch(() => null);
     const inited = await one<{ v: string }>("select v from kv where k = 'ingest:inited'").catch(() => null);
     const pend = await one<{ n: string }>("select count(*) n from assets where not stored and deleted_at is null").catch(() => null);
@@ -308,7 +313,7 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // fuerza una vuelta ahora y devuelve el estado
-  app.post("/v1/ingest/run", soloDueno, async () => {
+  app.post("/v1/ingest/run", soloAdmin, async () => {
     await ingestTickNow(app.log);
     return {
       ran: true,
@@ -320,13 +325,13 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // salta lo que hay atascado ahora en el inbox (luego reenvías lo que quieras)
-  app.post("/v1/ingest/skip", soloDueno, async () => {
+  app.post("/v1/ingest/skip", soloAdmin, async () => {
     const r = await ingestSkipPending(app.log);
     return { ok: true, ...r };
   });
 
   // quita la pausa por FLOOD_WAIT y hace una vuelta ya
-  app.post("/v1/ingest/resume", soloDueno, async () => {
+  app.post("/v1/ingest/resume", soloAdmin, async () => {
     ingestResume();
     await ingestTickNow(app.log);
     return { ok: true, lastTickError: ingestState.lastTickError, totalImported: ingestState.totalImported };

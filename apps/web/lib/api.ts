@@ -94,6 +94,16 @@ export function getAlbumAssets(id: string, cursor?: string): Promise<AssetListRe
   return req<AssetListResponse>(`/v1/albums/${id}/assets${qs ? `?${qs}` : ""}`);
 }
 
+/** ¿Puede esta cuenta usar la ingesta de Telegram? Solo el administrador (y la
+ *  cuenta ya atada): para el resto, esa parte de Ajustes ni existe. */
+export async function getIngestAccess(): Promise<{ isYou: boolean; canBind: boolean }> {
+  try {
+    return await req<{ isYou: boolean; canBind: boolean }>("/v1/ingest/bind");
+  } catch {
+    return { isYou: false, canBind: false };
+  }
+}
+
 export async function getMe(): Promise<Me | null> {
   try {
     return await req<Me>("/v1/auth/me");
