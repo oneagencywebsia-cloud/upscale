@@ -1,8 +1,10 @@
-/** Orbe de luz junto al título — CSS puro. */
+import BrandMark from "./BrandMark";
+
+/** El símbolo de la marca junto al título de la biblioteca (antes, una bola de luz). */
 export default function PrismMount() {
   return (
     <div className="prism" aria-hidden="true">
-      <div className="prism-fallback" />
+      <BrandMark animated />
     </div>
   );
 }

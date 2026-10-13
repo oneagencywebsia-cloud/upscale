@@ -1,25 +1,53 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Upscale">
+  <title>Upscale</title>
   <defs>
-    <linearGradient id="bar" x1="150" y1="364" x2="362" y2="388" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#37b8d4"/>
-      <stop offset="1" stop-color="#1c8fac"/>
+    <linearGradient id="tile" x1="64" y1="0" x2="448" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#18264a"/>
+      <stop offset="0.55" stop-color="#0d1530"/>
+      <stop offset="1" stop-color="#0a0d14"/>
     </linearGradient>
-    <linearGradient id="chev" x1="150" y1="200" x2="362" y2="320" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#141d31"/>
-      <stop offset="1" stop-color="#243657"/>
+    <radialGradient id="sun" cx="392" cy="392" r="300" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffe3a8" stop-opacity="0.62"/>
+      <stop offset="0.28" stop-color="#7adcec" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#4fc5dc" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="glyph" x1="170" y1="90" x2="350" y2="350" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#b6f1fb"/>
+      <stop offset="0.5" stop-color="#7adcec"/>
+      <stop offset="1" stop-color="#3fb4cf"/>
     </linearGradient>
-    <filter id="lift" x="-40%" y="-40%" width="180%" height="200%">
-      <feDropShadow dx="0" dy="7" stdDeviation="12" flood-color="#0f1626" flood-opacity="0.14"/>
+    <linearGradient id="line" x1="140" y1="0" x2="372" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3fb4cf"/>
+      <stop offset="1" stop-color="#9ae6f3"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="256" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="clip"><rect width="512" height="512" rx="112"/></clipPath>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="9" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
   </defs>
 
-  <rect width="512" height="512" rx="112" fill="#ffffff"/>
+  <g clip-path="url(#clip)">
+    <rect width="512" height="512" fill="url(#tile)"/>
+    <rect width="512" height="512" fill="url(#sun)"/>
+    <rect width="512" height="256" fill="url(#gloss)"/>
+  </g>
+  <rect x="1.5" y="1.5" width="509" height="509" rx="110.5" fill="none" stroke="#c8dcff" stroke-opacity="0.22" stroke-width="3"/>
+  <path d="M112 3.5 H400" stroke="#ffffff" stroke-opacity="0.35" stroke-width="2" stroke-linecap="round" fill="none"/>
 
-  <g fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#lift)">
-    <path d="M206 168 L256 140 L306 168" stroke="#2aa7c4" stroke-width="34"/>
-    <path d="M150 320 L256 216 L362 320" stroke="url(#chev)" stroke-width="42"/>
+  <!-- tres peldaños que suben: la escala -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)">
+    <path d="M160 334 L256 238 L352 334" stroke="url(#glyph)" stroke-width="46"/>
+    <path d="M200 222 L256 166 L312 222" stroke="url(#glyph)" stroke-width="34" stroke-opacity="0.72"/>
+    <path d="M220 140 L256 104 L292 140" stroke="url(#glyph)" stroke-width="26" stroke-opacity="0.42"/>
   </g>
 
-  <rect x="150" y="364" width="212" height="24" rx="12" fill="url(#bar)"/>
-  <circle cx="374" cy="376" r="12" fill="#1c8fac"/>
+  <!-- la línea de la marca y su punto de luz -->
+  <rect x="140" y="378" width="232" height="26" rx="13" fill="url(#line)" filter="url(#glow)"/>
+  <circle cx="392" cy="391" r="15" fill="#e9fbff" filter="url(#glow)"/>
+  <circle cx="392" cy="391" r="15" fill="#ffe3a8" fill-opacity="0.55"/>
 </svg>

@@ -9,6 +9,7 @@ import { durationHuman, groupByDay } from "@/lib/format";
 import Viewer from "./Viewer";
 import DensityControl from "./DensityControl";
 import AddToAlbumSheet from "./AddToAlbumSheet";
+import BrandMark from "./BrandMark";
 
 interface DayGroup {
   key: string;
@@ -20,27 +21,12 @@ interface DayGroup {
 const TILE = [172, 108, 78];
 const PAGE = 120;
 
-/** Eco del icono de la app (chevron + barra + punto) para los estados vacíos —
- *  para que "no hay nada que ver todavía" siga sintiéndose Upscale, no un
- *  placeholder genérico. */
+/** Estado vacío: el símbolo de la marca, para que "no hay nada todavía" siga
+ *  sintiéndose Upscale y no un placeholder genérico. */
 function EmptyMark() {
   return (
     <div className="empty-mark" aria-hidden="true">
-      <svg width="56" height="56" viewBox="0 0 512 512" fill="none">
-        <path d="M150 320 L256 216 L362 320" stroke="url(#eg)" strokeWidth="42" strokeLinecap="round" strokeLinejoin="round" />
-        <rect x="150" y="364" width="212" height="24" rx="12" fill="url(#eg2)" />
-        <circle cx="374" cy="376" r="12" fill="var(--accent)" />
-        <defs>
-          <linearGradient id="eg" x1="150" y1="216" x2="362" y2="320" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stopColor="var(--accent-2)" />
-            <stop offset="1" stopColor="var(--accent)" />
-          </linearGradient>
-          <linearGradient id="eg2" x1="150" y1="364" x2="362" y2="388" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stopColor="var(--accent)" />
-            <stop offset="1" stopColor="var(--accent-2)" />
-          </linearGradient>
-        </defs>
-      </svg>
+      <BrandMark size={64} />
     </div>
   );
 }
@@ -786,7 +772,10 @@ export default function Gallery({
 
       {selecting && sel.size > 0 && (
         <motion.div className="selbar" initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }}>
-          <span>{sel.size} seleccionados</span>
+          <span>
+            <b>{sel.size}</b>
+            <i className="selbar-long"> seleccionado{sel.size === 1 ? "" : "s"}</i>
+          </span>
           <button className="btn sm" onClick={() => downloadZip([...sel])}>
             Descargar
           </button>

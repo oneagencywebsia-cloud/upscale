@@ -64,9 +64,37 @@ El elemento seleccionado en la galería se rodea de un **glow cian**, no de un b
 | Cuerpo / UI | **Public Sans** | Neutra, muy legible, poco vista. |
 | Datos / ficha técnica | **IBM Plex Mono** | La ficha se lee como lectura de instrumento. |
 
-### Favicon / icono
+### Logotipo
 
-Flecha hacia arriba (🔼) provisional; el definitivo será la palabra subrayada.
+**Símbolo** (`apps/web/public/brand/upscale-mark.svg`, componente `BrandMark`): un
+cristal de anochecer (azul-negro `#18264a → #0a0d14`) con un sol cálido en la esquina
+(el halo `#ffe3a8 → cian`, heredado de la bola de luz que había antes) y, encima:
+
+- **Tres peldaños que suben** — la *escala*. Chevrones en degradado cian
+  (`#b6f1fb → #7adcec → #3fb4cf`), cada uno más fino y más tenue que el de abajo.
+- **La línea de la marca** — el subrayado, convertido en horizonte, con su glow.
+- **El punto de luz** al final de la línea (el mismo punto que cierra el subrayado del
+  logotipo), cálido sobre el cristal.
+
+En la app el símbolo respira: los peldaños se iluminan de abajo arriba y el punto
+late (solo opacidad/escala; se apaga con `prefers-reduced-motion`).
+
+**Logotipo horizontal**: símbolo + `upscale` en Hanken Grotesk 800 (convertido a
+trazos, no depende de la fuente), con `up` en el acento y el subrayado cónico con su
+punto de luz.
+
+| Archivo | Uso |
+|---|---|
+| `public/brand/upscale-mark.svg` | Símbolo suelto (esquinas redondeadas). Avatares, redes, README. |
+| `public/brand/upscale-logo-dark.svg` | Logotipo para **fondos oscuros** (texto claro). |
+| `public/brand/upscale-logo-light.svg` | Logotipo para **fondos claros** (texto oscuro). |
+| `public/icon.svg`, `app/icon.svg` | Favicon / icono de la PWA. |
+| `public/icon-maskable.svg` | Icono *maskable* (a sangre, símbolo al 72 % para la zona segura). |
+| `public/icon-192.png`, `icon-512.png`, `favicon-32.png`, `app/apple-icon.png` | Rasterizados del símbolo. |
+
+Reglas: respetar un margen libre de media altura de peldaño alrededor; no
+recolorear los peldaños (el único acento es el cian); no usar el símbolo por debajo
+de 24 px (a 16 px se pierde el tercer peldaño; vale el favicon de 32).
 
 ## Mockup
 
