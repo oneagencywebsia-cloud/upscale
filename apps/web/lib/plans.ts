@@ -72,3 +72,10 @@ export function gbHuman(bytes: number): string {
 export function priceHuman(eur: number): string {
   return eur === 0 ? "0 €" : `${eur.toLocaleString("es-ES", { minimumFractionDigits: 2 })} €`;
 }
+
+/** Invita y gana (copia para pintar; la verdad está en apps/api/src/plans.ts). */
+export const REFERRAL = {
+  invitedBonusBytes: 1 * GB,
+  inviterBonusBytes: 2 * GB,
+  maxRewarded: 10,
+} as const;

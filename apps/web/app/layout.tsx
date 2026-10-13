@@ -7,8 +7,8 @@ const body = Public_Sans({ subsets: ["latin"], weight: ["400", "500", "600"], va
 const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-mono" });
 
 export const metadata: Metadata = {
-  title: "Upscale",
-  description: "Tu nube de fotos personal — guarda el original del iPhone entero, sin recomprimir.",
+  title: { default: "Upscale", template: "%s · Upscale" },
+  description: "Guarda tus fotos, vídeos y audio en su calidad original, sin recomprimir.",
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, title: "Upscale", statusBarStyle: "black-translucent" },
 };

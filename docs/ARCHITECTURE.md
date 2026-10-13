@@ -162,3 +162,15 @@ Todo se guarda en UNA cuenta de Telegram. Límites conocidos: 2 GB por archivo (
 Términos de la API permiten a Telegram cortar el acceso del `api_id` tras avisar. Por eso las
 cuotas y el tope de subidas simultáneas no son opcionales: son lo que protege esa cuenta. La
 capa `storage.ts` ya admite `STORAGE_DRIVER=r2` para salir de Telegram sin tocar la app.
+
+## Portada (landing) — `apps/web/components/landing/`
+Pensada para que cualquiera la entienda en segundos y acabe registrándose:
+- **Un solo botón al principio** (`StartBox`): las formas de entrar (Google/Apple/email) solo aparecen al pulsarlo.
+- **Cómo funciona de uno en uno** (`Steps`): 3 pasos; los tres están en el HTML, a la vista solo uno.
+- **Planes por niveles**: el Gratis primero y grande, el resto plegado en un `<details>`. Los de pago figuran como «muy pronto» (aún no hay cobro).
+- **Invita y gana** y **FAQ** (`<details>`, sin JS). Textos en `content.ts` (cortos, una idea por línea). **Telegram no aparece**: es un detalle interno.
+- Sin cifras ni escasez inventadas: la persuasión viene de lo que es verdad (gratis, sin tarjeta, original idéntico, 1 minuto).
+- **SEO**: `generateMetadata` en `app/page.tsx` (título, descripción, canonical, Open Graph/Twitter), `app/opengraph-image.tsx`, `app/robots.ts`, `app/sitemap.ts`; `/app/*` lleva `noindex`.
+- **AEO** (buscadores de IA): JSON-LD `WebSite` + `SoftwareApplication` + `HowTo` + `FAQPage` en la portada, respuestas que contestan en la primera frase, y `/llms.txt` (`app/llms.txt/route.ts`).
+- La URL pública sale de `SITE_URL` o, si no está, de la petición (`lib/site.ts`).
+- Pendiente: páginas legales (privacidad, términos), borrar cuenta y cobro real (Stripe).

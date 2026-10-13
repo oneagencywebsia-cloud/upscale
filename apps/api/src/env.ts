@@ -134,4 +134,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.29.0-recien-subidos";
+export const VERSION = "0.30.0-multiusuario";
