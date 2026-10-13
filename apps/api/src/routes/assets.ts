@@ -35,6 +35,8 @@ import archiver from "archiver";
 import { put, signedUrl, remove, blobToLocalFile } from "../storage.js";
 import { ingestLocalFile } from "../pipeline.js";
 import { requireUser, requireUploadToken, principalOf } from "../auth.js";
+import { cuotaDe, premiarInvitacion } from "../accounts.js";
+import { cogerHueco } from "../uploadSlots.js";
 
 interface Row {
   id: string; user_id: string; kind: AssetKind; filename: string; mime: string; bytes: string;
@@ -180,6 +182,39 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
         "subida: petición recibida",
       );
 
+      // ---- cuota y tamaño máximo del plan, ANTES de aceptar ni un byte ----
+      // Todo acaba en una única cuenta de Telegram: la cuota es lo que impide que
+      // una persona la sature. El administrador no tiene tope.
+      const cuota = await cuotaDe(principalOf(req));
+      const declaredBytes = Number(h["content-length"]) || 0;
+      if (declaredBytes > cuota.maxFileBytes) {
+        return reply.code(413).send({
+          code: "FILE_TOO_BIG",
+          error: `Este archivo pesa más de lo que admite tu plan ${cuota.plan.name} por archivo (${Math.floor(cuota.maxFileBytes / 1024 ** 3)} GB).`,
+          maxFileBytes: cuota.maxFileBytes,
+        });
+      }
+      if (declaredBytes > cuota.remainingBytes) {
+        return reply.code(402).send({
+          code: "QUOTA",
+          error: "No te queda espacio para este archivo. Libera espacio o consigue más con un código o invitando a alguien.",
+          usedBytes: cuota.usedBytes,
+          limitBytes: cuota.limitBytes,
+        });
+      }
+      // tope de subidas a la vez (Telegram y disco son compartidos)
+      const liberarHueco = cogerHueco(userId);
+      if (!liberarHueco) {
+        return reply.code(429).header("retry-after", "5").send({
+          code: "BUSY",
+          error: "Hay muchas subidas a la vez ahora mismo. Se reintentará solo en unos segundos.",
+        });
+      }
+      reply.raw.once("close", liberarHueco);
+      req.raw.once("close", liberarHueco);
+      // sin Content-Length (o si miente) el tope se aplica mientras llega
+      const maxCuerpo = Math.min(MAX_UPLOAD_BYTES, cuota.maxFileBytes, cuota.remainingBytes);
+
       const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const tmpOrig = join(env.TMP_DIR, `${stamp}.upload`);
 
@@ -206,11 +241,14 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
 
       try {
         try {
-          await pipeline(req.body as Readable, sizeLimiter(MAX_UPLOAD_BYTES), createWriteStream(tmpOrig));
+          await pipeline(req.body as Readable, sizeLimiter(maxCuerpo), createWriteStream(tmpOrig));
         } catch (e) {
           await rm(tmpOrig, { force: true });
           if ((e as { code?: string })?.code === "PAYLOAD_TOO_LARGE") {
-            return reply.code(413).send({ error: "el archivo supera el límite máximo admitido" });
+            if (maxCuerpo === cuota.remainingBytes && cuota.remainingBytes < cuota.maxFileBytes) {
+              return reply.code(402).send({ code: "QUOTA", error: "No te queda espacio para este archivo." });
+            }
+            return reply.code(413).send({ code: "FILE_TOO_BIG", error: "el archivo supera el límite máximo admitido" });
           }
           throw e;
         }
@@ -226,6 +264,8 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
         });
 
         query("update upload_tokens set last_used = now() where token = $1", [h["x-upload-token"]]).catch(() => {});
+        // «invita y gana»: la primera vez que la persona invitada guarda algo, se paga el premio
+        if (res.status === "saved") premiarInvitacion(userId).catch(() => {});
         return { status: res.status, id: res.id };
       } catch (err) {
         await rm(tmpOrig, { force: true }).catch(() => {});

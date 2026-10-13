@@ -3630,3 +3630,178 @@ footer.status .dot {
     animation: none;
   }
 }
+
+
+/* ===================================================================
+   Plan, espacio, invitaciones y códigos (PlanPanel.tsx)
+   =================================================================== */
+.plan-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.plan-head h3 {
+  margin: 0;
+}
+.plan-badge {
+  font: 700 11px var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: var(--on-accent);
+  background: linear-gradient(135deg, var(--accent-2), var(--accent));
+}
+.plan-big {
+  margin: 6px 0 10px;
+  font: 800 clamp(30px, 6vw, 40px) var(--font-display);
+  letter-spacing: -0.03em;
+  color: var(--light);
+}
+.plan-big small {
+  font: 500 14px var(--font-body);
+  letter-spacing: 0;
+  color: var(--text-dim);
+}
+.plan-nudge {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  color: var(--light);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+}
+.plan-link,
+.plan-code {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0 10px;
+}
+.plan-link input,
+.plan-code input {
+  flex: 1 1 200px;
+  min-width: 0;
+  padding: 11px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--stroke-strong);
+  background: var(--glass);
+  color: var(--light);
+  font: 500 14px var(--font-mono);
+  outline: none;
+}
+.plan-link input:focus,
+.plan-code input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.plan-dots {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+.plan-dots i {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid var(--stroke-strong);
+  transition: background 0.25s, box-shadow 0.25s, transform 0.25s;
+}
+.plan-dots i.on {
+  background: linear-gradient(135deg, var(--accent-2), var(--accent));
+  border-color: transparent;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 60%, transparent);
+  transform: scale(1.1);
+}
+.plan-msg {
+  margin: 4px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.plan-msg.ok {
+  color: var(--ok);
+}
+.plan-msg.err {
+  color: var(--danger);
+}
+.plan-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+.plan-opt {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 18px 16px 16px;
+  border-radius: 18px;
+  border: 1px solid var(--stroke);
+  background: var(--glass);
+}
+.plan-opt h4 {
+  margin: 0;
+  font: 800 17px var(--font-display);
+  color: var(--light);
+}
+.plan-opt.hl {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--stroke));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent), 0 14px 34px -18px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.plan-opt.cur {
+  background: color-mix(in srgb, var(--accent) 10%, var(--glass));
+}
+.plan-flag {
+  position: absolute;
+  top: -10px;
+  left: 14px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font: 700 10.5px var(--font-body);
+  letter-spacing: 0.03em;
+  color: var(--on-accent);
+  background: linear-gradient(135deg, var(--accent-2), var(--accent));
+}
+.plan-price {
+  margin: 2px 0 0;
+  font: 800 26px var(--font-display);
+  letter-spacing: -0.03em;
+  color: var(--light);
+}
+.plan-price small {
+  font: 500 12px var(--font-body);
+  color: var(--text-dim);
+}
+.plan-size {
+  margin: 0 0 6px;
+  font: 600 13px var(--font-mono);
+  color: var(--accent);
+}
+.plan-opt ul {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.plan-opt li::before {
+  content: "✓";
+  margin-right: 7px;
+  color: var(--accent);
+  font-weight: 700;
+}
+.plan-opt .btn,
+.plan-here {
+  margin-top: auto;
+  align-self: flex-start;
+}
+.plan-here {
+  font: 600 12.5px var(--font-body);
+  color: var(--ok);
+}

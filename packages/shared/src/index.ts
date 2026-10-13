@@ -122,3 +122,22 @@ export interface MapPoint {
 export interface MapPointsResponse {
   points: MapPoint[];
 }
+
+/** Estado de «mi espacio y mi plan» (GET /v1/me/account). `null` = sin tope (administrador). */
+export interface AccountInfo {
+  plan: { id: "free" | "plus" | "pro" | "max"; name: string; until: string | null; maxFileBytes: number | null };
+  unlimited: boolean;
+  usedBytes: number;
+  limitBytes: number | null;
+  remainingBytes: number | null;
+  bonusBytes: number;
+  referral: {
+    code: string;
+    invited: number;
+    rewarded: number;
+    earnedBytes: number;
+    maxRewarded: number;
+    invitedBonusBytes: number;
+    inviterBonusBytes: number;
+  };
+}

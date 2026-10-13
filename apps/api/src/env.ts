@@ -20,6 +20,10 @@ const base = z.object({
   ADMIN_USER_IDS: z.string().optional(),
   ADMIN_EMAILS: z.string().optional(),
 
+  /** Subidas simultáneas: en total y por persona (ver uploadSlots.ts). */
+  UPLOAD_MAX_CONCURRENT: z.coerce.number().min(1).default(6),
+  UPLOAD_MAX_PER_USER: z.coerce.number().min(1).default(3),
+
   // telegram = canal privado de Telegram (coste 0, no tu PC ni tu VPS) — POR DEFECTO
   // local | r2
   STORAGE_DRIVER: z.enum(["telegram", "local", "r2"]).default("telegram"),

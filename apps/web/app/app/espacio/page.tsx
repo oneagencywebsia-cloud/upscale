@@ -1,12 +1,14 @@
-import { getStorage, listAssets } from "@/lib/api";
+import { getStorage, listAssets, getAccount } from "@/lib/api";
 import { bytesHuman } from "@/lib/format";
 import SpaceManager from "@/components/SpaceManager";
+import PlanPanel from "@/components/PlanPanel";
 
 export const dynamic = "force-dynamic";
 
 export default async function EspacioPage() {
   let info: Awaited<ReturnType<typeof getStorage>> | null = null;
   let items: Awaited<ReturnType<typeof listAssets>>["items"] = [];
+  const account = await getAccount();
   try {
     [info, { items }] = await Promise.all([getStorage(), listAssets({ limit: 200 })]);
   } catch {
@@ -21,14 +23,16 @@ export default async function EspacioPage() {
   return (
     <div className="app">
       <div className="libhead">
-        <h2>Gestionar espacio</h2>
+        <h2>Espacio y plan</h2>
         <p>
           {info ? `${info.count.toLocaleString("es-ES")} elementos · ${bytesHuman(info.usedBytes)}` : "sin datos"}
           {info?.diskFreeBytes != null ? ` · ${bytesHuman(info.diskFreeBytes)} libres en disco` : ""}
         </p>
       </div>
 
-      {pct != null && (
+      {account && <PlanPanel account={account} />}
+
+      {!account && pct != null && (
         <div className="space-bar" aria-label={`${pct}% usado`}>
           <div className="space-bar-fill" style={{ width: `${pct}%` }} data-warn={pct >= 80} />
           <span>{pct}%</span>

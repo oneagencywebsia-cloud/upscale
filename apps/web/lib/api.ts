@@ -10,6 +10,7 @@ import type {
   AlbumListResponse,
   Album,
   MapPointsResponse,
+  AccountInfo,
 } from "@upscale/shared";
 
 const API = process.env.UPSCALE_API_URL ?? "http://localhost:8080";
@@ -77,6 +78,15 @@ export const createToken = (label?: string) =>
     body: JSON.stringify({ label }),
   });
 export const deleteToken = (id: string) => req<void>(`/v1/tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+/** Espacio, plan e invitaciones de la persona con sesión. null si la API no contesta. */
+export async function getAccount(): Promise<AccountInfo | null> {
+  try {
+    return await req<AccountInfo>("/v1/me/account");
+  } catch {
+    return null;
+  }
+}
 
 export const listAlbums = () => req<AlbumListResponse>("/v1/albums");
 
