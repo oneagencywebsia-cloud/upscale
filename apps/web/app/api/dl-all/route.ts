@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAccessToken } from "@/lib/supabase/server";
 import { crossSite, forbidden } from "@/lib/guard";
+import { publicUrl } from "@/lib/origin";
 
 const API = process.env.UPSCALE_API_URL ?? "http://localhost:8080";
 
@@ -46,7 +47,7 @@ async function pasar(request: Request, init: { method: "GET" | "POST"; path: str
     }
   }
   const token = await getAccessToken();
-  if (!token) return NextResponse.redirect(new URL("/", request.url), 303);
+  if (!token) return NextResponse.redirect(publicUrl("/", request), 303);
 
   let upstream: Response;
   try {
