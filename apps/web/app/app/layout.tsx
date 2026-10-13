@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getUser } from "@/lib/supabase/server";
 import TopBar from "@/components/TopBar";
@@ -8,6 +9,9 @@ import CoverTransitionProvider from "@/components/CoverTransition";
 import ReferralBind from "@/components/ReferralBind";
 
 export const dynamic = "force-dynamic";
+
+// la biblioteca es privada: que ningún buscador la indexe
+export const metadata: Metadata = { robots: { index: false, follow: false } };
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await getUser();

@@ -53,6 +53,6 @@ export const config = {
     // `_api/` queda FUERA: es el proxy a la API de Upscale (miniaturas con URL
     // firmada por HMAC, sin sesión). Pasar cada miniatura por el middleware
     // era un viaje a Supabase por imagen.
-    "/((?!_next/static|_next/image|_api/|favicon.ico|favicon-32.png|icons/|icon.svg|icon-maskable.svg|icon-192.png|icon-512.png|apple-icon.png|apple-touch-icon.png|manifest.webmanifest|sw.js).*)",
+    "/((?!_next/static|_next/image|_api/|favicon.ico|favicon-32.png|icons/|icon.svg|icon-maskable.svg|icon-192.png|icon-512.png|apple-icon.png|apple-touch-icon.png|manifest.webmanifest|sw.js|robots.txt|sitemap.xml|llms.txt|opengraph-image).*)",
   ],
 };
