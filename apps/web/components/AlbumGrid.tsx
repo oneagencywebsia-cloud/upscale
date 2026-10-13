@@ -6,27 +6,14 @@ import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import type { Album } from "@upscale/shared";
 import { useCoverNav } from "./CoverTransition";
+import BrandMark from "./BrandMark";
 
-/** Eco del icono de la app — mismo lenguaje visual que el EmptyMark de
- *  Gallery.tsx, para que "aún no tienes álbumes" siga sintiéndose Upscale. */
+/** Estado vacío: el símbolo de la marca, para que "no hay nada todavía" siga
+ *  sintiéndose Upscale y no un placeholder genérico. */
 function EmptyMark() {
   return (
     <div className="empty-mark" aria-hidden="true">
-      <svg width="56" height="56" viewBox="0 0 512 512" fill="none">
-        <path d="M150 320 L256 216 L362 320" stroke="url(#ag)" strokeWidth="42" strokeLinecap="round" strokeLinejoin="round" />
-        <rect x="150" y="364" width="212" height="24" rx="12" fill="url(#ag2)" />
-        <circle cx="374" cy="376" r="12" fill="var(--accent)" />
-        <defs>
-          <linearGradient id="ag" x1="150" y1="216" x2="362" y2="320" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stopColor="var(--accent-2)" />
-            <stop offset="1" stopColor="var(--accent)" />
-          </linearGradient>
-          <linearGradient id="ag2" x1="150" y1="364" x2="362" y2="388" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stopColor="var(--accent)" />
-            <stop offset="1" stopColor="var(--accent-2)" />
-          </linearGradient>
-        </defs>
-      </svg>
+      <BrandMark size={64} />
     </div>
   );
 }

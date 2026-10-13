@@ -1722,10 +1722,69 @@ footer.status .dot {
   align-items: center;
 }
 .prism {
-  width: 96px;
-  height: 96px;
+  width: 104px;
+  height: 104px;
   flex: none;
-  filter: drop-shadow(0 8px 24px color-mix(in srgb, var(--accent) 35%, transparent));
+  filter: drop-shadow(0 10px 26px color-mix(in srgb, var(--accent) 38%, transparent));
+}
+
+/* ---- símbolo de la marca (components/BrandMark.tsx) ---- */
+.brandmark {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.bm-animated {
+  animation: bm-float 7s ease-in-out infinite alternate;
+}
+.bm-animated .bm-step {
+  animation: bm-rise 3.2s ease-in-out infinite;
+}
+.bm-animated .bm-s2 {
+  animation-delay: 0.28s;
+}
+.bm-animated .bm-s3 {
+  animation-delay: 0.56s;
+}
+.bm-animated .bm-dot {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bm-pulse 3.2s ease-in-out infinite;
+}
+@keyframes bm-float {
+  to {
+    transform: translateY(-4px);
+  }
+}
+/* los peldaños se iluminan de abajo arriba: la escala sube */
+@keyframes bm-rise {
+  0%,
+  62%,
+  100% {
+    opacity: 0.55;
+  }
+  22% {
+    opacity: 1;
+  }
+}
+@keyframes bm-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.25);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bm-animated,
+  .bm-animated .bm-step,
+  .bm-animated .bm-dot {
+    animation: none;
+  }
 }
 @media (max-width: 620px) {
   .prism {
@@ -2374,20 +2433,6 @@ footer.status .dot {
 .viewer-actions {
   display: flex;
   gap: 8px;
-}
-
-.prism-fallback {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #ffe3a8, #7adcec 45%, #2f5aa8 90%);
-  filter: blur(1px);
-  animation: floatglow 8s ease-in-out infinite alternate;
-}
-@media (prefers-reduced-motion: reduce) {
-  .prism-fallback {
-    animation: none;
-  }
 }
 
 /* ===================================================================
