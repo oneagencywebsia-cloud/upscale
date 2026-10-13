@@ -21,7 +21,7 @@ export async function GET(req: Request) {
   const kind = url.searchParams.get("kind");
   const limit = Number(url.searchParams.get("limit")) || 120;
   if (cursor) q.set("cursor", cursor);
-  if (kind === "photo" || kind === "video") q.set("kind", kind);
+  if (kind === "photo" || kind === "video" || kind === "audio") q.set("kind", kind);
   if (url.searchParams.get("fav") === "1") q.set("fav", "1");
   const search = url.searchParams.get("q");
   const camera = url.searchParams.get("camera");

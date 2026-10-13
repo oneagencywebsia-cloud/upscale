@@ -1,6 +1,6 @@
 /** Tipos usados por la API. Coinciden con packages/shared (que consume la web). */
 
-export type AssetKind = "photo" | "video";
+export type AssetKind = "photo" | "video" | "audio";
 
 export interface Asset {
   id: string;

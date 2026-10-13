@@ -9,6 +9,7 @@ const FILTERS = [
   { key: "all", label: "Todo", href: "/app" },
   { key: "photo", label: "Fotos", href: "/app?kind=photo" },
   { key: "video", label: "Vídeos", href: "/app?kind=video" },
+  { key: "audio", label: "Audio", href: "/app?kind=audio" },
   { key: "added", label: "Nuevos", href: "/app?sort=added" },
   { key: "fav", label: "★", href: "/app?fav=1" },
 ];

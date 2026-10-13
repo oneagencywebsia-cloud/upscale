@@ -10,12 +10,13 @@ FROM node:20-bookworm-slim AS base
 # HEIC/HEIF del iPhone: la libheif 1.15 de Debian 12 NO decodifica los `heix`
 # de 10 bits (HDR) — salían sin miniatura. Se instala libheif 1.19 + plugin
 # libde265 desde bookworm-backports; vips e ImageMagick lo cogen por la lib
-# compartida. exiftool: última vía — saca el JPEG incrustado que TODO HEIC del
+# compartida. fonts-dejavu-core: el nombre en las portadas de audio generadas.
+# exiftool: última vía — saca el JPEG incrustado que TODO HEIC del
 # iPhone lleva dentro (8 bits, sin decodificar HEVC: no puede fallar).
 RUN echo 'deb http://deb.debian.org/debian bookworm-backports main' > /etc/apt/sources.list.d/backports.list \
   && apt-get update \
   && apt-get install -y --no-install-recommends \
-       ffmpeg ca-certificates imagemagick libimage-exiftool-perl \
+       ffmpeg ca-certificates imagemagick libimage-exiftool-perl fonts-dejavu-core \
   && apt-get install -y --no-install-recommends -t bookworm-backports \
        libheif1 libheif-plugin-libde265 libheif-examples libvips-tools \
   && rm -rf /var/lib/apt/lists/*

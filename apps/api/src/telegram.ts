@@ -538,7 +538,7 @@ export interface InboxItem {
   bytes: number;
 }
 
-const MEDIA_EXT = /\.(mov|mp4|m4v|hevc|3gp|avi|mkv|webm|heic|heif|jpg|jpeg|png|webp|gif|tiff|dng|avif)$/i;
+const MEDIA_EXT = /\.(mov|mp4|m4v|hevc|3gp|avi|mkv|webm|heic|heif|jpg|jpeg|png|webp|gif|tiff|dng|avif|mp3|m4a|m4b|aac|wav|flac|ogg|oga|opus|aif|aiff|caf|amr|wma)$/i;
 
 /**
  * Punto de partida al arrancar: id anterior al mensaje multimedia más antiguo de
@@ -576,7 +576,7 @@ export async function tgInboxNewMedia(sinceId: number, limit = 20): Promise<Inbo
     const filename = nameAttr?.fileName || `TG_${m.id}`;
     const mime = doc.mimeType || "application/octet-stream";
     // solo fotos/vídeos; cualquier otro documento (PDF, zip…) se ignora y NO se toca
-    if (!mime.startsWith("image/") && !mime.startsWith("video/") && !MEDIA_EXT.test(filename)) continue;
+    if (!mime.startsWith("image/") && !mime.startsWith("video/") && !mime.startsWith("audio/") && !MEDIA_EXT.test(filename)) continue;
     out.push({
       id: m.id,
       filename,

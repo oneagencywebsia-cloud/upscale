@@ -5,6 +5,7 @@ import Aurora from "@/components/Aurora";
 import InstallPrompt from "@/components/InstallPrompt";
 import MobileTabs from "@/components/MobileTabs";
 import CoverTransitionProvider from "@/components/CoverTransition";
+import ReferralBind from "@/components/ReferralBind";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </div>
       <MobileTabs />
       <InstallPrompt />
+      <ReferralBind />
     </CoverTransitionProvider>
   );
 }

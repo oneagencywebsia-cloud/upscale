@@ -106,10 +106,16 @@ export function groupByDay(items: AssetListItem[], by: "capturedAt" | "uploadedA
 }
 
 export function specRows(a: Asset): Array<[string, string]> {
-  const rows: Array<[string, string]> = [
-    ["Resolución", a.width && a.height ? `${a.width} × ${a.height}` : "—"],
-    ["Códec", a.codec ? a.codec.toUpperCase() : "—"],
-  ];
+  const rows: Array<[string, string]> = a.kind === "audio"
+    ? [["Códec", a.codec ? a.codec.toUpperCase() : "—"]]
+    : [
+        ["Resolución", a.width && a.height ? `${a.width} × ${a.height}` : "—"],
+        ["Códec", a.codec ? a.codec.toUpperCase() : "—"],
+      ];
+  if (a.kind === "audio") {
+    rows.push(["Duración", durationHuman(a.durationS)]);
+    rows.push(["Bitrate", bitrateHuman(a.videoBitrate)]);
+  }
   if (a.kind === "video") {
     rows.push(["Fotogramas", fpsHuman(a.fps)]);
     rows.push(["Bitrate", bitrateHuman(a.videoBitrate)]);

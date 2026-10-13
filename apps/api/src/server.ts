@@ -13,6 +13,7 @@ import { tokenRoutes } from "./routes/tokens.js";
 import { activityRoutes } from "./routes/activity.js";
 import { blobRoutes } from "./routes/blob.js";
 import { storageRoutes } from "./routes/storage.js";
+import { accountRoutes } from "./routes/account.js";
 import { startInboxIngest } from "./ingest.js";
 
 const app = Fastify({
@@ -79,6 +80,7 @@ await app.register(tokenRoutes);
 await app.register(activityRoutes);
 await app.register(blobRoutes);
 await app.register(storageRoutes);
+await app.register(accountRoutes);
 
 const close = async (sig: string) => {
   app.log.info(`${sig} recibido, cerrando…`);

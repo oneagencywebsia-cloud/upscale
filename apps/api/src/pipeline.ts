@@ -4,10 +4,12 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { query, one } from "./db.js";
 import { put, putSplit } from "./storage.js";
-import { probe, sharpThumb, extractFrame, imagePoster, placeholderThumb, extFor, mimeFor, safeIso } from "./media.js";
+import { probe, sharpThumb, derivePoster, placeholderThumb, extFor, mimeFor, safeIso, AUDIO_EXT } from "./media.js";
+import type { AssetKind } from "./types.js";
 import { env } from "./env.js";
 
 const VIDEO_EXTS = [".mov", ".mp4", ".m4v", ".webm", ".mkv", ".avi"];
+const AUDIO_EXTS = [...AUDIO_EXT];
 const IMAGE_EXTS = [".heic", ".heif", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".tiff", ".dng", ".avif"];
 
 // ---- cola de derivadas (miniatura/póster) ----
@@ -73,7 +75,7 @@ function withDeadline<T>(p: Promise<T>, getDeadline: () => number, label: string
 export interface IngestResult {
   status: "saved" | "duplicate";
   id: string;
-  kind: "photo" | "video";
+  kind: AssetKind;
   bytes: number;
 }
 
@@ -141,7 +143,7 @@ async function absorbLivePartner(photoId: string, userId: string, photoFilename:
 
 export async function regenerateDerivatives(
   id: string,
-  kind: "photo" | "video",
+  kind: AssetKind,
   filePath: string,
   filename?: string,
 ): Promise<void> {
@@ -149,11 +151,7 @@ export async function regenerateDerivatives(
   const tmpThumb = join(env.TMP_DIR, `${stamp}.rt.webp`);
   const tmpPoster = join(env.TMP_DIR, `${stamp}.rp.jpg`);
   try {
-    if (kind === "video") {
-      await extractFrame(filePath, tmpPoster);
-    } else {
-      await imagePoster(filePath, tmpPoster);
-    }
+    await derivePoster(kind, filePath, tmpPoster, { filename: filename ?? "audio", sha256: id.replace(/-/g, "") });
     await sharpThumb(tmpPoster, tmpThumb);
     await saveDerivativeBytes(id, tmpThumb, tmpPoster);
     const { tgCachePut } = await import("./telegram.js");
@@ -168,7 +166,7 @@ export async function regenerateDerivatives(
     // Para FOTO se SOBREESCRIBE: si había algo era la miniatura incrustada
     // (700x599 mjpeg…), no la foto real. Para vídeo se completa lo que falte.
     try {
-      const info = await probe(filePath, filename ?? "x" + (kind === "video" ? ".mov" : ".jpg"));
+      const info = await probe(filePath, filename ?? "x" + (kind === "video" ? ".mov" : kind === "audio" ? ".m4a" : ".jpg"));
       if (info.width && info.height) {
         if (kind === "photo") {
           await query(
@@ -265,7 +263,7 @@ export async function ingestLocalFile(opts: {
   const sha256 = opts.headOnly ? await hashHead(filePath, 4 * 1024 * 1024, size) : await hashFile(filePath);
 
   step("dedup");
-  const dup = await one<{ id: string; kind: "photo" | "video" }>(
+  const dup = await one<{ id: string; kind: AssetKind }>(
     "select id, kind from assets where user_id = $1 and sha256 = $2 and deleted_at is null",
     [userId, sha256],
   );
@@ -336,6 +334,7 @@ export async function ingestLocalFile(opts: {
   let ext = (extFor(filename, contentType).toLowerCase().match(/^\.[a-z0-9]{1,12}$/)?.[0]) ?? ".bin";
   if (info.kind === "video" && !VIDEO_EXTS.includes(ext)) ext = ".mov";
   if (info.kind === "photo" && !IMAGE_EXTS.includes(ext)) ext = ".jpg";
+  if (info.kind === "audio" && !AUDIO_EXTS.includes(ext)) ext = ".m4a";
 
   const capturedAt = info.capturedAt ?? safeIso(capturedAtHint) ?? new Date().toISOString();
   const d = new Date(capturedAt);
@@ -346,7 +345,7 @@ export async function ingestLocalFile(opts: {
     const dd = String(d.getUTCDate()).padStart(2, "0");
     const hh = String(d.getUTCHours()).padStart(2, "0");
     const min = String(d.getUTCMinutes()).padStart(2, "0");
-    filename = `${info.kind === "video" ? "VID" : "IMG"}_${yyyy}${mm}${dd}_${hh}${min}${ext}`;
+    filename = `${info.kind === "video" ? "VID" : info.kind === "audio" ? "AUD" : "IMG"}_${yyyy}${mm}${dd}_${hh}${min}${ext}`;
   }
 
   const base = `${userId}/${yyyy}/${mm}/${sha256}`;
@@ -393,13 +392,9 @@ export async function ingestLocalFile(opts: {
     // 3) miniatura + póster REALES — EN COLA (máx 2 a la vez), no bloquean nada
     enqueueDeriv(async () => {
       try {
-        if (info.kind === "video") {
-          await extractFrame(filePath, tmpPoster);
-          await sharpThumb(tmpPoster, tmpThumb);
-        } else {
-          await imagePoster(filePath, tmpPoster); // foto grande y nítida
-          await sharpThumb(tmpPoster, tmpThumb); // miniatura a partir del póster (ya legible por sharp)
-        }
+        // póster grande (fotograma / foto nítida / portada de audio) y miniatura a partir de él
+        await derivePoster(info.kind, filePath, tmpPoster, { filename, sha256 });
+        await sharpThumb(tmpPoster, tmpThumb);
         // fuente de verdad: bytes en BD (+ write-back a disco al servir). NADA de
         // subir la miniatura a Telegram (en subidas masivas = FLOOD_WAIT).
         await saveDerivativeBytes(dId, tmpThumb, tmpPoster);
@@ -503,13 +498,8 @@ export async function ingestLocalFile(opts: {
     try {
       await withTimeout(
         (async () => {
-          if (info.kind === "video") {
-            await extractFrame(filePath, tmpPoster);
-            await sharpThumb(tmpPoster, tmpThumb);
-          } else {
-            await imagePoster(filePath, tmpPoster);
-            await sharpThumb(tmpPoster, tmpThumb);
-          }
+          await derivePoster(info.kind, filePath, tmpPoster, { filename, sha256 });
+          await sharpThumb(tmpPoster, tmpThumb);
           await saveDerivativeBytes(id, tmpThumb, tmpPoster);
           await tgCachePut(thumbKey, tmpThumb).catch(() => {});
           await tgCachePut(posterKey, tmpPoster).catch(() => {});

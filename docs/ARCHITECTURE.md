@@ -43,6 +43,16 @@ Capa con tres motores, elegido por `STORAGE_DRIVER`. Interfaz común:
 `/v1/blob` no usa sesión: el enlace lleva un token HMAC temporal firmado con
 `BLOB_SECRET` (`storage.signedUrl`). Cambiar de motor es solo variables de entorno.
 
+### Audio
+
+Tercer tipo de archivo (`kind = 'audio'`, migración 025): música, notas de voz, podcasts
+(`.mp3 .m4a .aac .wav .flac .ogg .opus .aiff .caf .amr .wma`). `probe()` lo clasifica con
+ffprobe: hay pista de audio y NINGUNA de vídeo real (la carátula incrustada cuenta como
+`attached_pic`, no como vídeo). La «portada» es la carátula del archivo si la trae o una tarjeta
+generada con la marca (ondas de sonido y nombre, con un tono propio por archivo). Se reproduce
+con `<audio>` en el visor desde el original (sin copia ligera: no hace falta). El servidor de
+archivos (`/v1/blob`) sirve los tipos MIME de audio; sin ellos el navegador se niega a reproducirlos.
+
 ### Sin pérdida de calidad + Live Photos
 
 Como se guarda el archivo **byte a byte**, todo lo que el iPhone embebe (HDR/Dolby
@@ -87,6 +97,12 @@ docs            BRANDING · ARCHITECTURE · DEPLOY
 | `GET` | `/v1/blob/*?e=&t=` | (modo local) sirve un archivo del disco; token HMAC en la URL |
 | `GET` | `/v1/storage` | `{ driver, usedBytes, count, diskFreeBytes, diskTotalBytes }` |
 | `GET` | `/v1/tokens` · `POST` · `DELETE /:token` | tokens de subida del usuario |
+| `GET` | `/v1/plans` | catálogo público de planes (sin sesión) |
+| `GET` | `/v1/me/account` | espacio usado, plan, bonus e invitaciones de la persona |
+| `POST` | `/v1/me/redeem` `{code}` | canjea un código (espacio extra o plan de prueba). 10/min |
+| `POST` | `/v1/me/referral` `{code}` | enlaza a quien la invitó (solo cuentas sin archivos) |
+| `POST` | `/v1/me/waitlist` `{plan}` | lista de espera de un plan de pago |
+| `GET`/`POST` | `/v1/admin/codes` | (admin) listar / crear códigos de canje |
 | `GET` | `/v1/activity?before=` | registro de `view`/`download`/`list` del usuario |
 
 ## Tablas (`apps/api/migrations/001_init.sql`)
@@ -122,3 +138,27 @@ App iOS nativa (SwiftUI) con subida en segundo plano (`PHPhotoLibrary` observer,
 `BGProcessingTaskRequest`, `URLSession` background). Requiere cuenta Apple Developer.
 La API ya expone lo necesario; se añadiría `POST /v1/assets/presign` para subir directo
 a R2.
+
+## Planes, cuotas y topes
+
+- **Catálogo** en `apps/api/src/plans.ts` (Gratis 5 GB · Plus 100 GB · Pro 500 GB · Max 2 TB;
+  precios = propuesta, aún sin cobro). La web tiene una copia para pintarlos
+  (`apps/web/lib/plans.ts`): si se cambia uno, cambiar el otro.
+- **Estado por persona** en `profiles` (plan, `plan_until`, `bonus_bytes`, código de invitación).
+  Un plan de prueba caducado vuelve a Gratis; pasarse de cuota no borra nada, solo impide subir.
+- **En la subida** (`POST /v1/assets`) se comprueba ANTES de aceptar el cuerpo: tamaño máximo por
+  archivo del plan (413 `FILE_TOO_BIG`), espacio libre (402 `QUOTA`) y subidas simultáneas
+  (429 `BUSY`, ver `uploadSlots.ts`). Sin `Content-Length`, el tope se aplica mientras llega.
+  El administrador no tiene tope.
+- **Invita y gana:** al guardar su primer archivo, la persona invitada recibe +1 GB y quien la
+  invitó +2 GB (máx. 10 invitaciones premiadas = +20 GB). Una sola vez por invitación.
+- **Códigos** (`redeem_codes`): `bonus` (espacio) o `plan` (N días). Una vez por persona, con
+  usos máximos y caducidad opcionales. Se crean con `POST /v1/admin/codes`.
+
+### Telegram como almacén para muchas personas
+
+Todo se guarda en UNA cuenta de Telegram. Límites conocidos: 2 GB por archivo (4 GB con Premium),
+~3,5 MB/s sostenidos medidos por cuenta, espera obligatoria (`FLOOD_WAIT`) si se abusa, y los
+Términos de la API permiten a Telegram cortar el acceso del `api_id` tras avisar. Por eso las
+cuotas y el tope de subidas simultáneas no son opcionales: son lo que protege esa cuenta. La
+capa `storage.ts` ya admite `STORAGE_DRIVER=r2` para salir de Telegram sin tocar la app.

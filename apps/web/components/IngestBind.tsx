@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-type State = { boundTo: string | null; you: string; isYou: boolean } | null;
+type State = { isYou: boolean; canBind: boolean } | null;
 
 export default function IngestBind() {
   const [state, setState] = useState<State>(null);
@@ -13,6 +13,7 @@ export default function IngestBind() {
     try {
       const r = await fetch("/api/ingest-bind", { cache: "no-store" });
       if (r.ok) setState(await r.json());
+      else if (r.status === 403) setState({ isYou: false, canBind: false });
     } catch {
       /* ignora */
     }
@@ -29,11 +30,14 @@ export default function IngestBind() {
       if (!r.ok) throw new Error(String(r.status));
       await load();
     } catch {
-      setErr("No se pudo. Reintenta.");
+      setErr("No se pudo. Solo el administrador puede cambiarlo.");
     } finally {
       setBusy(false);
     }
   }
+
+  // Solo el administrador lo ve: la ingesta de Telegram es global del servidor.
+  if (state && !state.isYou && !state.canBind) return null;
 
   return (
     <div className="ingestbind">
@@ -44,8 +48,8 @@ export default function IngestBind() {
           <button className="btn primary sm" type="button" disabled={busy} onClick={bind}>
             {busy ? "Atando…" : "Recibir aquí los vídeos de Telegram"}
           </button>
-          {state && state.boundTo && !state.isYou && (
-            <small className="muted"> (ahora van a otra cuenta)</small>
+          {state && !state.isYou && state.canBind && (
+            <small className="muted"> (ahora puede que lleguen a otra cuenta)</small>
           )}
         </>
       )}

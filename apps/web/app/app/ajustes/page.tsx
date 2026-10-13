@@ -1,5 +1,5 @@
 import { headers } from "next/headers";
-import { listTokens } from "@/lib/api";
+import { listTokens, getIngestAccess } from "@/lib/api";
 import TokenManager from "@/components/TokenManager";
 import IngestBind from "@/components/IngestBind";
 import GpsBackfill from "@/components/GpsBackfill";
@@ -14,6 +14,9 @@ export default async function AjustesPage() {
   } catch {
     /* API caída */
   }
+
+  const telegram = await getIngestAccess();
+  const verTelegram = telegram.isYou || telegram.canBind;
 
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3001";
@@ -37,39 +40,42 @@ export default async function AjustesPage() {
         </p>
       </section>
 
-      <section className="panel">
-        <h3>Vídeo 4K / 60 fps / HEVC — por Telegram</h3>
-        <p className="panel-lede">
-          iOS <b>recodifica</b> el 4K/60 (a 1080p/30, ~1/8 del tamaño) por cualquier vía web o
-          Atajo — no hay ajuste que lo evite. La <b>única</b> forma inalámbrica de subir el
-          original intacto es <b>Telegram «Enviar como archivo»</b>, y Upscale lo recoge solo:
-        </p>
-        <ol className="steps">
-          <li>
-            En <b>Fotos</b>, selecciona los vídeos → <b>Compartir</b> → <b>Telegram</b> →{" "}
-            <b>Mensajes guardados</b>.
-          </li>
-          <li>
-            En la pantalla de envío de Telegram, pulsa <b>«···»</b> (o mantén pulsada la
-            miniatura) → <b>«Enviar como archivo»</b>. <b>Importante:</b> como archivo, no como vídeo.
-          </li>
-          <li>
-            En 20-30 s aparece en tu biblioteca de Upscale — <b>4K · 60 fps · HEVC · íntegro</b>{" "}
-            (mismo SHA-256). Telegram borra el mensaje de Mensajes guardados al terminar.
-          </li>
-        </ol>
-        <p className="panel-lede">
-          Es la misma cuenta de Telegram con la que configuraste el almacén, así que no hay que
-          añadir nada. Límite 2 GB por archivo (4 GB con Telegram Premium). También vale para
-          fotos que quieras 100 % garantizadas (envíalas como archivo).
-        </p>
-        <p className="panel-lede">
-          <b>Live Photos:</b> envía la <b>foto (.HEIC)</b> y su <b>vídeo (.MOV)</b> —los dos tienen
-          el mismo nombre (<code>IMG_1234</code>)—. Upscale los une solos: en la foto verás el
-          distintivo <b>LIVE</b> y se anima al <b>mantener pulsado</b>.
-        </p>
-        <IngestBind />
-      </section>
+      {verTelegram && (
+        <section className="panel">
+          <h3>Vídeo 4K / 60 fps / HEVC — por Telegram</h3>
+          <p className="panel-lede">
+            iOS <b>recodifica</b> el 4K/60 (a 1080p/30, ~1/8 del tamaño) por cualquier vía web o
+            Atajo — no hay ajuste que lo evite. La <b>única</b> forma inalámbrica de subir el
+            original intacto es <b>Telegram «Enviar como archivo»</b>, y Upscale lo recoge solo:
+          </p>
+          <ol className="steps">
+            <li>
+              En <b>Fotos</b>, selecciona los vídeos → <b>Compartir</b> → <b>Telegram</b> →{" "}
+              <b>Mensajes guardados</b>.
+            </li>
+            <li>
+              En la pantalla de envío de Telegram, pulsa <b>«···»</b> (o mantén pulsada la
+              miniatura) → <b>«Enviar como archivo»</b>. <b>Importante:</b> como archivo, no como vídeo.
+            </li>
+            <li>
+              En 20-30 s aparece en tu biblioteca de Upscale — <b>4K · 60 fps · HEVC · íntegro</b>{" "}
+              (mismo SHA-256). Telegram borra el mensaje de Mensajes guardados al terminar.
+            </li>
+          </ol>
+          <p className="panel-lede">
+            Es la misma cuenta de Telegram con la que configuraste el almacén, así que no hay que
+            añadir nada. Límite 2 GB por archivo (4 GB con Telegram Premium). También vale para
+            fotos que quieras 100 % garantizadas (envíalas como archivo).
+          </p>
+          <p className="panel-lede">
+            <b>Live Photos:</b> envía la <b>foto (.HEIC)</b> y su <b>vídeo (.MOV)</b> —los dos tienen
+            el mismo nombre (<code>IMG_1234</code>)—. Upscale los une solos: en la foto verás el
+            distintivo <b>LIVE</b> y se anima al <b>mantener pulsado</b>.
+          </p>
+          <IngestBind />
+        </section>
+
+      )}
 
       <section className="panel">
         <h3>Atajo de iOS (opcional, para lotes de fotos / vídeo normal)</h3>

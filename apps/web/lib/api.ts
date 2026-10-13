@@ -10,6 +10,7 @@ import type {
   AlbumListResponse,
   Album,
   MapPointsResponse,
+  AccountInfo,
 } from "@upscale/shared";
 
 const API = process.env.UPSCALE_API_URL ?? "http://localhost:8080";
@@ -78,6 +79,15 @@ export const createToken = (label?: string) =>
   });
 export const deleteToken = (id: string) => req<void>(`/v1/tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
 
+/** Espacio, plan e invitaciones de la persona con sesión. null si la API no contesta. */
+export async function getAccount(): Promise<AccountInfo | null> {
+  try {
+    return await req<AccountInfo>("/v1/me/account");
+  } catch {
+    return null;
+  }
+}
+
 export const listAlbums = () => req<AlbumListResponse>("/v1/albums");
 
 /** No hay GET /v1/albums/:id dedicado (la lista ya es barata: pocos álbumes
@@ -92,6 +102,16 @@ export function getAlbumAssets(id: string, cursor?: string): Promise<AssetListRe
   if (cursor) q.set("cursor", cursor);
   const qs = q.toString();
   return req<AssetListResponse>(`/v1/albums/${id}/assets${qs ? `?${qs}` : ""}`);
+}
+
+/** ¿Puede esta cuenta usar la ingesta de Telegram? Solo el administrador (y la
+ *  cuenta ya atada): para el resto, esa parte de Ajustes ni existe. */
+export async function getIngestAccess(): Promise<{ isYou: boolean; canBind: boolean }> {
+  try {
+    return await req<{ isYou: boolean; canBind: boolean }>("/v1/ingest/bind");
+  } catch {
+    return { isYou: false, canBind: false };
+  }
 }
 
 export async function getMe(): Promise<Me | null> {

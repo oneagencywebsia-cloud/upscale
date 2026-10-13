@@ -1,27 +1,50 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
+import { gbHuman } from "@/lib/plans";
+import { bytesHuman } from "@/lib/format";
 
-type Phase = "wait" | "upload" | "process" | "done" | "error";
+/** «2,5 GB» a partir de 1 GB; «820 MB», «3,2 KB» por debajo (nunca «0 GB»). */
+const sizeHuman = (b: number) => (b >= 1024 ** 3 ? gbHuman(b) : bytesHuman(Math.max(0, b)));
+
+/**
+ * Subida de archivos — pensada para que no haga falta explicarla:
+ *  - un solo botón «Subir» (en el iPhone el sistema ya ofrece Fototeca / Hacer
+ *    foto / Archivos) y, en el ordenador, ARRASTRAR Y SOLTAR en cualquier parte
+ *    (carpetas incluidas);
+ *  - varios archivos A LA VEZ (3), con reintento automático si la red o el
+ *    servidor fallan un momento;
+ *  - avisa ANTES de subir si algo no cabe en el espacio del plan;
+ *  - al terminar, un resumen claro y un botón para ver lo recién subido.
+ */
+
+type Phase = "wait" | "upload" | "process" | "done" | "dup" | "error" | "nofit" | "skip";
+
 interface Job {
+  id: number;
+  file: File;
   name: string;
+  size: number;
   pct: number;
   phase: Phase;
   video: boolean;
   fps: number | null;
   degraded: boolean; // iOS lo recodificó (≈30 fps) al pasarlo por el navegador
+  error?: string;
+  tries: number;
+  /** texto corto bajo el nombre («Reintentando…») */
+  note?: string;
 }
 
-const PHASE_TEXT: Record<Phase, string> = {
-  wait: "En cola",
-  upload: "Subiendo",
-  process: "Procesando en el servidor…",
-  done: "Guardado",
-  error: "Error",
-};
+const MAX_PARALLEL = 3; // = tope por persona de la API (UPLOAD_MAX_PER_USER)
+const MAX_TRIES = 4;
 
+const MEDIA_EXT =
+  /\.(heic|heif|jpe?g|png|webp|gif|tiff?|dng|avif|mov|mp4|m4v|hevc|3gp|avi|mkv|webm|mp3|m4a|m4b|aac|wav|flac|ogg|oga|opus|aiff?|caf|amr|wma)$/i;
+const isMedia = (f: File) => /^(image|video|audio)\//.test(f.type || "") || MEDIA_EXT.test(f.name);
 const isVideo = (f: File) =>
   (f.type || "").startsWith("video/") || /\.(mov|mp4|m4v|hevc|webm|mkv)$/i.test(f.name);
 
@@ -84,27 +107,31 @@ function probeFps(file: File): Promise<number | null> {
 /** Sin señales de vida durante este tiempo, se da por muerta la conexión. */
 const STALL_MS = 3 * 60 * 1000;
 
-function uploadOne(file: File, onPct: (p: number) => void, onProcessing: () => void): Promise<boolean> {
+type UploadResult =
+  | { ok: true; status: "saved" | "duplicate" }
+  | { ok: false; retry: boolean; delayMs: number; error: string };
+
+function uploadOne(
+  file: File,
+  xhrs: Map<number, XMLHttpRequest>,
+  id: number,
+  onPct: (p: number) => void,
+  onProcessing: () => void,
+): Promise<UploadResult> {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
+    xhrs.set(id, xhr);
     xhr.open("POST", "/api/upload");
     xhr.setRequestHeader("content-type", file.type || "application/octet-stream");
     xhr.setRequestHeader("x-filename", encodeURIComponent(file.name));
     xhr.setRequestHeader("x-captured-at", new Date(file.lastModified || Date.now()).toISOString());
 
-    // Un original ya puede ser de decenas de GB: con `xhr.timeout = 45 min` una
-    // subida perfectamente sana se abortaba a mitad por el simple hecho de ser
-    // grande (un vídeo de 30 GB por una subida doméstica son horas). En su
-    // lugar, no hay tope de duración: se vigila que la subida AVANCE. Y tras el
-    // último byte hay que darle su tiempo al servidor, que aún tiene que
-    // trocear y guardar el archivo antes de contestar.
+    // Un original puede ser de decenas de GB: no hay tope de duración, se vigila que
+    // la subida AVANCE. Y tras el último byte el servidor puede tardar lo que haga
+    // falta en trocear y guardar el archivo: cortar ahí sería peor que esperar.
     let last = Date.now();
     let uploaded = false;
     const watchdog = window.setInterval(() => {
-      // Solo mientras se están mandando bytes. Una vez enviado el último, el
-      // servidor puede tardar lo que haga falta (trocear 30 GB hacia Telegram
-      // no es rápido) y cortar AQUÍ sería peor que esperar: el archivo se
-      // guardaría igual en el servidor y la app diría "Error".
       if (uploaded || Date.now() - last <= STALL_MS) return;
       window.clearInterval(watchdog);
       try {
@@ -112,11 +139,11 @@ function uploadOne(file: File, onPct: (p: number) => void, onProcessing: () => v
       } catch {
         /* ya estaba muerto */
       }
-      resolve(false);
     }, 5_000);
-    const stop = (ok: boolean) => {
+    const end = (r: UploadResult) => {
       window.clearInterval(watchdog);
-      resolve(ok);
+      xhrs.delete(id);
+      resolve(r);
     };
 
     xhr.upload.onprogress = (e) => {
@@ -130,177 +157,453 @@ function uploadOne(file: File, onPct: (p: number) => void, onProcessing: () => v
       onProcessing();
     };
     xhr.onprogress = () => (last = Date.now());
-    xhr.onload = () => stop(xhr.status >= 200 && xhr.status < 300);
-    xhr.onerror = () => stop(false);
-    xhr.onabort = () => stop(false);
-    xhr.ontimeout = () => stop(false);
+    xhr.onload = () => {
+      let body: { status?: string; error?: string; code?: string } = {};
+      try {
+        body = JSON.parse(xhr.responseText || "{}");
+      } catch {
+        /* respuesta sin JSON */
+      }
+      const s = xhr.status;
+      if (s >= 200 && s < 300) return end({ ok: true, status: body.status === "duplicate" ? "duplicate" : "saved" });
+      if (s === 429) {
+        const wait = Number(xhr.getResponseHeader("retry-after")) || 5;
+        return end({ ok: false, retry: true, delayMs: wait * 1000, error: "Hay mucha cola ahora mismo" });
+      }
+      if (s === 402) return end({ ok: false, retry: false, delayMs: 0, error: "No te queda espacio para este archivo" });
+      if (s === 413) return end({ ok: false, retry: false, delayMs: 0, error: body.error ?? "Pesa más de lo que admite tu plan" });
+      if (s === 401 || s === 403) return end({ ok: false, retry: false, delayMs: 0, error: "Tu sesión ha caducado. Vuelve a entrar." });
+      if (s >= 500 || s === 408 || s === 0) return end({ ok: false, retry: true, delayMs: 3000, error: "El servidor ha tardado en contestar" });
+      return end({ ok: false, retry: false, delayMs: 0, error: body.error ?? `No se pudo guardar (${s})` });
+    };
+    xhr.onerror = () => end({ ok: false, retry: true, delayMs: 3000, error: "Se cortó la conexión" });
+    xhr.onabort = () => end({ ok: false, retry: false, delayMs: 0, error: "Cancelado" });
+    xhr.ontimeout = () => end({ ok: false, retry: true, delayMs: 3000, error: "Se cortó la conexión" });
     xhr.timeout = 0; // sin tope: manda el vigilante de arriba
     xhr.send(file);
   });
 }
 
+/** Archivos de una operación de arrastrar (carpetas incluidas). Hay que leer las
+ *  entradas ANTES de cualquier `await`: el navegador vacía el DataTransfer al acabar el evento. */
+async function filesFromDrop(dt: DataTransfer): Promise<File[]> {
+  type Entry = { isFile: boolean; isDirectory: boolean; file: (ok: (f: File) => void, no: (e: unknown) => void) => void; createReader: () => { readEntries: (ok: (e: Entry[]) => void, no: (e: unknown) => void) => void } };
+  const entries = Array.from(dt.items ?? [])
+    .map((i) => (i as unknown as { webkitGetAsEntry?: () => Entry | null }).webkitGetAsEntry?.() ?? null)
+    .filter((e): e is Entry => !!e);
+  const plain = Array.from(dt.files ?? []);
+  if (!entries.length) return plain;
+  const out: File[] = [];
+  const walk = async (e: Entry): Promise<void> => {
+    if (e.isFile) {
+      out.push(await new Promise<File>((ok, no) => e.file(ok, no)));
+    } else if (e.isDirectory) {
+      const reader = e.createReader();
+      for (;;) {
+        const batch = await new Promise<Entry[]>((ok, no) => reader.readEntries(ok, no));
+        if (!batch.length) break;
+        for (const c of batch) await walk(c);
+      }
+    }
+  };
+  for (const e of entries) await walk(e).catch(() => {});
+  return out.length ? out : plain;
+}
+
+interface Account {
+  unlimited: boolean;
+  remainingBytes: number | null;
+  plan: { name: string; maxFileBytes: number | null };
+}
+
 export default function Uploader({ onDone }: { onDone: () => void }) {
   const input = useRef<HTMLInputElement>(null);
-  const [jobs, setJobs] = useState<Job[] | null>(null);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const jobsRef = useRef<Job[]>([]);
+  const xhrs = useRef(new Map<number, XMLHttpRequest>());
+  const active = useRef(0);
+  const nextId = useRef(1);
+  const savedSinceRefresh = useRef(0);
   const [mounted, setMounted] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [min, setMin] = useState(false);
+  const [dragging, setDragging] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  const running = jobs !== null;
-  const allSettled = running && jobs.every((j) => j.phase === "done" || j.phase === "error");
+  const commit = useCallback((next: Job[]) => {
+    jobsRef.current = next;
+    setJobs(next);
+  }, []);
+  const patch = useCallback(
+    (id: number, p: Partial<Job>) => commit(jobsRef.current.map((j) => (j.id === id ? { ...j, ...p } : j))),
+    [commit],
+  );
 
-  // Cerrar la pestaña a mitad de una subida de varios GB la tira entera y no
-  // hay forma de retomarla. Al menos que el navegador pregunte.
+  const busy = jobs.some((j) => j.phase === "wait" || j.phase === "upload" || j.phase === "process");
+  const real = jobs.filter((j) => j.phase !== "skip" && j.phase !== "nofit");
+  const savedN = jobs.filter((j) => j.phase === "done").length;
+  const dupN = jobs.filter((j) => j.phase === "dup").length;
+  const errN = jobs.filter((j) => j.phase === "error").length;
+  const nofitN = jobs.filter((j) => j.phase === "nofit").length;
+  const skipN = jobs.filter((j) => j.phase === "skip").length;
+  const settledN = real.filter((j) => j.phase === "done" || j.phase === "dup" || j.phase === "error").length;
+  const totalBytes = real.reduce((s, j) => s + j.size, 0) || 1;
+  const overall = Math.round(
+    real.reduce((s, j) => s + j.size * (j.phase === "done" || j.phase === "dup" || j.phase === "error" ? 100 : j.pct), 0) / totalBytes,
+  );
+  const anyDegraded = jobs.some((j) => j.degraded);
+
+  // cerrar la pestaña a mitad de una subida de varios GB la tira entera
   useEffect(() => {
-    if (!running || allSettled) return;
+    if (!busy) return;
     const warn = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = "";
     };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [running, allSettled]);
+  }, [busy]);
 
-  const overall = running
-    ? Math.round(
-        jobs.reduce((s, j) => s + (j.phase === "done" || j.phase === "error" ? 100 : j.pct), 0) / jobs.length,
-      )
-    : 0;
-  const failed = running ? jobs.filter((j) => j.phase === "error").length : 0;
-  const anyDegraded = running ? jobs.some((j) => j.degraded) : false;
-  const anyVideo = running ? jobs.some((j) => j.video) : false;
-
-  async function run(files: File[]) {
-    const set = (i: number, patch: Partial<Job>) =>
-      setJobs((js) => (js ? js.map((j, k) => (k === i ? { ...j, ...patch } : j)) : js));
-
-    setJobs(
-      files.map((f) => ({
-        name: f.name,
-        pct: 0,
-        phase: "wait",
-        video: isVideo(f),
-        fps: null,
-        degraded: false,
-      })),
-    );
-
-    // mide fps de los vídeos en paralelo (no bloquea la subida)
-    files.forEach((f, i) => {
-      if (!isVideo(f)) return;
-      probeFps(f).then((fps) => {
-        if (fps == null) return;
-        set(i, { fps, degraded: fps > 0 && fps <= 32 });
-      });
-    });
-
-    for (let i = 0; i < files.length; i++) {
-      set(i, { phase: "upload" });
-      const ok = await uploadOne(
-        files[i]!,
-        (p) => set(i, { pct: p }),
-        () => set(i, { phase: "process" }),
-      );
-      set(i, { phase: ok ? "done" : "error", pct: 100 });
+  // al terminar el lote: la galería se pone al día UNA vez, y si estaba minimizado se abre el resumen
+  useEffect(() => {
+    if (busy || !jobs.length) return;
+    setMin(false);
+    if (savedSinceRefresh.current > 0) {
+      savedSinceRefresh.current = 0;
+      onDone();
     }
-    onDone();
+  }, [busy, jobs.length, onDone]);
+
+  const pump = useCallback(() => {
+    while (active.current < MAX_PARALLEL) {
+      const next = jobsRef.current.find((j) => j.phase === "wait");
+      if (!next) break;
+      active.current++;
+      patch(next.id, { phase: "upload", pct: 0, note: undefined });
+      void (async () => {
+        let tries = next.tries;
+        for (;;) {
+          const r = await uploadOne(
+            next.file,
+            xhrs.current,
+            next.id,
+            (p) => patch(next.id, { pct: p }),
+            () => patch(next.id, { phase: "process", note: undefined }),
+          );
+          if (r.ok) {
+            if (r.status === "saved") savedSinceRefresh.current++;
+            patch(next.id, { phase: r.status === "saved" ? "done" : "dup", pct: 100, note: undefined, error: undefined });
+            break;
+          }
+          tries++;
+          if (r.retry && tries < MAX_TRIES) {
+            patch(next.id, { phase: "upload", pct: 0, tries, note: `${r.error}. Reintentando…` });
+            await new Promise((ok) => setTimeout(ok, r.delayMs));
+            continue;
+          }
+          patch(next.id, { phase: "error", pct: 100, tries, error: r.error, note: undefined });
+          break;
+        }
+        active.current--;
+        pump();
+      })();
+    }
+  }, [patch]);
+
+  /** ¿cabe? Se mira ANTES de subir: así no se gastan GB de subida en algo que el servidor va a rechazar. */
+  async function fits(list: Job[]): Promise<Job[]> {
+    const acc: Account | null = await fetch("/api/account", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
+    if (!acc || acc.unlimited) return list;
+    let remaining = acc.remainingBytes ?? Infinity;
+    const maxFile = acc.plan.maxFileBytes ?? Infinity;
+    return list.map((j) => {
+      if (j.phase !== "wait") return j;
+      if (j.size > maxFile) {
+        return { ...j, phase: "nofit" as Phase, error: `Pesa más de ${sizeHuman(maxFile)}, el máximo por archivo del plan ${acc.plan.name}` };
+      }
+      if (j.size > remaining) {
+        return { ...j, phase: "nofit" as Phase, error: `No cabe: te quedan ${sizeHuman(remaining)}` };
+      }
+      remaining -= j.size;
+      return j;
+    });
   }
+
+  const addFiles = useCallback(
+    async (files: File[]) => {
+      if (!files.length) return;
+      const fresh: Job[] = files.map((f) => {
+        const media = isMedia(f);
+        return {
+          id: nextId.current++,
+          file: f,
+          name: f.name,
+          size: f.size,
+          pct: 0,
+          phase: (media ? "wait" : "skip") as Phase,
+          video: isVideo(f),
+          fps: null,
+          degraded: false,
+          tries: 0,
+          error: media ? undefined : "Solo se guardan fotos, vídeos y audio",
+        };
+      });
+      // si ya había un lote terminado en pantalla, se empieza de cero
+      const base = jobsRef.current.some((j) => j.phase === "wait" || j.phase === "upload" || j.phase === "process") ? jobsRef.current : [];
+      commit([...base, ...fresh]);
+      setOpen(true);
+      setMin(false);
+      const checked = await fits(jobsRef.current);
+      commit(checked);
+      pump();
+      // fps reales de los vídeos (no bloquea la subida)
+      for (const j of fresh) {
+        if (!j.video || j.phase === "skip") continue;
+        void probeFps(j.file).then((fps) => {
+          if (fps != null) patch(j.id, { fps, degraded: fps > 0 && fps <= 32 });
+        });
+      }
+    },
+    [commit, patch, pump],
+  );
+
+  async function retryFailed() {
+    const reset = jobsRef.current.map((j) =>
+      j.phase === "error" || j.phase === "nofit" ? { ...j, phase: "wait" as Phase, pct: 0, tries: 0, error: undefined } : j,
+    );
+    commit(await fits(reset));
+    pump();
+  }
+
+  function cancel(j: Job) {
+    if (j.phase === "wait") patch(j.id, { phase: "skip", error: "Cancelado" });
+    else xhrs.current.get(j.id)?.abort();
+  }
+
+  function close() {
+    setOpen(false);
+    commit([]);
+  }
+
+  // «Subir» desde otros sitios (p. ej. el estado vacío de la biblioteca)
+  useEffect(() => {
+    const pick = () => input.current?.click();
+    window.addEventListener("upscale:pick", pick);
+    return () => window.removeEventListener("upscale:pick", pick);
+  }, []);
+
+  // arrastrar y soltar en cualquier parte de la app
+  useEffect(() => {
+    let depth = 0;
+    let lastOver = 0;
+    // red de seguridad: si el navegador se pierde un `dragleave` (arrastrar fuera de la
+    // ventana a toda prisa), el aviso no se queda pegado — `dragover` llega cada ~50 ms
+    const watch = window.setInterval(() => {
+      if (depth > 0 && Date.now() - lastOver > 1500) {
+        depth = 0;
+        setDragging(false);
+      }
+    }, 500);
+    const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+    const enter = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth++;
+      lastOver = Date.now();
+      setDragging(true);
+    };
+    const over = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      lastOver = Date.now();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    };
+    const leave = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) setDragging(false);
+    };
+    const drop = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth = 0;
+      setDragging(false);
+      if (e.dataTransfer) void filesFromDrop(e.dataTransfer).then(addFiles);
+    };
+    window.addEventListener("dragenter", enter);
+    window.addEventListener("dragover", over);
+    window.addEventListener("dragleave", leave);
+    window.addEventListener("drop", drop);
+    return () => {
+      window.clearInterval(watch);
+      window.removeEventListener("dragenter", enter);
+      window.removeEventListener("dragover", over);
+      window.removeEventListener("dragleave", leave);
+      window.removeEventListener("drop", drop);
+    };
+  }, [addFiles]);
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
     if (input.current) input.current.value = "";
-    if (files.length) run(files);
+    void addFiles(files);
   }
 
-  const overlay = running && mounted && (
-    <motion.div className="up-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-      <motion.div
-        className="up-card"
-        initial={{ opacity: 0, y: 24, scale: 0.96 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 10, scale: 0.98 }}
-        transition={{ type: "spring", stiffness: 300, damping: 28 }}
-      >
-        <div className="up-head">
-          <h3>{allSettled ? (failed ? "Subida terminada con errores" : "Todo guardado") : "Subiendo a Upscale"}</h3>
-          <span className="up-pct">{overall}%</span>
-        </div>
+  const allOk = !busy && errN === 0 && nofitN === 0 && savedN + dupN > 0;
+  const title = busy
+    ? "Guardando tus recuerdos…"
+    : allOk
+      ? "¡Todo a salvo!"
+      : savedN + dupN > 0
+        ? "Casi todo a salvo"
+        : "No se ha podido guardar";
+  const subtitle = busy
+    ? `${Math.min(settledN + 1, real.length)} de ${real.length}`
+    : [
+        savedN ? `${savedN} ${savedN === 1 ? "archivo guardado" : "archivos guardados"}` : "",
+        dupN ? `${dupN} ya ${dupN === 1 ? "lo tenías" : "los tenías"}` : "",
+        errN ? `${errN} con error` : "",
+        nofitN ? `${nofitN} no ${nofitN === 1 ? "cabe" : "caben"}` : "",
+        skipN ? `${skipN} no ${skipN === 1 ? "es" : "son"} foto, vídeo ni audio` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
 
-        <div className="up-track">
+  const STATE_TEXT = (j: Job): string => {
+    switch (j.phase) {
+      case "wait": return "En cola";
+      case "upload": return j.note ?? `${j.pct}%`;
+      case "process": return "Guardando…";
+      case "done": return "Guardado";
+      case "dup": return "Ya lo tenías";
+      case "nofit": return "No cabe";
+      case "skip": return "Omitido";
+      default: return "Error";
+    }
+  };
+
+  const panel = open && mounted && (
+    <>
+      {/* minimizado: una píldora con el progreso, siempre al alcance */}
+      {min && busy && (
+        <motion.button
+          type="button"
+          className="up-pill"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          onClick={() => setMin(false)}
+          aria-label="Ver la subida"
+        >
+          <span className="up-pill-ring" style={{ ["--p" as string]: `${overall}%` }} aria-hidden="true" />
+          Subiendo {Math.min(settledN + 1, real.length)}/{real.length} · {overall}%
+        </motion.button>
+      )}
+
+      {!(min && busy) && (
+        <motion.div className="up-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
           <motion.div
-            className="up-fill"
-            animate={{ width: `${overall}%` }}
-            transition={{ type: "spring", stiffness: 120, damping: 24 }}
-          />
-        </div>
-
-        <ul className="up-list">
-          {jobs.map((j, i) => (
-            <li key={i} className={`up-item ${j.phase}`}>
-              <span className="up-name">{j.name}</span>
-              <span className="up-state">{j.phase === "upload" ? `${j.pct}%` : PHASE_TEXT[j.phase]}</span>
-              <div className="up-mini">
-                <motion.div
-                  className="up-mini-fill"
-                  animate={{ width: `${j.phase === "done" || j.phase === "error" ? 100 : j.pct}%` }}
-                  transition={{ type: "spring", stiffness: 140, damping: 22 }}
-                />
+            className="up-card"
+            role="dialog"
+            aria-label="Subida de archivos"
+            initial={{ opacity: 0, y: 24, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.98 }}
+            transition={{ type: "spring", stiffness: 300, damping: 28 }}
+          >
+            <div className="up-head">
+              {allOk && (
+                <motion.span
+                  className="up-check"
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: "spring", stiffness: 380, damping: 14 }}
+                  aria-hidden="true"
+                >
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+                </motion.span>
+              )}
+              <div className="up-titles">
+                <h3>{title}</h3>
+                <p>{subtitle}</p>
               </div>
-              {j.degraded && (
-                <span className="up-degraded">
-                  iOS lo ha bajado a ~{j.fps} fps. Súbelo desde <b>Archivos</b> o con el Atajo para el original.
-                </span>
-              )}
-              {j.video && !j.degraded && j.fps != null && (
-                <span className="up-ok">{j.fps} fps · íntegro</span>
-              )}
-            </li>
-          ))}
-        </ul>
+              {busy && <span className="up-pct">{overall}%</span>}
+            </div>
 
-        {anyDegraded ? (
-          <div className="up-hint up-warn">
-            <b>Vídeo recodificado por iOS.</b> Al elegirlo desde <b>Fototeca</b> en el navegador,
-            iOS baja los fps y el bitrate antes de subirlo. Para el archivo tal cual sale del iPhone:
-            <ol>
-              <li>En <b>Fotos</b>, abre el vídeo → <b>Compartir</b> → <b>Guardar en Archivos</b>.</li>
-              <li>Aquí, pulsa <b>Subir</b> → <b>Explorar</b> → cógelo de <b>Archivos</b>.</li>
-            </ol>
-            O monta el <b>Atajo de iOS</b> (Ajustes) y se sube solo, siempre íntegro.
-          </div>
-        ) : (
-          anyVideo &&
-          !allSettled && (
-            <p className="up-hint">
-              Para vídeo en calidad original: elige <b>Explorar → Archivos</b>, no <b>Fototeca</b>.
-            </p>
-          )
-        )}
+            {busy && (
+              <div className="up-track" role="progressbar" aria-valuenow={overall} aria-valuemin={0} aria-valuemax={100}>
+                <motion.div className="up-fill" animate={{ width: `${overall}%` }} transition={{ type: "spring", stiffness: 120, damping: 24 }} />
+              </div>
+            )}
 
-        {allSettled ? (
-          <button className="btn primary sm" type="button" onClick={() => setJobs(null)}>
-            Cerrar
-          </button>
-        ) : (
-          <p className="up-hint">No cierres esta ventana hasta que termine.</p>
-        )}
-      </motion.div>
-    </motion.div>
+            <ul className="up-list">
+              {jobs.map((j) => (
+                <li key={j.id} className={`up-item ${j.phase}`}>
+                  <span className="up-name" title={j.name}>{j.name}</span>
+                  <span className="up-state">{STATE_TEXT(j)}</span>
+                  {(j.phase === "upload" || j.phase === "process" || j.phase === "wait") && (
+                    <button type="button" className="up-x" onClick={() => cancel(j)} aria-label={`Cancelar ${j.name}`}>×</button>
+                  )}
+                  {j.phase !== "skip" && j.phase !== "nofit" && (
+                    <div className="up-mini">
+                      <motion.div
+                        className="up-mini-fill"
+                        animate={{ width: `${j.phase === "done" || j.phase === "dup" || j.phase === "error" ? 100 : j.pct}%` }}
+                        transition={{ type: "spring", stiffness: 140, damping: 22 }}
+                      />
+                    </div>
+                  )}
+                  {j.error && (j.phase === "error" || j.phase === "nofit" || j.phase === "skip") && <span className="up-err">{j.error}</span>}
+                  {j.degraded && <span className="up-degraded">El iPhone lo ha bajado a ~{j.fps} fps al elegirlo desde Fotos.</span>}
+                </li>
+              ))}
+            </ul>
+
+            {anyDegraded && (
+              <p className="up-hint up-warn">
+                <b>Para el vídeo exacto, tal cual sale del iPhone:</b> en Fotos, ábrelo → Compartir → <b>Guardar en Archivos</b>, y aquí
+                pulsa <b>Subir → Explorar</b> y elígelo de Archivos.
+              </p>
+            )}
+
+            {nofitN > 0 && !busy && (
+              <p className="up-hint up-nudge">
+                Te falta espacio. <Link href="/app/espacio">Consigue más con un código, invitando a un amigo o con un plan →</Link>
+              </p>
+            )}
+
+            <div className="up-actions">
+              {busy ? (
+                <button className="btn ghost sm" type="button" onClick={() => setMin(true)}>Seguir navegando</button>
+              ) : (
+                <>
+                  {(errN > 0 || nofitN > 0) && (
+                    <button className="btn sm" type="button" onClick={retryFailed}>Reintentar</button>
+                  )}
+                  {savedN > 0 && (
+                    <Link className="btn primary sm" href="/app?sort=added" onClick={close}>Ver lo que acabas de subir</Link>
+                  )}
+                  <button className="btn ghost sm" type="button" onClick={close}>Cerrar</button>
+                </>
+              )}
+            </div>
+            {busy && <p className="up-hint">No cierres esta pestaña hasta que termine. Puedes seguir usando Upscale.</p>}
+          </motion.div>
+        </motion.div>
+      )}
+    </>
   );
 
   return (
     <>
-      {/* Sin `accept`: con uno (aunque fuera "image/*,video/*") el propio SISTEMA
-          OPERATIVO decide qué mostrar en gris/oculto según el tipo de archivo que
-          él mismo detecte — y Windows a menudo no reconoce bien archivos que
-          vienen del iPhone por cable (algunos HEIC, Live Photos, etc.), dejándolos
-          fuera del selector antes de que la app llegue a verlos. El servidor ya
-          admite cualquier archivo sin restricción; el filtro vivía solo aquí. */}
+      {/* Sin `accept` a propósito: con uno, Windows a veces esconde archivos del iPhone (HEIC,
+          Live Photos…) antes de que la app los vea. Lo que no sea foto, vídeo o audio se avisa aquí. */}
       <input ref={input} type="file" multiple hidden onChange={onPick} />
       <motion.button
         className="upload"
         type="button"
-        disabled={running && !allSettled}
-        onClick={() => input.current?.click()}
+        onClick={() => (busy && open ? setMin(false) : busy ? setOpen(true) : input.current?.click())}
         whileTap={{ scale: 0.94 }}
         whileHover={{ y: -1 }}
         transition={{ type: "spring", stiffness: 500, damping: 28 }}
@@ -308,15 +611,30 @@ export default function Uploader({ onDone }: { onDone: () => void }) {
         <motion.svg
           width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"
-          animate={running && !allSettled ? { y: [0, -3, 0] } : { y: 0 }}
-          transition={running && !allSettled ? { duration: 0.9, repeat: Infinity, ease: "easeInOut" } : { duration: 0.2 }}
+          animate={busy ? { y: [0, -3, 0] } : { y: 0 }}
+          transition={busy ? { duration: 0.9, repeat: Infinity, ease: "easeInOut" } : { duration: 0.2 }}
         >
           <path d="M12 19V5m0 0-6 6m6-6 6 6" />
         </motion.svg>
-        {running && !allSettled ? "Subiendo…" : "Subir"}
+        {busy ? `Subiendo ${overall}%` : "Subir"}
       </motion.button>
 
-      {mounted && createPortal(<AnimatePresence>{overlay}</AnimatePresence>, document.body)}
+      {mounted &&
+        createPortal(
+          <>
+            <AnimatePresence>{dragging && (
+              <motion.div className="up-drop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} aria-hidden="true">
+                <div className="up-drop-box">
+                  <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5m0 0-6 6m6-6 6 6" /></svg>
+                  <b>Suelta aquí para guardar</b>
+                  <span>Fotos, vídeos y audio. También carpetas.</span>
+                </div>
+              </motion.div>
+            )}</AnimatePresence>
+            <AnimatePresence>{panel}</AnimatePresence>
+          </>,
+          document.body,
+        )}
     </>
   );
 }

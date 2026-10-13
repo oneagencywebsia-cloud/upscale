@@ -6,6 +6,11 @@ const MIME: Record<string, string> = {
   ".webp": "image/webp", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
   ".heic": "image/heic", ".heif": "image/heif", ".gif": "image/gif", ".tiff": "image/tiff",
   ".mov": "video/quicktime", ".mp4": "video/mp4", ".m4v": "video/x-m4v",
+  // Sin estos, el audio salía como application/octet-stream y el navegador se
+  // negaba a reproducirlo en <audio>.
+  ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".m4b": "audio/mp4", ".aac": "audio/aac", ".wav": "audio/wav",
+  ".flac": "audio/flac", ".ogg": "audio/ogg", ".oga": "audio/ogg", ".opus": "audio/ogg", ".aif": "audio/aiff",
+  ".aiff": "audio/aiff", ".caf": "audio/x-caf", ".amr": "audio/amr", ".wma": "audio/x-ms-wma",
 };
 
 /**

@@ -2,6 +2,7 @@ import { mkdir, rm, writeFile, stat, readFile, readdir } from "node:fs/promises"
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { env } from "./env.js";
+import type { AssetKind } from "./types.js";
 import { query, one } from "./db.js";
 import { ingestLocalFile, regenerateDerivatives } from "./pipeline.js";
 import { makePreview, placeholderBroken } from "./media.js";
@@ -513,7 +514,7 @@ async function storePending(log: FastifyBaseLoggerLike): Promise<void> {
 
   const pend = await query<{
     id: string;
-    kind: "photo" | "video";
+    kind: AssetKind;
     original_key: string;
     filename: string;
     src_msg_id: string | null;
@@ -666,7 +667,7 @@ async function kvNum(k: string): Promise<number> {
  * poster_jpg NULL. 2 por vuelta. Tras 3 intentos fallidos se deja como está.
  */
 async function backfillDerivatives(log: FastifyBaseLoggerLike): Promise<void> {
-  type BF = { id: string; kind: "photo" | "video"; original_key: string; filename: string; bytes: string };
+  type BF = { id: string; kind: AssetKind; original_key: string; filename: string; bytes: string };
   // (a) sin póster (carrete HEIC viejo) o (b) vídeo ingerido por cabecera al que
   // ffprobe no pudo sacarle dimensiones/duración → se completa con el original.
   const rows = (

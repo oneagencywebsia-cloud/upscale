@@ -69,6 +69,41 @@ export async function requireUploadToken(req: FastifyRequest, reply: FastifyRepl
   await reply.code(401).send({ error: "necesitas sesión o un X-Upload-Token válido" });
 }
 
+const lista = (v: string | undefined) =>
+  (v ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+
+/** ¿Hay una lista de administradores explícita en el entorno? */
+export function hayAdminsConfigurados(): boolean {
+  return lista(env.ADMIN_USER_IDS).length > 0 || lista(env.ADMIN_EMAILS).length > 0;
+}
+
+/**
+ * ¿Es administrador? (lo GLOBAL: ingesta de Telegram y diagnóstico del servidor).
+ *  1) ADMIN_USER_IDS / ADMIN_EMAILS, si están definidos, mandan.
+ *  2) Si no, el admin es la cuenta a la que ya está atada la ingesta de Telegram
+ *     — el dueño, que fue quien la configuró. Así, al activar esto en un
+ *     despliegue que ya existe, no hace falta tocar ninguna variable.
+ *  3) Sin lista y sin cuenta atada (instalación nueva) nadie lo es todavía.
+ */
+export async function esAdmin(p: { userId: string; email: string | null }): Promise<boolean> {
+  if (hayAdminsConfigurados()) {
+    return lista(env.ADMIN_USER_IDS).includes(p.userId.toLowerCase()) ||
+      (!!p.email && lista(env.ADMIN_EMAILS).includes(p.email.toLowerCase()));
+  }
+  const bound = await one<{ v: string }>("select v from kv where k = 'ingest:user_id'").catch(() => null);
+  return !!bound?.v && bound.v === p.userId;
+}
+
+/** Como requireUploadToken (sesión o X-Upload-Token), pero solo admins. */
+export async function requireAdmin(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  await requireUploadToken(req, reply);
+  if (reply.sent) return;
+  const p = principalOf(req);
+  if (!(await esAdmin(p))) {
+    await reply.code(403).send({ error: "solo el administrador puede hacer esto" });
+  }
+}
+
 export function principalOf(req: FastifyRequest): Principal {
   return (req as FastifyRequest & { principal?: Principal }).principal as Principal;
 }

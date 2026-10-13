@@ -95,6 +95,8 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
   }, [a?.id, dragY, dragX]);
 
   const [videoState, setVideoState] = useState<"loading" | "ready" | "error" | "slow">("loading");
+  const [audioError, setAudioError] = useState(false);
+  useEffect(() => setAudioError(false), [a?.id]);
   const [buffering, setBuffering] = useState(false);
   const [livePlaying, setLivePlaying] = useState(false);
   const liveRef = useRef<HTMLVideoElement>(null);
@@ -424,7 +426,43 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
               entero (`dragY`), así se ve la foto/vídeo entero deslizándose.
             */}
             <motion.div className="viewer-media" style={{ y: dragY }}>
-              {a.kind === "video" ? (
+              {a.kind === "audio" ? (
+                <motion.div className="viewer-audio" style={{ x: dragX, scale: dragScale, opacity: dragOpacity }}>
+                  <div
+                    className="viewer-audio-cover"
+                    onPointerDown={onMediaPointerDown}
+                    onPointerMove={onMediaPointerMove}
+                    onPointerUp={onMediaPointerUp}
+                    onPointerCancel={onMediaPointerCancel}
+                    onLostPointerCapture={onMediaLostPointerCapture}
+                  >
+                    <motion.img
+                      key={a.id}
+                      src={a.posterUrl ?? a.thumbUrl}
+                      alt=""
+                      draggable={false}
+                      initial={{ opacity: 0, scale: 0.94 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ type: "spring", stiffness: 260, damping: 26 }}
+                    />
+                  </div>
+                  <h4 className="viewer-audio-title">{a.filename}</h4>
+                  {audioError ? (
+                    <p className="viewer-audio-err">
+                      No se pudo reproducir aquí. <a href={`/api/dl/${a.id}`}>Descargar</a>
+                    </p>
+                  ) : (
+                    <audio
+                      key={a.id}
+                      src={`/api/media/${a.id}`}
+                      controls
+                      autoPlay
+                      preload="auto"
+                      onError={() => setAudioError(true)}
+                    />
+                  )}
+                </motion.div>
+              ) : a.kind === "video" ? (
                 <motion.div
                   className="viewer-video"
                   style={{ x: dragX, scale: dragScale, opacity: dragOpacity }}
