@@ -79,7 +79,7 @@ docs            BRANDING · ARCHITECTURE · DEPLOY
 | `GET` | `/v1/auth/me` | `{ userId, email }` de la sesión |
 | `POST` | `/v1/assets` | sube el original (stream→almacén), deriva, indexa. Dedup por `(user_id, sha256)` |
 | `POST` | `/v1/assets/:id/live-video` | adjunta el `.MOV` de un Live Photo (byte a byte) |
-| `GET` | `/v1/assets?limit=&cursor=&kind=` | feed del usuario, keyset por `(captured_at,id)` |
+| `GET` | `/v1/assets?limit=&cursor=&kind=&sort=` | feed del usuario, keyset por `(captured_at,id)`. `sort=added` ordena por fecha de **subida** `(uploaded_at,id)` (vista «Nuevos») |
 | `GET` | `/v1/assets/:id` | ficha + `originalUrl` firmada. Registra `view` |
 | `GET` | `/v1/assets/:id/original` | 302 → URL firmada de R2. Registra `download` |
 | `GET` | `/v1/assets/:id/poster` | 302 → póster o miniatura |

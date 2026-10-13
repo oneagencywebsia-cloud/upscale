@@ -91,15 +91,16 @@ export interface DayGroup {
   items: AssetListItem[];
 }
 
-export function groupByDay(items: AssetListItem[]): DayGroup[] {
+/** `by`: qué fecha agrupa. "uploadedAt" para la vista «Nuevos» (por día de subida). */
+export function groupByDay(items: AssetListItem[], by: "capturedAt" | "uploadedAt" = "capturedAt"): DayGroup[] {
   const map = new Map<string, AssetListItem[]>();
   for (const it of items) {
-    const k = dayKey(it.capturedAt);
+    const k = dayKey(it[by]);
     (map.get(k) ?? map.set(k, []).get(k)!).push(it);
   }
   return [...map.entries()].map(([key, list]) => ({
     key,
-    label: dayLabel(list[0]!.capturedAt),
+    label: dayLabel(list[0]![by]),
     items: list,
   }));
 }

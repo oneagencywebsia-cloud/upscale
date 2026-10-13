@@ -13,6 +13,7 @@ export default async function GalleryPage({
   searchParams: Promise<{
     kind?: string;
     fav?: string;
+    sort?: string;
     tooBig?: string;
     q?: string;
     camera?: string;
@@ -20,16 +21,17 @@ export default async function GalleryPage({
     to?: string;
   }>;
 }) {
-  const { kind, fav, tooBig, q, camera, from, to } = await searchParams;
+  const { kind, fav, sort, tooBig, q, camera, from, to } = await searchParams;
   const filter = kind === "photo" || kind === "video" ? kind : undefined;
   const onlyFav = fav === "1";
+  const sortAdded = sort === "added";
 
   // Las tres consultas son independientes: en paralelo (antes iban en serie,
   // sumando sus latencias en cada carga y cada refresco).
   const [list, cams, store] = await Promise.allSettled([
     // SOLO la primera página: la biblioteca puede tener cientos de miles de
     // archivos. El resto entra por scroll infinito (cursor keyset).
-    listAssets({ limit: 120, kind: filter, fav: onlyFav, q, camera, from, to }),
+    listAssets({ limit: 120, kind: filter, fav: onlyFav, q, camera, from, to, sort: sortAdded ? "added" : undefined }),
     listCameras(),
     getStorage(),
   ]);
@@ -56,7 +58,7 @@ export default async function GalleryPage({
     totalBytes = store.value.usedBytes;
   }
 
-  const groups = groupByDay(items);
+  const groups = groupByDay(items, sortAdded ? "uploadedAt" : "capturedAt");
 
   return (
     <>
@@ -65,7 +67,7 @@ export default async function GalleryPage({
         <div className="libhead">
           <div>
             <h2>
-              {onlyFav ? "Favoritos" : "Tu biblioteca"}
+              {onlyFav ? "Favoritos" : sortAdded ? "Recién subidos" : "Tu biblioteca"}
               <span className="lh-flourish" aria-hidden="true" />
             </h2>
             <p>
@@ -94,6 +96,7 @@ export default async function GalleryPage({
             initialCursor={cursor}
             kind={filter}
             fav={onlyFav}
+            sort={sortAdded ? "added" : undefined}
             total={totalCount}
             q={q}
             camera={camera}
