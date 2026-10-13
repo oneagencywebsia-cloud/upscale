@@ -25,6 +25,8 @@ ${FAQ.map((f) => `### ${f.q}\n${f.a}`).join("\n\n")}
 
 ## Enlaces
 - [Portada y registro](${base}/)
+- [Privacidad](${base}/privacidad)
+- [Términos de uso](${base}/terminos)
 `;
   return new Response(body, {
     headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=3600" },

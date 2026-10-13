@@ -3,6 +3,7 @@ import { getAlbum, getAlbumAssets } from "@/lib/api";
 import { groupByDay } from "@/lib/format";
 import Gallery from "@/components/Gallery";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import AlbumActions from "@/components/AlbumActions";
 
 export const dynamic = "force-dynamic";
 
@@ -36,8 +37,9 @@ export default async function AlbumPage({ params }: { params: Promise<{ id: stri
             {album?.name ?? "Álbum"}
             <span className="lh-flourish" aria-hidden="true" />
           </h2>
-          <p>{items.length.toLocaleString("es-ES")} elementos</p>
+          <p>{items.length.toLocaleString("es-ES")} elementos{cursor ? " o más" : ""}</p>
         </div>
+        {!error && album && <AlbumActions albumId={id} albumName={album.name} />}
       </div>
       <ErrorBoundary
         fallback={

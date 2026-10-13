@@ -173,4 +173,7 @@ Pensada para que cualquiera la entienda en segundos y acabe registrándose:
 - **SEO**: `generateMetadata` en `app/page.tsx` (título, descripción, canonical, Open Graph/Twitter), `app/opengraph-image.tsx`, `app/robots.ts`, `app/sitemap.ts`; `/app/*` lleva `noindex`.
 - **AEO** (buscadores de IA): JSON-LD `WebSite` + `SoftwareApplication` + `HowTo` + `FAQPage` en la portada, respuestas que contestan en la primera frase, y `/llms.txt` (`app/llms.txt/route.ts`).
 - La URL pública sale de `SITE_URL` o, si no está, de la petición (`lib/site.ts`).
-- Pendiente: páginas legales (privacidad, términos), borrar cuenta y cobro real (Stripe).
+- **Legal**: `/privacidad` y `/terminos` (con resumen «en pocas palabras»); enlazadas desde la portada, el registro y Ajustes. Responsable y contacto salen de `LEGAL_NAME` / `CONTACT_EMAIL`. La política nombra a Telegram como parte del almacenamiento (transparencia obligatoria) aunque la interfaz no lo muestre.
+- **Borrar cuenta**: Ajustes → «Borrar mi cuenta» (escribir BORRAR) → `POST /v1/me/delete` (202, borrado por tandas en segundo plano: archivos del almacén, filas, álbumes, tokens, accesos, canjes, perfil; y el usuario de Supabase si hay `SUPABASE_SERVICE_ROLE_KEY`). La cuenta de administración (ingesta atada) no se puede borrar así.
+- **Ajustes** simple: subir, descargar todo (ZIP) y borrar cuenta; lo técnico (Atajo de iOS, mapa, vídeos sin vista previa) va plegado en «Opciones avanzadas».
+- Pendiente: cobro real (Stripe).

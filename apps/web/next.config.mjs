@@ -16,10 +16,7 @@ const csp = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${dev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
-  // https://*.basemaps.cartocdn.com: teselas oscuras (dark_matter) del mapa de
-  // /app/mapa — se sirven como <img> normales (Leaflet raster puro, no WebGL),
-  // así que solo hace falta abrir img-src; no tocan fetch/XHR (connect-src).
-  "img-src 'self' data: blob: https://*.basemaps.cartocdn.com",
+  "img-src 'self' data: blob:",
   "media-src 'self' blob:",
   "font-src 'self' data:",
   "connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co",
