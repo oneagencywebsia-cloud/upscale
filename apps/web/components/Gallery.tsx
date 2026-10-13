@@ -48,12 +48,16 @@ function EmptyMark() {
 /** Primera página fresca + lo ya paginado que sea más antiguo que ella. Se toma
  *  la primera página como verdad (así se ven altas y bajas) y se conserva el
  *  resto — si no, el scroll infinito se rebobinaría solo. */
-function mergeFirstPage(prev: AssetListItem[], first: AssetListItem[]): AssetListItem[] {
+function mergeFirstPage(
+  prev: AssetListItem[],
+  first: AssetListItem[],
+  by: "capturedAt" | "uploadedAt" = "capturedAt",
+): AssetListItem[] {
   if (!prev.length) return first;
   if (!first.length) return prev;
-  const oldest = first[first.length - 1]!.capturedAt;
+  const oldest = first[first.length - 1]![by];
   const seen = new Set(first.map((a) => a.id));
-  const tail = prev.filter((a) => a.capturedAt < oldest && !seen.has(a.id));
+  const tail = prev.filter((a) => a[by] < oldest && !seen.has(a.id));
   return [...first, ...tail];
 }
 
@@ -108,6 +112,7 @@ export default function Gallery({
   initialCursor = null,
   kind,
   fav = false,
+  sort,
   total = 0,
   albumId,
   q,
@@ -122,6 +127,8 @@ export default function Gallery({
   initialCursor?: string | null;
   kind?: string;
   fav?: boolean;
+  /** "added" = vista «Nuevos»: ordenada y agrupada por fecha de subida */
+  sort?: string;
   /** total real de la biblioteca (no solo lo cargado) */
   total?: number;
   /** dentro de un álbum: pagina /api/albums/:id/assets en vez de /api/assets,
@@ -160,7 +167,8 @@ export default function Gallery({
   // Todo/Fotos/Vídeos/Favoritos son LISTAS DISTINTAS: al cambiar de una a otra
   // no se conserva nada de lo paginado antes (si no, quedaban fotos colgando
   // debajo de la lista de "Vídeos" por ser más antiguas que su primera página).
-  const filterKey = `${kind ?? ""}|${fav ? 1 : 0}|${q ?? ""}|${camera ?? ""}|${from ?? ""}|${to ?? ""}`;
+  const orderBy = sort === "added" ? "uploadedAt" : "capturedAt";
+  const filterKey = `${kind ?? ""}|${fav ? 1 : 0}|${sort ?? ""}|${q ?? ""}|${camera ?? ""}|${from ?? ""}|${to ?? ""}`;
   const lastFilter = useRef(filterKey);
   // generación del filtro actual: una página pedida para el filtro ANTERIOR que
   // llega tarde se descarta (antes se añadía debajo de la lista nueva y
@@ -186,7 +194,7 @@ export default function Gallery({
       setCursor(initialCursor);
       return;
     }
-    setAssets((prev) => mergeFirstPage(prev, flat));
+    setAssets((prev) => mergeFirstPage(prev, flat, orderBy));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flat, filterKey]);
   // Solo se adopta el cursor de la primera página mientras no se haya paginado
@@ -212,6 +220,7 @@ export default function Gallery({
       const params = new URLSearchParams({ cursor, limit: String(PAGE) });
       if (kind) params.set("kind", kind);
       if (fav) params.set("fav", "1");
+      if (sort) params.set("sort", sort);
       // los filtros de búsqueda no aplican dentro de un álbum (fuera de alcance)
       if (!albumId) {
         if (q) params.set("q", q);
@@ -243,7 +252,7 @@ export default function Gallery({
       if (myGen === gen.current) loadingRef.current = false;
       if (inflight.current === ac) inflight.current = null;
     }
-  }, [cursor, kind, fav, albumId, q, camera, from, to]);
+  }, [cursor, kind, fav, sort, albumId, q, camera, from, to]);
   loadMoreRef.current = loadMore;
   useEffect(
     () => () => {
@@ -289,6 +298,7 @@ export default function Gallery({
         const params = new URLSearchParams({ limit: String(PAGE) });
         if (kind) params.set("kind", kind);
         if (fav) params.set("fav", "1");
+        if (sort) params.set("sort", sort);
         if (q) params.set("q", q);
         if (camera) params.set("camera", camera);
         if (from) params.set("from", from);
@@ -315,12 +325,12 @@ export default function Gallery({
       window.removeEventListener("focus", onVis);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [router, albumId, kind, fav, q, camera, from, to, openIdx, selecting]);
+  }, [router, albumId, kind, fav, sort, q, camera, from, to, openIdx, selecting]);
 
   // índices O(1). TODOS los hooks van aquí arriba, antes de cualquier return.
   // Los días se recalculan desde `assets` (no desde la prop) para que el scroll
   // infinito pueda añadir días nuevos según se van pidiendo páginas.
-  const liveGroups = useMemo(() => groupByDay(assets), [assets]);
+  const liveGroups = useMemo(() => groupByDay(assets, orderBy), [assets, orderBy]);
   const idxById = useMemo(() => {
     const m = new Map<string, number>();
     assets.forEach((a, i) => m.set(a.id, i));

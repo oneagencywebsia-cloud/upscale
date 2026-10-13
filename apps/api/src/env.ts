@@ -121,4 +121,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.28.0-mapa-y-gps-backfill";
+export const VERSION = "0.29.0-recien-subidos";

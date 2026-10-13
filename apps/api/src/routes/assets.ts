@@ -569,11 +569,22 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     const { userId } = principalOf(req);
     const q = req.query as {
       limit?: string; cursor?: string; kind?: string; fav?: string;
-      q?: string; camera?: string; from?: string; to?: string;
+      q?: string; camera?: string; from?: string; to?: string; sort?: string;
     };
     const limit = Math.min(Math.max(Number(q.limit) || 80, 1), 500);
+    // `sort=added`: lo último que se ha SUBIDO primero (por `uploaded_at`), en vez
+    // de por la fecha en que se hizo la foto. Sin esto, un archivo antiguo que
+    // acabas de subir queda enterrado en su día original y parece que no llegó.
+    const added = q.sort === "added";
+    const orderCol = added ? "uploaded_at" : "captured_at";
     const params: unknown[] = [userId];
-    let sql = `select ${A} from assets a where a.user_id = $1 and a.deleted_at is null`;
+    // En modo "added" el cursor lleva el `uploaded_at` con sus microsegundos
+    // (to_char): un Date de JS los trunca a milisegundos y la paginación se
+    // saltaría las filas insertadas dentro del mismo milisegundo.
+    const cursorCol = added
+      ? `, to_char(a.uploaded_at at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as cursor_ts`
+      : "";
+    let sql = `select ${A}${cursorCol} from assets a where a.user_id = $1 and a.deleted_at is null`;
 
     if (q.kind === "photo" || q.kind === "video") {
       params.push(q.kind);
@@ -606,12 +617,12 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: "cursor inválido" });
       }
       params.push(ts, id);
-      sql += ` and (a.captured_at, a.id) < ($${params.length - 1}::timestamptz, $${params.length}::uuid)`;
+      sql += ` and (a.${orderCol}, a.id) < ($${params.length - 1}::timestamptz, $${params.length}::uuid)`;
     }
     params.push(limit + 1);
-    sql += ` order by a.captured_at desc, a.id desc limit $${params.length}`;
+    sql += ` order by a.${orderCol} desc, a.id desc limit $${params.length}`;
 
-    const res = await query<Row>(sql, params);
+    const res = await query<Row & { cursor_ts?: string }>(sql, params);
     const rows = res.rows;
     const hasMore = rows.length > limit;
     const page = hasMore ? rows.slice(0, limit) : rows;
@@ -619,7 +630,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     const last = page[page.length - 1];
     const nextCursor =
       hasMore && last
-        ? Buffer.from(`${last.captured_at.toISOString()}|${last.id}`, "utf8").toString("base64url")
+        ? Buffer.from(`${added ? (last as Row & { cursor_ts?: string }).cursor_ts : last.captured_at.toISOString()}|${last.id}`, "utf8").toString("base64url")
         : null;
 
     return { items, nextCursor };

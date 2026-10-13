@@ -47,6 +47,8 @@ export function listAssets(params?: {
   camera?: string;
   from?: string;
   to?: string;
+  /** "added" = lo último subido primero (por fecha de subida) */
+  sort?: string;
 }): Promise<AssetListResponse> {
   const q = new URLSearchParams();
   if (params?.cursor) q.set("cursor", params.cursor);
@@ -57,6 +59,7 @@ export function listAssets(params?: {
   if (params?.camera) q.set("camera", params.camera);
   if (params?.from) q.set("from", params.from);
   if (params?.to) q.set("to", params.to);
+  if (params?.sort) q.set("sort", params.sort);
   const qs = q.toString();
   return req<AssetListResponse>(`/v1/assets${qs ? `?${qs}` : ""}`);
 }

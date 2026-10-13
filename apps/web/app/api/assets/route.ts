@@ -27,10 +27,12 @@ export async function GET(req: Request) {
   const camera = url.searchParams.get("camera");
   const from = url.searchParams.get("from");
   const to = url.searchParams.get("to");
+  const sort = url.searchParams.get("sort");
   if (search) q.set("q", search);
   if (camera) q.set("camera", camera);
   if (from) q.set("from", from);
   if (to) q.set("to", to);
+  if (sort === "added") q.set("sort", "added");
   q.set("limit", String(Math.min(Math.max(limit, 1), 300)));
 
   const res = await fetch(`${API}/v1/assets?${q.toString()}`, {
