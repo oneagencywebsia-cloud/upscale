@@ -3572,3 +3572,61 @@ footer.status .dot {
     animation: none;
   }
 }
+
+
+/* ===================================================================
+   Botón flotante de selección (Gallery.tsx)
+   =================================================================== */
+.sel-fab {
+  position: fixed;
+  right: 14px;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  z-index: 45;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 17px 11px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke-strong);
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+  color: var(--light);
+  font: 600 13px var(--font-body);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  animation: fab-in 0.22s cubic-bezier(0.2, 1.2, 0.4, 1) backwards;
+  transition: background 0.18s, color 0.18s, transform 0.12s, bottom 0.2s;
+}
+.sel-fab:active {
+  transform: scale(0.95);
+}
+.sel-fab.on {
+  background: linear-gradient(135deg, var(--accent-2), var(--accent));
+  border-color: transparent;
+  color: var(--on-accent);
+}
+@keyframes fab-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.9);
+  }
+}
+/* con la barra de acciones (Descargar / Añadir / Borrar) abajo, el botón sube por encima */
+.sel-fab.with-bar {
+  bottom: calc(92px + env(safe-area-inset-bottom));
+}
+@media (max-width: 720px) {
+  /* deja sitio a las pestañas de abajo (~72 px) */
+  .sel-fab {
+    bottom: calc(86px + env(safe-area-inset-bottom));
+  }
+  .sel-fab.with-bar {
+    bottom: calc(150px + env(safe-area-inset-bottom));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sel-fab {
+    animation: none;
+  }
+}
