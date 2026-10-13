@@ -1,0 +1,161 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { motion } from "motion/react";
+import { bytesHuman } from "@/lib/format";
+import { descargarZip, esMovil, type FuenteZip } from "@/lib/download";
+
+interface Parte {
+  ids: string[];
+  count: number;
+  bytes: number;
+}
+interface Plan {
+  count: number;
+  bytes: number;
+  parts: Parte[];
+}
+
+/**
+ * Hoja de descarga para lo grande («descargar todo», selecciones de varios GB).
+ * Dice cuánto es y lo reparte en partes que quepan en el móvil (2 GB; en
+ * ordenador, 8 GB): cada parte es un ZIP aparte con un solo toque, así no hay
+ * que esperar a que se prepare una descarga de decenas de GB y, si falla una,
+ * solo se repite esa.
+ */
+export default function DownloadSheet({ fuente, titulo, onClose }: { fuente: FuenteZip; titulo: string; onClose: () => void }) {
+  const [mounted, setMounted] = useState(false);
+  const [plan, setPlan] = useState<Plan | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [hechas, setHechas] = useState<Set<number>>(new Set());
+  const sheet = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const movil = useRef(false);
+
+  useEffect(() => {
+    movil.current = esMovil();
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    const ac = new AbortController();
+    const GB = 1024 ** 3;
+    fetch("/api/dl-plan", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ids: fuente.ids,
+        kind: fuente.kind ?? undefined,
+        fav: fuente.fav || undefined,
+        album: fuente.album ?? undefined,
+        q: fuente.q ?? undefined,
+        camera: fuente.camera ?? undefined,
+        from: fuente.from ?? undefined,
+        to: fuente.to ?? undefined,
+        maxPartBytes: (movil.current ? 2 : 8) * GB,
+      }),
+      signal: ac.signal,
+    })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        return (await r.json()) as Plan;
+      })
+      .then((p) => (p.count ? setPlan(p) : setError("No hay nada que descargar con este filtro.")))
+      .catch((e) => {
+        if ((e as Error)?.name !== "AbortError") setError("No se pudo preparar la descarga. Comprueba la conexión e inténtalo de nuevo.");
+      });
+    return () => ac.abort();
+    // la fuente no cambia mientras la hoja está abierta
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCloseRef.current();
+    window.addEventListener("keydown", onKey);
+    sheet.current?.focus();
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mounted]);
+
+  function bajar(i: number) {
+    if (!plan) return;
+    const p = plan.parts[i]!;
+    descargarZip({ ...fuente, ids: p.ids }, { n: i + 1, de: plan.parts.length });
+    setHechas((h) => new Set(h).add(i));
+  }
+
+  if (!mounted) return null;
+  const varias = (plan?.parts.length ?? 0) > 1;
+
+  return createPortal(
+    <div className="atas-backdrop" onPointerDown={onClose}>
+      <motion.div
+        ref={sheet}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Descargar"
+        className="atas-sheet"
+        initial={{ y: 48, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ type: "spring", stiffness: 420, damping: 36 }}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <div className="atas-grab" aria-hidden="true" />
+        <header className="atas-head">
+          <div className="atas-title">
+            <b>{titulo}</b>
+            <span>
+              {plan
+                ? `${plan.count.toLocaleString("es-ES")} elemento${plan.count === 1 ? "" : "s"} · ${bytesHuman(plan.bytes)}`
+                : error
+                  ? "—"
+                  : "Calculando…"}
+            </span>
+          </div>
+          <button type="button" className="iconbtn" aria-label="Cerrar" onClick={onClose}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </header>
+
+        {error && (
+          <p className="dls-msg" role="alert">
+            {error}
+          </p>
+        )}
+        {!plan && !error && <div className="dls-wait" aria-busy="true"><i /><i /><i /></div>}
+
+        {plan && (
+          <>
+            <p className="dls-tip">
+              {varias
+                ? `Son muchos archivos: te lo damos en ${plan.parts.length} partes para que sea rápido y no falle. Toca una, espera a que termine y toca la siguiente.`
+                : "Un solo ZIP con los originales, tal cual (sin perder calidad)."}
+            </p>
+            <div className="dls-list">
+              {plan.parts.map((p, i) => (
+                <button key={i} type="button" className={`dls-part ${hechas.has(i) ? "done" : ""}`} onClick={() => bajar(i)}>
+                  <span className="dls-n">{hechas.has(i) ? "✓" : varias ? i + 1 : "↓"}</span>
+                  <span className="dls-t">
+                    <b>{varias ? `Parte ${i + 1} de ${plan.parts.length}` : "Descargar ZIP"}</b>
+                    <i>
+                      {p.count.toLocaleString("es-ES")} elemento{p.count === 1 ? "" : "s"} · {bytesHuman(p.bytes)}
+                    </i>
+                  </span>
+                  <span className="dls-go">{hechas.has(i) ? "Otra vez" : "Descargar"}</span>
+                </button>
+              ))}
+            </div>
+            <p className="dls-foot">Se guarda en Descargas (en iPhone: Archivos › Descargas).</p>
+          </>
+        )}
+      </motion.div>
+    </div>,
+    document.body,
+  );
+}

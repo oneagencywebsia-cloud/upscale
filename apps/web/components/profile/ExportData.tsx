@@ -1,5 +1,8 @@
 "use client";
 
+import { useState } from "react";
+import DownloadSheet from "@/components/DownloadSheet";
+
 export interface AccountSnapshot {
   email: string;
   name: string;
@@ -14,17 +17,7 @@ export interface AccountSnapshot {
 
 /** Copias de seguridad: la biblioteca entera en ZIP y un JSON con los datos de la cuenta. */
 export default function ExportData({ snapshot }: { snapshot: AccountSnapshot }) {
-  function downloadZip() {
-    // <a target="_blank"> para que en la PWA de iOS salga el gestor de descargas
-    const a = document.createElement("a");
-    a.href = "/api/dl-all";
-    a.target = "_blank";
-    a.rel = "noopener";
-    a.download = "";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  }
+  const [sheet, setSheet] = useState(false);
 
   function downloadJson() {
     const payload = {
@@ -55,9 +48,9 @@ export default function ExportData({ snapshot }: { snapshot: AccountSnapshot }) 
       <div className="prow">
         <div>
           <b>Toda mi biblioteca</b>
-          <small>Un ZIP con los originales, byte a byte. Puede tardar si tienes mucho.</small>
+          <small>ZIP con los originales, byte a byte. Si tienes muchos, te lo damos en partes.</small>
         </div>
-        <button className="btn sm" type="button" onClick={downloadZip}>
+        <button className="btn sm" type="button" onClick={() => setSheet(true)}>
           Descargar ZIP
         </button>
       </div>
@@ -70,6 +63,7 @@ export default function ExportData({ snapshot }: { snapshot: AccountSnapshot }) 
           Exportar JSON
         </button>
       </div>
+      {sheet && <DownloadSheet fuente={{ ids: null }} titulo="Toda mi biblioteca" onClose={() => setSheet(false)} />}
     </div>
   );
 }

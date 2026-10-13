@@ -26,6 +26,9 @@ const base = z.object({
   /** Subidas simultáneas: en total y por persona (ver uploadSlots.ts). */
   UPLOAD_MAX_CONCURRENT: z.coerce.number().min(1).default(6),
   UPLOAD_MAX_PER_USER: z.coerce.number().min(1).default(3),
+  // ZIP de descargas: en total y por persona (cada uno reserva disco y ancho de banda)
+  ZIP_MAX_CONCURRENT: z.coerce.number().min(1).default(3),
+  ZIP_MAX_PER_USER: z.coerce.number().min(1).default(1),
 
   // telegram = canal privado de Telegram (coste 0, no tu PC ni tu VPS) — POR DEFECTO
   // local | r2
@@ -137,4 +140,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.31.0-borrar-cuenta";
+export const VERSION = "0.32.0-descargas";
