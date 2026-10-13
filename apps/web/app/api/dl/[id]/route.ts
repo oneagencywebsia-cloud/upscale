@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAccessToken } from "@/lib/supabase/server";
 import { crossSite, forbidden } from "@/lib/guard";
+import { publicUrl } from "@/lib/origin";
 
 const API = process.env.UPSCALE_API_URL ?? "http://localhost:8080";
 
@@ -8,7 +9,7 @@ const API = process.env.UPSCALE_API_URL ?? "http://localhost:8080";
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   if (crossSite(request)) return forbidden();
   const token = await getAccessToken();
-  if (!token) return NextResponse.redirect(new URL("/", request.url));
+  if (!token) return NextResponse.redirect(publicUrl("/", request));
 
   const { id } = await params;
   const res = await fetch(`${API}/v1/assets/${id}/original`, {

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAccessToken } from "@/lib/supabase/server";
+import { publicUrl } from "@/lib/origin";
 
 const API = process.env.UPSCALE_API_URL ?? "http://localhost:8080";
 
@@ -27,11 +28,11 @@ const SHARE_MAX_BYTES = 512 * 1024 * 1024;
 
 export async function POST(request: Request) {
   const token = await getAccessToken();
-  if (!token) return NextResponse.redirect(new URL("/?next=/app", request.url), 303);
+  if (!token) return NextResponse.redirect(publicUrl("/?next=/app", request), 303);
 
   const declared = Number(request.headers.get("content-length") ?? 0);
   if (declared > SHARE_MAX_BYTES) {
-    return NextResponse.redirect(new URL("/app?shared=0&tooBig=1", request.url), 303);
+    return NextResponse.redirect(publicUrl("/app?shared=0&tooBig=1", request), 303);
   }
 
   const form = await request.formData().catch(() => null);
@@ -56,9 +57,9 @@ export async function POST(request: Request) {
     if (res && res.ok) ok++;
   }
 
-  return NextResponse.redirect(new URL(`/app?shared=${ok}`, request.url), 303);
+  return NextResponse.redirect(publicUrl(`/app?shared=${ok}`, request), 303);
 }
 
 export async function GET(request: Request) {
-  return NextResponse.redirect(new URL("/app", request.url), 303);
+  return NextResponse.redirect(publicUrl("/app", request), 303);
 }
