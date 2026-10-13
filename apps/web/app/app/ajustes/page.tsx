@@ -2,7 +2,6 @@ import { headers } from "next/headers";
 import { listTokens, getIngestAccess } from "@/lib/api";
 import TokenManager from "@/components/TokenManager";
 import IngestBind from "@/components/IngestBind";
-import GpsBackfill from "@/components/GpsBackfill";
 import PreviewsRetry from "@/components/PreviewsRetry";
 import DeleteAccount from "@/components/DeleteAccount";
 import Link from "next/link";
@@ -109,15 +108,6 @@ export default async function AjustesPage() {
       </section>
 
       <section className="adv-sec">
-        <h3>Mapa — ubicaciones</h3>
-        <p className="panel-lede">
-          Si algunas fotos no salen en el mapa, pulsa para revisar tus fotos y rellenar su
-          ubicación (la que lleve cada foto).
-        </p>
-        <GpsBackfill />
-      </section>
-
-      <section className="adv-sec">
         <h3>Vídeos que tardan o no cargan</h3>
         <p className="panel-lede">
           Cada vídeo tiene una copia ligera para reproducirse rápido; si falló varias veces, se
@@ -128,7 +118,7 @@ export default async function AjustesPage() {
       </section>
       </details>
 
-      <section className="panel danger-zone">
+      <section className="panel danger-zone" id="borrar">
         <h3>Borrar mi cuenta</h3>
         <p className="panel-lede">Elimina tu cuenta y todos tus archivos para siempre. Descarga antes lo que quieras conservar.</p>
         <DeleteAccount />

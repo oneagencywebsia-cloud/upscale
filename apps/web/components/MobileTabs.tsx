@@ -4,6 +4,8 @@ import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
+import type { Profile } from "@/lib/profile";
+import Avatar from "./Avatar";
 import { useCoverNav } from "./CoverTransition";
 
 const MotionLink = motion.create(Link);
@@ -31,12 +33,6 @@ const I = {
       <rect x="3" y="5" width="14" height="14" rx="2.4" />
       <path d="M7 9h6M7 13h6" />
       <path d="M9 3h9a2 2 0 0 1 2 2v11" strokeLinecap="round" />
-    </svg>
-  ),
-  gear: (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="3.2" />
-      <path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14 2h-4l-.6 2.5a7 7 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2L10 22h4l.6-2.5a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2Z" />
     </svg>
   ),
 };
@@ -91,7 +87,7 @@ function Tab({ href, label, icon, active }: { href: string; label: string; icon:
   );
 }
 
-export default function MobileTabs() {
+export default function MobileTabs({ profile, photoUrl }: { profile: Profile; photoUrl: string | null }) {
   const pathname = usePathname();
   const sp = useSearchParams();
   const onFav = pathname === "/app" && sp.get("fav") === "1";
@@ -102,7 +98,12 @@ export default function MobileTabs() {
     { href: "/app?fav=1", label: "Favoritos", icon: I.fav, active: onFav },
     { href: "/app/albumes", label: "Álbumes", icon: I.albums, active: pathname.startsWith("/app/albumes") },
     { href: "/app/espacio", label: "Espacio", icon: I.space, active: pathname === "/app/espacio" },
-    { href: "/app/ajustes", label: "Ajustes", icon: I.gear, active: pathname === "/app/ajustes" },
+    {
+      href: "/app/perfil",
+      label: "Perfil",
+      icon: <Avatar profile={profile} photoUrl={photoUrl} size={24} />,
+      active: pathname === "/app/perfil" || pathname === "/app/ajustes",
+    },
   ];
 
   return (

@@ -148,10 +148,27 @@ export default function Gallery({
   const [openIdx, setOpenIdx] = useState<number | null>(null);
   const [selecting, setSelecting] = useState(false);
   const [sel, setSel] = useState<Set<string>>(new Set());
-  const [density, setDensity] = useState(1);
+  const [density, setDensityState] = useState(1);
+  // tamaño elegido en Perfil → Preferencias (por dispositivo); se lee tras montar
+  // para que el HTML del servidor y el del navegador coincidan.
+  useEffect(() => {
+    try {
+      const v = Number(localStorage.getItem("upscale-density"));
+      if (v === 0 || v === 1 || v === 2) setDensityState(v);
+    } catch {
+      /* sin almacenamiento: se queda en medio */
+    }
+  }, []);
+  const setDensity = useCallback((i: number) => {
+    setDensityState(i);
+    try {
+      localStorage.setItem("upscale-density", String(i));
+    } catch {
+      /* modo privado */
+    }
+  }, []);
   const [menuOpen, setMenuOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [addToAlbumOpen, setAddToAlbumOpen] = useState(false);
   // La barra de herramientas (donde está «Seleccionar») NO es fija: al bajar se
   // pierde de vista. Se observa para sacar un botón flotante cuando eso pasa.
   const [toolbarEl, setToolbarEl] = useState<HTMLDivElement | null>(null);
@@ -166,6 +183,10 @@ export default function Gallery({
     io.observe(toolbarEl);
     return () => io.disconnect();
   }, [toolbarEl]);
+  // acción opcional dentro del aviso («Ver álbum»)
+  const [toastLink, setToastLink] = useState<{ href: string; label: string } | null>(null);
+  // ids que se están añadiendo a un álbum (selección múltiple o una sola foto desde el visor)
+  const [addIds, setAddIds] = useState<string[] | null>(null);
 
   // Al refrescar (router.refresh) llega SOLO la primera página. Se toma como
   // verdad (así se ven altas y bajas) y se conserva todo lo ya paginado que sea
@@ -282,9 +303,12 @@ export default function Gallery({
   }, [cursor, loadMore]);
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 6000);
+    const t = setTimeout(() => {
+      setToast(null);
+      setToastLink(null);
+    }, toastLink ? 8000 : 6000);
     return () => clearTimeout(t);
-  }, [toast]);
+  }, [toast, toastLink]);
 
   // La biblioteca se pone al día sola (archivos que entran por Telegram, subidas
   // desde otro dispositivo), pero SIN el `router.refresh()` de antes cada 25 s:
@@ -704,13 +728,6 @@ export default function Gallery({
               />
             </div>
 
-            <Link href="/app/mapa" className="gt-mapbtn" aria-label="Ver mapa" title="Ver mapa">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M9 20l-6 -3v-13l6 3l6 -3l6 3v13l-6 -3l-6 3z" strokeLinejoin="round" />
-                <path d="M9 7v13" strokeLinecap="round" />
-                <path d="M15 10v13" strokeLinecap="round" />
-              </svg>
-            </Link>
           </div>
         )}
 
@@ -806,13 +823,18 @@ export default function Gallery({
       {toast && (
         <motion.div className="gt-toast" initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ opacity: 0 }}>
           {toast}
+          {toastLink && (
+            <Link href={toastLink.href} className="gt-toast-link">
+              {toastLink.label}
+            </Link>
+          )}
         </motion.div>
       )}
 
       {/* Botón flotante: «Seleccionar» / «Listo» siempre al alcance del pulgar,
           aunque la barra de arriba ya no se vea. Mientras se selecciona se queda
           fijo (es la única salida del modo selección si no hay nada marcado). */}
-      {(!toolbarInView || selecting) && !addToAlbumOpen && openIdx === null && (
+      {(!toolbarInView || selecting) && !addIds && openIdx === null && (
         <button
           type="button"
           className={`sel-fab ${selecting ? "on" : ""} ${selecting && sel.size > 0 ? "with-bar" : ""}`}
@@ -836,7 +858,7 @@ export default function Gallery({
             Descargar
           </button>
           {!albumId && (
-            <button className="btn ghost sm" onClick={() => setAddToAlbumOpen(true)}>
+            <button className="btn ghost sm" onClick={() => setAddIds([...sel])}>
               <span className="sb-lg">Añadir a álbum</span>
               <span className="sb-sm">Álbum</span>
             </button>
@@ -854,13 +876,24 @@ export default function Gallery({
         </motion.div>
       )}
 
-      {addToAlbumOpen && (
+      {addIds && (
         <AddToAlbumSheet
-          assetIds={[...sel]}
-          onClose={() => setAddToAlbumOpen(false)}
-          onAdded={(albumName) => {
-            setAddToAlbumOpen(false);
-            setToast(`Añadido a «${albumName}»`);
+          assetIds={addIds}
+          previews={assets.filter((a) => addIds.includes(a.id)).slice(0, 3).map((a) => a.thumbUrl)}
+          onClose={() => setAddIds(null)}
+          onAdded={(album, added) => {
+            const multi = addIds.length > 1;
+            setAddIds(null);
+            if (multi) {
+              setSelecting(false);
+              setSel(new Set());
+            }
+            setToast(
+              added === 0
+                ? `Ya estaba en «${album.name}»`
+                : `Añadido a «${album.name}»${added < addIds.length ? ` (${addIds.length - added} ya estaban)` : ""}`,
+            );
+            setToastLink({ href: `/app/albumes/${album.id}`, label: "Ver álbum" });
           }}
         />
       )}
@@ -877,6 +910,7 @@ export default function Gallery({
         onFavorite={favorite}
         onDelete={del}
         inAlbum={!!albumId}
+        onAddToAlbum={albumId ? undefined : (id) => setAddIds([id])}
       />
     </>
   );

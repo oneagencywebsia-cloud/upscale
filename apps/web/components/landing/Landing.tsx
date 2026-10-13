@@ -4,6 +4,7 @@ import StartBox from "./StartBox";
 import Steps from "./Steps";
 import { BENEFITS, FAQ } from "./content";
 import { PLANS, REFERRAL, gbHuman, priceHuman } from "@/lib/plans";
+import Aurora from "@/components/Aurora";
 
 /** Las animaciones de entrada son CSS puro (`.rise`): con `motion` + `initial`
  *  el HTML del servidor llegaba con todo en opacidad 0 y la portada se veía en
@@ -28,7 +29,7 @@ export default function Landing({
 
   return (
     <div className="landing">
-      <div className="landing-bg" aria-hidden="true" />
+      <Aurora section="landing" />
 
       <header className="landing-nav">
         <Link href="/" className="landing-logo" aria-label="Upscale — inicio">

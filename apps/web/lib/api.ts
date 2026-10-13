@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { headers } from "next/headers";
 import { getAccessToken } from "@/lib/supabase/server";
 import type {
@@ -9,7 +10,6 @@ import type {
   StorageInfo,
   AlbumListResponse,
   Album,
-  MapPointsResponse,
   AccountInfo,
 } from "@upscale/shared";
 
@@ -66,9 +66,9 @@ export function listAssets(params?: {
 }
 
 export const listCameras = () => req<{ cameras: string[] }>("/v1/assets/cameras");
-export const getMapPoints = () => req<MapPointsResponse>("/v1/assets/map");
 
-export const getAsset = (id: string) => req<AssetDetail>(`/v1/assets/${id}`);
+/** memoizado por petición: el layout y la página de perfil piden el mismo avatar. */
+export const getAsset = cache((id: string) => req<AssetDetail>(`/v1/assets/${id}`));
 export const getStorage = () => req<StorageInfo>("/v1/storage");
 export const listTokens = () => req<{ tokens: UploadToken[] }>("/v1/tokens");
 export const createToken = (label?: string) =>

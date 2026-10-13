@@ -1,5 +1,6 @@
 import Link from "next/link";
 import BrandMark from "@/components/BrandMark";
+import Aurora from "@/components/Aurora";
 
 /** Marco común de las páginas legales: claro, corto y con resumen arriba. */
 export default function LegalPage({
@@ -15,7 +16,7 @@ export default function LegalPage({
 }) {
   return (
     <div className="landing legal">
-      <div className="landing-bg" aria-hidden="true" />
+      <Aurora section="landing" />
       <header className="landing-nav">
         <Link href="/" className="landing-logo" aria-label="Upscale — inicio">
           <BrandMark size={34} />

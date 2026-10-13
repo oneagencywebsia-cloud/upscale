@@ -148,7 +148,8 @@ export default function CoverTransitionProvider({ children }: { children: React.
       // (segundo toque mientras la primera sigue ahí): se actúa directamente.
       // Antes el segundo toque se descartaba en silencio y dejaba la
       // navegación bloqueada hasta recargar la página.
-      if (reduceMotion || activeRef.current) {
+      const motionOff = typeof document !== "undefined" && document.documentElement.dataset.motion === "off";
+      if (reduceMotion || motionOff || activeRef.current) {
         run();
         return;
       }
