@@ -144,6 +144,20 @@ export default function Gallery({
   const [menuOpen, setMenuOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [addToAlbumOpen, setAddToAlbumOpen] = useState(false);
+  // La barra de herramientas (donde está «Seleccionar») NO es fija: al bajar se
+  // pierde de vista. Se observa para sacar un botón flotante cuando eso pasa.
+  const [toolbarEl, setToolbarEl] = useState<HTMLDivElement | null>(null);
+  const [toolbarInView, setToolbarInView] = useState(true);
+  useEffect(() => {
+    if (!toolbarEl) return;
+    // -90px arriba: la barra superior fija tapa esa franja, así que «a la vista»
+    // es lo que queda por debajo de ella.
+    const io = new IntersectionObserver((es) => setToolbarInView(!!es[0]?.isIntersecting), {
+      rootMargin: "-90px 0px 0px 0px",
+    });
+    io.observe(toolbarEl);
+    return () => io.disconnect();
+  }, [toolbarEl]);
 
   // Al refrescar (router.refresh) llega SOLO la primera página. Se toma como
   // verdad (así se ven altas y bajas) y se conserva todo lo ya paginado que sea
@@ -433,6 +447,11 @@ export default function Gallery({
   );
   const closeViewer = useCallback(() => setOpenIdx(null), []);
 
+  const toggleSelecting = useCallback(() => {
+    setSelecting((v) => !v);
+    setSel(new Set());
+  }, []);
+
   const toggleSel = useCallback((id: string) => {
     setSel((s) => {
       const n = new Set(s);
@@ -603,7 +622,7 @@ export default function Gallery({
 
   return (
     <>
-      <div className="gallery-toolbar">
+      <div className="gallery-toolbar" ref={setToolbarEl}>
         <DensityControl value={density} onChange={setDensity} />
 
         {!albumId && (
@@ -675,10 +694,7 @@ export default function Gallery({
         <div className="gt-actions">
           <button
             className="btn ghost sm"
-            onClick={() => {
-              setSelecting((v) => !v);
-              setSel(new Set());
-            }}
+            onClick={toggleSelecting}
           >
             {selecting ? "Dejar de seleccionar" : "Seleccionar"}
           </button>
@@ -768,6 +784,23 @@ export default function Gallery({
         <motion.div className="gt-toast" initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ opacity: 0 }}>
           {toast}
         </motion.div>
+      )}
+
+      {/* Botón flotante: «Seleccionar» / «Listo» siempre al alcance del pulgar,
+          aunque la barra de arriba ya no se vea. Mientras se selecciona se queda
+          fijo (es la única salida del modo selección si no hay nada marcado). */}
+      {(!toolbarInView || selecting) && !addToAlbumOpen && openIdx === null && (
+        <button
+          type="button"
+          className={`sel-fab ${selecting ? "on" : ""} ${selecting && sel.size > 0 ? "with-bar" : ""}`}
+          onClick={toggleSelecting}
+          aria-pressed={selecting}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            {selecting ? <path d="M5 12.5l4.5 4.5L19 7.5" /> : <><circle cx="12" cy="12" r="8.5" /><path d="M8.5 12.2l2.5 2.5 4.5-5" /></>}
+          </svg>
+          {selecting ? "Listo" : "Seleccionar"}
+        </button>
       )}
 
       {selecting && sel.size > 0 && (
