@@ -36,9 +36,13 @@ import { ingestLocalFile } from "../pipeline.js";
 import { requireUser, requireUploadToken, principalOf } from "../auth.js";
 import { cuotaDe, premiarInvitacion } from "../accounts.js";
 import { cogerHueco } from "../uploadSlots.js";
-import { servirZip, filtroDe, filasDe, repartirEnPartes } from "../zipDownload.js";
+import { servirZip, filtroDe, filasDe, repartirEnPartes, progresoDe, ES_UUID as ES_UUID_ZIP } from "../zipDownload.js";
 
 /** «parte 2 de 5» desde ?part=2&of=5 (solo cambia el nombre del archivo). */
+function jobDe(q: Record<string, unknown>): string | null {
+  return typeof q.job === "string" ? q.job : null;
+}
+
 function parteDe(q: Record<string, unknown>): { n: number; de: number } | null {
   const n = Math.floor(Number(q.part));
   const de = Math.floor(Number(q.of));
@@ -343,12 +347,22 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
   app.get("/v1/assets/zip", { preHandler: requireUser }, async (req, reply) => {
     const { userId } = principalOf(req);
     const q = req.query as Record<string, unknown>;
-    return servirZip(req, reply, userId, filtroDe(q), { parte: parteDe(q) });
+    return servirZip(req, reply, userId, filtroDe(q), { parte: parteDe(q), job: jobDe(q) });
   });
   app.post("/v1/assets/zip", { preHandler: requireUser, ...zipBody }, async (req, reply) => {
     const { userId } = principalOf(req);
     const b = (req.body ?? {}) as Record<string, unknown>;
-    return servirZip(req, reply, userId, filtroDe(b), { parte: parteDe(b) });
+    return servirZip(req, reply, userId, filtroDe(b), { parte: parteDe(b), job: jobDe(b) });
+  });
+
+  // Progreso de un ZIP en marcha (la web lo pregunta cada poco para su barra).
+  app.get("/v1/assets/zip/progress", { preHandler: requireUser }, async (req, reply) => {
+    const { userId } = principalOf(req);
+    const job = (req.query as Record<string, unknown>).job;
+    const p = typeof job === "string" && ES_UUID_ZIP.test(job) ? progresoDe(job, userId) : null;
+    if (!p) return reply.code(404).send({ error: "no hay descarga con ese id" });
+    reply.header("Cache-Control", "no-store");
+    return p;
   });
 
   // Antes de descargar «todo»: cuánto es y en cuántas partes conviene bajarlo

@@ -32,7 +32,29 @@ export function descargarUno(id: string): void {
   a.remove();
 }
 
-export function descargarZip(f: FuenteZip, parte?: { n: number; de: number }): void {
+/** Aviso a la barra de progreso (components/DownloadProgress.tsx, montada en /app). */
+export const EVENTO_DESCARGA = "upscale:download";
+export interface DetalleDescarga {
+  job: string;
+  parte?: { n: number; de: number } | null;
+  titulo?: string;
+}
+
+function nuevoId(): string {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    // contexto sin crypto.randomUUID: uuid v4 a mano
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+    });
+  }
+}
+
+/** Lanza el ZIP y avisa a la barra de progreso. Devuelve el id de la descarga. */
+export function descargarZip(f: FuenteZip, parte?: { n: number; de: number }, titulo?: string): string {
+  const job = nuevoId();
   const form = document.createElement("form");
   form.method = "POST";
   form.action = "/api/dl-all";
@@ -45,6 +67,7 @@ export function descargarZip(f: FuenteZip, parte?: { n: number; de: number }): v
     i.value = value;
     form.appendChild(i);
   };
+  campo("job", job);
   if (f.ids && f.ids.length) campo("ids", f.ids.join(","));
   if (f.kind) campo("kind", f.kind);
   if (f.fav) campo("fav", "1");
@@ -60,6 +83,8 @@ export function descargarZip(f: FuenteZip, parte?: { n: number; de: number }): v
   document.body.appendChild(form);
   form.submit();
   form.remove();
+  window.dispatchEvent(new CustomEvent<DetalleDescarga>(EVENTO_DESCARGA, { detail: { job, parte: parte ?? null, titulo } }));
+  return job;
 }
 
 /** ¿pantalla táctil / móvil? Decide el tamaño de las partes. */

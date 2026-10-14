@@ -5469,3 +5469,121 @@ html {
   font: 700 13px var(--font-display);
   color: var(--accent);
 }
+
+/* ===================================================================
+   Barra de progreso de descargas (DownloadProgress.tsx)
+   =================================================================== */
+.dlp {
+  position: fixed;
+  z-index: 130; /* por encima de las hojas (120) y del visor (100) */
+  left: 12px;
+  right: 12px;
+  /* arriba en el móvil: abajo están las pestañas y las hojas (partes, álbumes) */
+  top: calc(10px + env(safe-area-inset-top));
+  max-width: 460px;
+  margin: 0 auto;
+  padding: 12px 14px 13px;
+  border-radius: 18px;
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid var(--stroke-strong);
+  box-shadow: var(--sh-3, var(--shadow));
+  animation: rise 0.35s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+@media (min-width: 721px) {
+  .dlp {
+    left: auto;
+    right: 24px;
+    top: auto;
+    bottom: 24px;
+    width: 380px;
+    margin: 0;
+  }
+}
+.dlp-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.dlp-top b {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 700 14.5px var(--font-display);
+  color: var(--light);
+}
+.dlp-pct {
+  font: 700 13px var(--font-mono);
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.dlp-x {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 0;
+  background: color-mix(in srgb, var(--light) 8%, transparent);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.dlp-bar {
+  margin: 9px 0 7px;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--light) 10%, transparent);
+}
+.dlp-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 60%, transparent);
+  transition: width 0.5s ease;
+}
+.dlp-bar.indet i {
+  animation: dlp-slide 1.3s ease-in-out infinite;
+  transition: none;
+}
+@keyframes dlp-slide {
+  0% {
+    margin-left: -35%;
+  }
+  100% {
+    margin-left: 100%;
+  }
+}
+.dlp-line {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+.dlp.ok .dlp-bar i {
+  background: var(--ok);
+}
+.dlp.ok .dlp-line {
+  color: var(--ok);
+}
+.dlp.bad .dlp-bar i {
+  background: var(--danger);
+  box-shadow: none;
+}
+.dlp.bad .dlp-line {
+  color: var(--danger);
+}
+@media (prefers-reduced-motion: reduce) {
+  .dlp-bar.indet i {
+    animation: none;
+  }
+  .dlp-bar i {
+    transition: none;
+  }
+}

@@ -184,11 +184,84 @@ function cogerHuecoZip(userId: string): Hueco {
   };
 }
 
+// ---------------------------------------------------------------- progreso
+
+/**
+ * Progreso de cada ZIP, para la barra de la web. La descarga la gestiona el
+ * navegador (en iPhone, el gestor de descargas del sistema) y la página no
+ * puede medirla, así que lo mide el servidor: la web manda un `job` (uuid) con
+ * la petición y pregunta por él cada poco. Los bytes «enviados» salen del propio
+ * ZIP, que solo avanza al ritmo de quien descarga (contrapresión del socket).
+ */
+export type EtapaZip = "preparando" | "enviando" | "listo" | "error" | "cancelado";
+
+export interface ProgresoZip {
+  etapa: EtapaZip;
+  /** archivos que entran en el ZIP / ya metidos */
+  total: number;
+  hechos: number;
+  /** bytes de los archivos / ya escritos en el ZIP */
+  bytesTotal: number;
+  bytesEnviados: number;
+  omitidos: number;
+  parte: { n: number; de: number } | null;
+  error: string | null;
+}
+
+interface Trabajo extends ProgresoZip {
+  userId: string;
+  t: number;
+}
+
+const trabajos = new Map<string, Trabajo>();
+const TTL_MS = 15 * 60 * 1000;
+setInterval(() => {
+  const limite = Date.now() - TTL_MS;
+  for (const [id, j] of trabajos) if (j.t < limite) trabajos.delete(id);
+}, 60_000).unref();
+
+function nuevoTrabajo(job: string | null, userId: string, parte: ZipOpciones["parte"]): Trabajo | null {
+  if (!job) return null;
+  const j: Trabajo = {
+    userId,
+    t: Date.now(),
+    etapa: "preparando",
+    total: 0,
+    hechos: 0,
+    bytesTotal: 0,
+    bytesEnviados: 0,
+    omitidos: 0,
+    parte: parte ?? null,
+    error: null,
+  };
+  trabajos.set(job, j);
+  return j;
+}
+
+function fallar(j: Trabajo | null, error: string): void {
+  if (!j) return;
+  j.etapa = "error";
+  j.error = error;
+  j.t = Date.now();
+}
+
+/** Lo que ve la web. null = no existe o no es tuyo (misma respuesta: no se filtra nada). */
+export function progresoDe(job: string, userId: string): ProgresoZip | null {
+  const j = trabajos.get(job);
+  if (!j || j.userId !== userId) return null;
+  const { userId: _u, t: _t, ...pub } = j;
+  void _u;
+  void _t;
+  return pub;
+}
+
 // ---------------------------------------------------------------- el ZIP
 
 export interface ZipOpciones {
   /** «parte 2 de 5»: solo cambia el nombre del archivo descargado */
   parte?: { n: number; de: number } | null;
+  /** id (uuid) que manda la web para poder preguntar por el progreso */
+  job?: string | null;
 }
 
 export async function servirZip(
@@ -198,13 +271,17 @@ export async function servirZip(
   filtro: ZipFiltro,
   opciones: ZipOpciones = {},
 ): Promise<void> {
+  const trabajo = nuevoTrabajo(opciones.job && ES_UUID.test(opciones.job) ? opciones.job : null, userId, opciones.parte);
+
   if (filtro.ids && !filtro.ids.length) {
+    fallar(trabajo, "No hay nada válido que descargar.");
     reply.code(400).send({ error: "ningún id válido" });
     return;
   }
 
   const hueco = cogerHuecoZip(userId);
   if (!hueco.ok) {
+    fallar(trabajo, hueco.error);
     reply.code(hueco.status);
     if (hueco.status === 429) reply.header("Retry-After", "60");
     reply.send({ error: hueco.error });
@@ -216,12 +293,14 @@ export async function servirZip(
     rows = await filasDe(userId, filtro);
   } catch (e) {
     hueco.soltar();
+    fallar(trabajo, "No se pudo preparar la descarga.");
     req.log.error({ err: (e as Error)?.message }, "zip: consulta");
     reply.code(500).send({ error: "no se pudo preparar la descarga" });
     return;
   }
   if (!rows.length) {
     hueco.soltar();
+    fallar(trabajo, "No hay nada que descargar con este filtro.");
     reply.code(404).send({ error: "nada que descargar" });
     return;
   }
@@ -236,6 +315,11 @@ export async function servirZip(
   const totalBytes = rows.reduce((n, r) => n + (Number(r.bytes) || 0), 0);
   const hayGrande = rows.some((r) => Number(r.bytes) > 3.5 * GB);
   const zip64 = totalBytes > 3.5 * GB || hayGrande;
+  if (trabajo) {
+    trabajo.total = rows.length;
+    trabajo.bytesTotal = totalBytes;
+    trabajo.t = Date.now();
+  }
 
   try {
     reply.hijack(); // tomamos el socket: escribimos el ZIP a mano en reply.raw
@@ -268,7 +352,27 @@ export async function servirZip(
     let abortado = false;
     let terminado = false; // el bucle ya no va a usar más archivos
     let despertar: (() => void) | null = null; // para sacar al bucle de la espera de la entrada en curso
+    // Bytes que de verdad han salido: lo escrito en el ZIP menos lo que aún espera
+    // en la cola del socket (si no, la barra iría por delante de la descarga real).
+    const enviado = () => Math.max(0, archive.pointer() - reply.raw.writableLength);
+    const tick = setInterval(() => {
+      if (trabajo) {
+        trabajo.bytesEnviados = enviado();
+        trabajo.t = Date.now();
+      }
+    }, 400);
+    reply.raw.once("finish", () => {
+      // todo el ZIP ya salió por el socket
+      clearInterval(tick);
+      if (trabajo && trabajo.etapa !== "cancelado") {
+        trabajo.etapa = "listo";
+        trabajo.bytesEnviados = Math.max(trabajo.bytesEnviados, archive.pointer());
+        trabajo.t = Date.now();
+      }
+    });
     reply.raw.once("close", () => {
+      clearInterval(tick);
+      if (trabajo && trabajo.etapa !== "listo") trabajo.etapa = "cancelado";
       abortado = true;
       // El navegador se fue: se libera el hueco YA (otro ZIP de la misma persona
       // no debe esperar a que acabe la limpieza) y se despierta al bucle.
@@ -339,6 +443,7 @@ export async function servirZip(
       pins.delete(i);
     };
     for (let i = 0; i < CONC; i++) kickoff(i);
+    if (trabajo) trabajo.etapa = "enviando";
 
     const nameFor = (r: { filename: string; kind: string; id: string }) => {
       let nm = nombreZipSeguro(r.filename || `${r.kind}_${r.id}`);
@@ -379,6 +484,10 @@ export async function servirZip(
       if (!ruta) {
         soltarPin(i);
         omitidos.push(r.filename || `${r.kind}_${r.id}`);
+        if (trabajo) {
+          trabajo.omitidos = omitidos.length;
+          trabajo.hechos++;
+        }
         req.log.warn({ id: r.id }, "zip: archivo omitido");
         continue;
       }
@@ -425,6 +534,11 @@ export async function servirZip(
         soltarPin(i);
       }
       added++;
+      if (trabajo) {
+        trabajo.hechos++;
+        trabajo.bytesEnviados = enviado();
+        trabajo.t = Date.now();
+      }
     }
 
     // soltar los pines que queden (ventana de prefetch al cortar, archivos
@@ -455,6 +569,7 @@ export async function servirZip(
   } catch (e) {
     // ya se mandaron cabeceras: lo único honesto es cortar (el navegador lo ve como descarga fallida)
     req.log.error({ err: (e as Error)?.message }, "zip: fallo inesperado");
+    fallar(trabajo, "La descarga se interrumpió. Vuelve a intentarlo.");
     if (!reply.raw.destroyed) reply.raw.destroy();
   } finally {
     hueco.soltar();

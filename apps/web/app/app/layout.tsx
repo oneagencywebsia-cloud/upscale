@@ -9,6 +9,7 @@ import InstallPrompt from "@/components/InstallPrompt";
 import MobileTabs from "@/components/MobileTabs";
 import CoverTransitionProvider from "@/components/CoverTransition";
 import ReferralBind from "@/components/ReferralBind";
+import DownloadProgress from "@/components/DownloadProgress";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <MobileTabs profile={profile} photoUrl={photoUrl} />
       <InstallPrompt />
       <ReferralBind />
+      <DownloadProgress />
     </CoverTransitionProvider>
   );
 }
