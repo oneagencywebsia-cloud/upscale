@@ -140,4 +140,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.32.1-redirecciones";
+export const VERSION = "0.33.0-progreso-zip";
