@@ -77,6 +77,8 @@ export interface IngestResult {
   id: string;
   kind: AssetKind;
   bytes: number;
+  /** solo en «duplicate»: nombre y fecha de subida que tenía el original ya guardado */
+  original?: { filename: string; uploadedAt: string };
 }
 
 /** SHA-256 de un archivo del disco. Bucle simple: no puede bloquearse por backpressure. */
@@ -263,13 +265,23 @@ export async function ingestLocalFile(opts: {
   const sha256 = opts.headOnly ? await hashHead(filePath, 4 * 1024 * 1024, size) : await hashFile(filePath);
 
   step("dedup");
-  const dup = await one<{ id: string; kind: AssetKind }>(
-    "select id, kind from assets where user_id = $1 and sha256 = $2 and deleted_at is null",
+  const dup = await one<{ id: string; kind: AssetKind; filename: string; uploaded_at: Date }>(
+    "select id, kind, filename, uploaded_at from assets where user_id = $1 and sha256 = $2 and deleted_at is null",
     [userId, sha256],
   );
   if (dup) {
     await rm(filePath, { force: true });
-    return { status: "duplicate", id: dup.id, kind: dup.kind, bytes: size };
+    // Reenviar algo que ya estaba lo SUBE a «Nuevos»: quien lo manda espera
+    // verlo arriba, y como el original conserva su fecha antigua parecía que
+    // «no había llegado nada». No se duplica ni se gasta espacio.
+    await query("update assets set uploaded_at = now() where id = $1", [dup.id]).catch(() => {});
+    return {
+      status: "duplicate",
+      id: dup.id,
+      kind: dup.kind,
+      bytes: size,
+      original: { filename: dup.filename, uploadedAt: new Date(dup.uploaded_at).toISOString() },
+    };
   }
 
   step("probe");

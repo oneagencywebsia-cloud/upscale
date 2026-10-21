@@ -377,20 +377,16 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
         // si era duplicado no hay fila nueva pendiente: se borra el mensaje ya
         if (res.status === "duplicate") {
           await withTimeout(tgDeleteInbox([it.id]), 30_000, "borrar mensaje").catch(() => {});
-          // «ya estaba»: se dice CUÁL es el original y de cuándo, que es lo que
-          // hace falta para entender por qué «no ha llegado nada nuevo»
-          const orig = await one<{ filename: string; uploaded_at: Date }>(
-            "select filename, uploaded_at from assets where id = $1",
-            [res.id],
-          ).catch(() => null);
+          // «ya estaba»: se dice CUÁL es el original y de cuándo era (ya se ha subido
+          // a «Nuevos»), que es lo que hace falta para entender «no ha llegado nada nuevo»
           await anotarEnvio({
             msgId: it.id,
             filename: it.filename,
             bytes: it.bytes,
             resultado: "duplicado",
-            detalle: orig
-              ? `ya estaba en tu biblioteca como «${orig.filename}» (subido el ${new Date(orig.uploaded_at).toISOString().slice(0, 10)})`
-              : "ya estaba en tu biblioteca",
+            detalle: res.original
+              ? `ya estaba como «${res.original.filename}» (subido el ${res.original.uploadedAt.slice(0, 10)}); lo he subido a Nuevos`
+              : "ya estaba en tu biblioteca; lo he subido a Nuevos",
           });
         } else {
           await anotarEnvio({ msgId: it.id, filename: it.filename, bytes: it.bytes, resultado: "nuevo", detalle: res.id });
