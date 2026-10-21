@@ -140,4 +140,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.33.0-progreso-zip";
+export const VERSION = "0.33.1-registro-telegram";

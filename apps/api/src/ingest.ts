@@ -101,6 +101,17 @@ async function clearFails(id: number): Promise<void> {
   await query("delete from kv where k = $1", [`ingest:fail:${id}`]).catch(() => {});
 }
 
+/** Qué pasó con cada archivo que llegó por Telegram (se ve en Ajustes). */
+export interface EnvioReciente {
+  t: string;
+  msgId: number;
+  filename: string;
+  bytes: number;
+  resultado: "nuevo" | "duplicado" | "error" | "omitido" | "sin_usuario" | "aplazado";
+  detalle?: string;
+}
+const MAX_RECIENTES = 40;
+
 /** Estado observable para diagnóstico (GET /v1/ingest/status). */
 export const ingestState: {
   started: boolean;
@@ -119,6 +130,7 @@ export const ingestState: {
   pending: number;
   /** trabajo de mantenimiento pendiente (miniaturas/metadatos/pósters) */
   chores: number;
+  recent: EnvioReciente[];
 } = {
   started: false,
   inbox: env.TELEGRAM_INBOX,
@@ -134,7 +146,32 @@ export const ingestState: {
   pausedUntil: null,
   pending: 0,
   chores: 0,
+  recent: [],
 };
+
+/** Apunta qué pasó con un archivo. En memoria y en la BD (sobrevive a los redeploys). */
+async function anotarEnvio(e: Omit<EnvioReciente, "t">): Promise<void> {
+  ingestState.recent.unshift({ t: new Date().toISOString(), ...e });
+  if (ingestState.recent.length > MAX_RECIENTES) ingestState.recent.length = MAX_RECIENTES;
+  await query(
+    "insert into kv (k, v, updated_at) values ('ingest:recent', $1, now()) on conflict (k) do update set v = excluded.v, updated_at = now()",
+    [JSON.stringify(ingestState.recent)],
+  ).catch(() => {});
+}
+
+/** Lo último que llegó por Telegram (si el proceso acaba de arrancar, se lee de la BD). */
+export async function ingestRecientes(): Promise<EnvioReciente[]> {
+  if (!ingestState.recent.length) {
+    const r = await one<{ v: string }>("select v from kv where k = 'ingest:recent'").catch(() => null);
+    try {
+      const arr = r?.v ? (JSON.parse(r.v) as EnvioReciente[]) : [];
+      if (Array.isArray(arr)) ingestState.recent = arr.slice(0, MAX_RECIENTES);
+    } catch {
+      /* JSON roto: se empieza de cero */
+    }
+  }
+  return ingestState.recent;
+}
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   let t: NodeJS.Timeout;
@@ -195,12 +232,10 @@ async function resolveUser(caption: string | null): Promise<string | null> {
   if (bound?.v) return bound.v;
   // 3) variable de entorno
   if (env.INGEST_USER_ID) return env.INGEST_USER_ID;
-  // 4) el usuario más reciente con token de subida (suele ser el que acaba de configurarlo)
-  const tk = await one<{ user_id: string }>(
-    "select user_id from upload_tokens order by created_at desc limit 1",
-  );
-  if (tk) return tk.user_id;
-  // 5) último recurso: el usuario con más biblioteca
+  // (Antes había aquí un paso «el usuario con el token de subida más reciente».
+  // Con el registro abierto, cualquier persona nueva que creara un token se
+  // quedaba con los archivos de Telegram del dueño. Ya no.)
+  // 4) último recurso: el usuario con más biblioteca
   const top = await one<{ user_id: string }>(
     "select user_id from assets where deleted_at is null group by user_id order by count(*) desc limit 1",
   );
@@ -268,6 +303,7 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
       if (!userId) {
         ingestState.lastTickError = `msg ${it.id}: no se pudo determinar el usuario (pon INGEST_USER_ID o sube algo primero)`;
         log.warn({ id: it.id }, "ingesta: sin usuario destino; no se toca el mensaje, se reintenta");
+        await anotarEnvio({ msgId: it.id, filename: it.filename, bytes: it.bytes, resultado: "sin_usuario", detalle: "no hay cuenta destino" });
         continue; // NO avanzamos lastId ni borramos: se reintenta cuando haya usuario
       }
       const tmp = join(env.TMP_DIR, `tg-${it.id}-${randomBytes(4).toString("hex")}${it.filename.match(/\.[a-z0-9]{2,5}$/i)?.[0] ?? ""}`);
@@ -298,6 +334,7 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
           if (it.bytes > 0 && !(await hasDiskSpaceFor(it.bytes))) {
             ingestState.lastTickError = `msg ${it.id}: sin espacio en disco suficiente para ${Math.round(it.bytes / 1e6)} MB, se aplaza`;
             log.warn({ id: it.id, bytes: it.bytes }, "ingesta: sin espacio en disco, se aplaza");
+            await anotarEnvio({ msgId: it.id, filename: it.filename, bytes: it.bytes, resultado: "aplazado", detalle: "sin espacio en disco; se reintenta" });
             continue; // NO avanzamos lastId: se reintenta la próxima vuelta
           }
           const dlTimeout = scaledTimeoutMs(it.bytes, 11 * 60_000);
@@ -340,6 +377,23 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
         // si era duplicado no hay fila nueva pendiente: se borra el mensaje ya
         if (res.status === "duplicate") {
           await withTimeout(tgDeleteInbox([it.id]), 30_000, "borrar mensaje").catch(() => {});
+          // «ya estaba»: se dice CUÁL es el original y de cuándo, que es lo que
+          // hace falta para entender por qué «no ha llegado nada nuevo»
+          const orig = await one<{ filename: string; uploaded_at: Date }>(
+            "select filename, uploaded_at from assets where id = $1",
+            [res.id],
+          ).catch(() => null);
+          await anotarEnvio({
+            msgId: it.id,
+            filename: it.filename,
+            bytes: it.bytes,
+            resultado: "duplicado",
+            detalle: orig
+              ? `ya estaba en tu biblioteca como «${orig.filename}» (subido el ${new Date(orig.uploaded_at).toISOString().slice(0, 10)})`
+              : "ya estaba en tu biblioteca",
+          });
+        } else {
+          await anotarEnvio({ msgId: it.id, filename: it.filename, bytes: it.bytes, resultado: "nuevo", detalle: res.id });
         }
         await setLastId(it.id); // no reprocesar; el mensaje se borra tras guardarse el original
       } catch (e) {
@@ -348,6 +402,13 @@ async function tick(log: FastifyBaseLoggerLike): Promise<void> {
         const n = await bumpFails(it.id);
         ingestState.lastTickError = `msg ${it.id} (intento ${n}): ${msg}`;
         log.error({ id: it.id, intento: n, err: msg }, "ingesta: fallo con un mensaje");
+        await anotarEnvio({
+          msgId: it.id,
+          filename: it.filename,
+          bytes: it.bytes,
+          resultado: n >= 3 ? "omitido" : "error",
+          detalle: `intento ${n}: ${msg}`.slice(0, 300),
+        });
 
         // FLOOD_WAIT: Telegram nos frena. Pausamos el poller el tiempo que pida
         // (o 15 min por defecto) en vez de seguir machacando.
