@@ -5587,3 +5587,62 @@ html {
     transition: none;
   }
 }
+
+/* Lo último que llegó por Telegram (IngestBind.tsx; solo administrador) */
+.envios {
+  margin-top: 14px;
+  display: grid;
+  gap: 8px;
+}
+.envios-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.envios ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.envios li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  align-items: center;
+  padding: 9px 11px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--light) 5%, transparent);
+  border: 1px solid var(--stroke);
+}
+.envios li small {
+  grid-column: 1 / -1;
+  color: var(--text-dim);
+  line-height: 1.4;
+  word-break: break-word;
+}
+.envio-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 600 13.5px var(--font-body);
+}
+.envio-badge {
+  font: 700 11px var(--font-mono);
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--light) 9%, transparent);
+}
+.envio-badge.ok {
+  color: var(--on-accent);
+  background: linear-gradient(135deg, var(--accent-2), var(--accent));
+}
+.envio-badge.bad {
+  color: #fff;
+  background: var(--danger);
+}

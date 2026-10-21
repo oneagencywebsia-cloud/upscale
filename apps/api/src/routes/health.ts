@@ -7,7 +7,7 @@ import type { AssetKind } from "../types.js";
 import { ping, one, query, poolStats } from "../db.js";
 import { env, VERSION } from "../env.js";
 import { requireUploadToken, requireAdmin, principalOf } from "../auth.js";
-import { ingestSnapshot, ingestState, ingestTickNow, ingestSkipPending, ingestResume, previewWorkerMetrics } from "../ingest.js";
+import { ingestSnapshot, ingestRecientes, ingestState, ingestTickNow, ingestSkipPending, ingestResume, previewWorkerMetrics } from "../ingest.js";
 
 function firstLine(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve) => {
@@ -310,6 +310,7 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
       pollSeconds: env.INGEST_POLL_SECONDS,
       pendingStore: pend ? Number(pend.n) : 0,
       usersConBiblioteca: users,
+      recent: await ingestRecientes(),
     };
   });
 
