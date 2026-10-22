@@ -8,7 +8,7 @@
 export const STEPS = [
   {
     t: "Crea tu cuenta",
-    d: "Un toque con Google o Apple. Sin tarjeta.",
+    d: "Un toque con Google. Sin tarjeta.",
     time: "10 segundos",
   },
   {

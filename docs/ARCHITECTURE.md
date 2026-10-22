@@ -10,7 +10,7 @@ descartables y regenerables.
 
 ```text
 iPhone (Atajo)          Navegador / PWA
-  POST /v1/assets          Google / Apple (Supabase Auth)
+  POST /v1/assets          Google (Supabase Auth)
   X-Upload-Token                 │  access_token (Bearer)
         │                        ▼
         └──────────▶  API Upscale (Fastify)                    Almacenamiento
@@ -73,8 +73,7 @@ docs            BRANDING · ARCHITECTURE · DEPLOY
 
 ## Autenticación
 
-- **Login**: Supabase Auth con proveedores **Google** y **Apple** (Sign in with Apple /
-  iCloud). La web usa `@supabase/ssr`; el `middleware.ts` refresca la sesión y protege
+- **Login**: Supabase Auth con proveedor **Google** (y correo + contraseña). La web usa `@supabase/ssr`; el `middleware.ts` refresca la sesión y protege
   `/app/*`. `/auth/callback` intercambia el código OAuth.
 - **API**: valida el `access_token` de Supabase (HS256 con `SUPABASE_JWT_SECRET`).
   `sub` = `user_id`. Todas las consultas filtran por `user_id`.
@@ -165,7 +164,7 @@ capa `storage.ts` ya admite `STORAGE_DRIVER=r2` para salir de Telegram sin tocar
 
 ## Portada (landing) — `apps/web/components/landing/`
 Pensada para que cualquiera la entienda en segundos y acabe registrándose:
-- **Un solo botón al principio** (`StartBox`): las formas de entrar (Google/Apple/email) solo aparecen al pulsarlo.
+- **Un solo botón al principio** (`StartBox`): las formas de entrar (Google/email) solo aparecen al pulsarlo.
 - **Cómo funciona de uno en uno** (`Steps`): 3 pasos; los tres están en el HTML, a la vista solo uno.
 - **Planes por niveles**: el Gratis primero y grande, el resto plegado en un `<details>`. Los de pago figuran como «muy pronto» (aún no hay cobro).
 - **Invita y gana** y **FAQ** (`<details>`, sin JS). Textos en `content.ts` (cortos, una idea por línea). **Telegram no aparece**: es un detalle interno.

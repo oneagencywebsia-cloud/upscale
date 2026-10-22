@@ -6,7 +6,7 @@ import "server-only";
  * En producción la web corre en modo «standalone» detrás del proxy de
  * EasyPanel: `request.url` trae el host INTERNO del contenedor
  * (`http://0.0.0.0:80/...`), así que todo `redirect(new URL("/", request.url))`
- * mandaba a quien tenía la sesión caducada (o volvía de entrar con Google/Apple)
+ * mandaba a quien tenía la sesión caducada (o volvía de entrar con Google)
  * a `https://0.0.0.0:80/`. El host bueno llega en las cabeceras del proxy.
  */
 export function publicOrigin(request: Request): string {
