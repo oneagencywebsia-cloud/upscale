@@ -12,10 +12,28 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (!token) return NextResponse.redirect(publicUrl("/", request));
 
   const { id } = await params;
-  const res = await fetch(`${API}/v1/assets/${id}/original`, {
+  // ?compat=1 → versión que se abre en cualquier aparato (HEIC→JPG, CAF→MP3…)
+  const compat = new URL(request.url).searchParams.get("compat") === "1";
+  const res = await fetch(`${API}/v1/assets/${id}/original${compat ? "?compat=1" : ""}`, {
     headers: { authorization: `Bearer ${token}` },
     redirect: "manual",
+    // si el navegador cancela, se corta también hacia la API
+    signal: request.signal,
   });
+
+  // la API ya convirtió el archivo y lo entrega directamente (no hay enlace firmado)
+  if (res.ok && res.body) {
+    return new Response(res.body, {
+      status: 200,
+      headers: {
+        "content-type": res.headers.get("content-type") ?? "application/octet-stream",
+        "content-disposition": res.headers.get("content-disposition") ?? "attachment",
+        ...(res.headers.get("content-length") ? { "content-length": res.headers.get("content-length")! } : {}),
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+      },
+    });
+  }
 
   const location = res.headers.get("location");
   if (res.status >= 300 && res.status < 400 && location) {

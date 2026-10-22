@@ -11,7 +11,7 @@ export default function DownloadAllButton({ label = "Descargar todo (ZIP)" }: { 
       <button className="btn primary" type="button" onClick={() => setOpen(true)}>
         {label}
       </button>
-      {open && <DownloadSheet fuente={{ ids: null }} titulo="Toda mi biblioteca" onClose={() => setOpen(false)} />}
+      {open && <DownloadSheet fuente={{ ids: null }} titulo="Toda mi biblioteca" formatoInicial="original" onClose={() => setOpen(false)} />}
     </>
   );
 }

@@ -63,7 +63,7 @@ export default function ExportData({ snapshot }: { snapshot: AccountSnapshot }) 
           Exportar JSON
         </button>
       </div>
-      {sheet && <DownloadSheet fuente={{ ids: null }} titulo="Toda mi biblioteca" onClose={() => setSheet(false)} />}
+      {sheet && <DownloadSheet fuente={{ ids: null }} titulo="Toda mi biblioteca" formatoInicial="original" onClose={() => setSheet(false)} />}
     </div>
   );
 }

@@ -37,8 +37,14 @@ import { requireUser, requireUploadToken, principalOf } from "../auth.js";
 import { cuotaDe, premiarInvitacion } from "../accounts.js";
 import { cogerHueco } from "../uploadSlots.js";
 import { servirZip, filtroDe, filasDe, repartirEnPartes, progresoDe, ES_UUID as ES_UUID_ZIP } from "../zipDownload.js";
+import { planCompat, nombreCompat, bytesCompat, prepararEntrega } from "../compat.js";
 
 /** «parte 2 de 5» desde ?part=2&of=5 (solo cambia el nombre del archivo). */
+/** «compatible con todo» (HEIC→JPG, HEVC→MP4, CAF/AMR→MP3): ?compat=1 o {"compat":true} */
+function compatDe(q: Record<string, unknown>): boolean {
+  return q.compat === true || q.compat === "1" || q.compat === "true";
+}
+
 function jobDe(q: Record<string, unknown>): string | null {
   return typeof q.job === "string" ? q.job : null;
 }
@@ -347,12 +353,12 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
   app.get("/v1/assets/zip", { preHandler: requireUser }, async (req, reply) => {
     const { userId } = principalOf(req);
     const q = req.query as Record<string, unknown>;
-    return servirZip(req, reply, userId, filtroDe(q), { parte: parteDe(q), job: jobDe(q) });
+    return servirZip(req, reply, userId, filtroDe(q), { parte: parteDe(q), job: jobDe(q), compat: compatDe(q) });
   });
   app.post("/v1/assets/zip", { preHandler: requireUser, ...zipBody }, async (req, reply) => {
     const { userId } = principalOf(req);
     const b = (req.body ?? {}) as Record<string, unknown>;
-    return servirZip(req, reply, userId, filtroDe(b), { parte: parteDe(b), job: jobDe(b) });
+    return servirZip(req, reply, userId, filtroDe(b), { parte: parteDe(b), job: jobDe(b), compat: compatDe(b) });
   });
 
   // Progreso de un ZIP en marcha (la web lo pregunta cada poco para su barra).
@@ -373,12 +379,15 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     const filtro = filtroDe(b);
     if (filtro.ids && !filtro.ids.length) return reply.code(400).send({ error: "ningún id válido" });
     const max = Math.min(Math.max(Number(b.maxPartBytes) || 2 * 1024 ** 3, 100 * 1024 ** 2), 20 * 1024 ** 3);
-    const rows = await filasDe(userId, filtro);
+    const compat = compatDe(b);
+    // con «compatible», el tamaño y las partes se calculan sobre lo que se va a entregar de verdad
+    const rows = (await filasDe(userId, filtro)).map((r) => ({ ...r, bytes: String(compat ? bytesCompat(r) : Number(r.bytes) || 0) }));
     const parts = repartirEnPartes(rows, max);
     return {
       count: rows.length,
       bytes: rows.reduce((n, r) => n + (Number(r.bytes) || 0), 0),
       parts,
+      compat,
     };
   });
 
@@ -556,6 +565,38 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     const r = await one<Row>(`select ${A} from assets a where a.id = $1 and a.user_id = $2 and a.deleted_at is null`, [id, userId]);
     if (!r) return reply.code(404).send({ error: "no existe" });
     logAccess(userId, id, "download", req.headers["user-agent"]);
+
+    // ?compat=1 → versión que se abre en cualquier aparato (ver compat.ts)
+    if (compatDe(req.query as Record<string, unknown>)) {
+      const fila = r as unknown as Parameters<typeof planCompat>[0] & { id: string; original_key: string };
+      const accion = planCompat(fila);
+      if (accion === "copia-video" && fila.preview_key) {
+        return reply.redirect(
+          await signedUrl(fila.preview_key, { expiresIn: 3600, downloadName: nombreCompat(r.filename, accion) }),
+          302,
+        );
+      }
+      if (accion === "jpeg" || accion === "mp3") {
+        const { entrega, nota } = await prepararEntrega(fila, true).catch(() => ({ entrega: null, nota: null }));
+        if (entrega && entrega.convertido && entrega.temporal) {
+          const tam = (await stat(entrega.temporal)).size;
+          const limpiar = () => void rm(entrega.temporal!, { force: true }).catch(() => {});
+          const nombre = entrega.nombre;
+          reply.header("Content-Type", accion === "jpeg" ? "image/jpeg" : "audio/mpeg");
+          reply.header("Content-Length", tam);
+          reply.header("Cache-Control", "private, no-store");
+          reply.header(
+            "Content-Disposition",
+            `attachment; filename="${nombre.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "")}"; filename*=UTF-8''${encodeURIComponent(nombre)}`,
+          );
+          const rs = createReadStream(entrega.temporal);
+          rs.once("close", limpiar);
+          return reply.send(rs);
+        }
+        if (nota) req.log.warn({ id, nota }, "descarga compatible: se entrega el original");
+      }
+      // ya es compatible (o no se pudo convertir): el original de siempre
+    }
     return reply.redirect(
       await signedUrl(r.original_key, { expiresIn: ttlDescarga(Number(r.bytes)), downloadName: r.filename }),
       302,

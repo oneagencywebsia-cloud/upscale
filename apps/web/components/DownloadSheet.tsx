@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "motion/react";
 import { bytesHuman } from "@/lib/format";
-import { descargarZip, esMovil, type FuenteZip } from "@/lib/download";
+import { descargarZip, esMovil, formatoCompatible, guardarFormatoCompatible, type FuenteZip } from "@/lib/download";
 
 interface Parte {
   ids: string[];
@@ -24,7 +24,18 @@ interface Plan {
  * que esperar a que se prepare una descarga de decenas de GB y, si falla una,
  * solo se repite esa.
  */
-export default function DownloadSheet({ fuente, titulo, onClose }: { fuente: FuenteZip; titulo: string; onClose: () => void }) {
+export default function DownloadSheet({
+  fuente,
+  titulo,
+  onClose,
+  formatoInicial,
+}: {
+  fuente: FuenteZip;
+  titulo: string;
+  onClose: () => void;
+  /** «original» para copias de seguridad; si no se da, la preferencia del dispositivo */
+  formatoInicial?: "compatible" | "original";
+}) {
   const [mounted, setMounted] = useState(false);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +44,13 @@ export default function DownloadSheet({ fuente, titulo, onClose }: { fuente: Fue
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const movil = useRef(false);
+  const [compat, setCompat] = useState(true);
+  const [formatoListo, setFormatoListo] = useState(false); // no se pide el plan hasta saber el formato
+  useEffect(() => {
+    setCompat(formatoInicial ? formatoInicial === "compatible" : formatoCompatible());
+    setFormatoListo(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     movil.current = esMovil();
@@ -40,7 +58,7 @@ export default function DownloadSheet({ fuente, titulo, onClose }: { fuente: Fue
   }, []);
 
   useEffect(() => {
-    if (!mounted) return;
+    if (!mounted || !formatoListo) return;
     const ac = new AbortController();
     const GB = 1024 ** 3;
     fetch("/api/dl-plan", {
@@ -51,6 +69,7 @@ export default function DownloadSheet({ fuente, titulo, onClose }: { fuente: Fue
         kind: fuente.kind ?? undefined,
         fav: fuente.fav || undefined,
         album: fuente.album ?? undefined,
+        compat: compat || undefined,
         q: fuente.q ?? undefined,
         camera: fuente.camera ?? undefined,
         from: fuente.from ?? undefined,
@@ -68,9 +87,9 @@ export default function DownloadSheet({ fuente, titulo, onClose }: { fuente: Fue
         if ((e as Error)?.name !== "AbortError") setError("No se pudo preparar la descarga. Comprueba la conexión e inténtalo de nuevo.");
       });
     return () => ac.abort();
-    // la fuente no cambia mientras la hoja está abierta
+    // la fuente no cambia mientras la hoja está abierta; el formato sí (cambia tamaño y partes)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted]);
+  }, [mounted, formatoListo, compat]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -83,7 +102,7 @@ export default function DownloadSheet({ fuente, titulo, onClose }: { fuente: Fue
   function bajar(i: number) {
     if (!plan) return;
     const p = plan.parts[i]!;
-    descargarZip({ ...fuente, ids: p.ids }, { n: i + 1, de: plan.parts.length });
+    descargarZip({ ...fuente, ids: p.ids }, { n: i + 1, de: plan.parts.length }, undefined, compat);
     setHechas((h) => new Set(h).add(i));
   }
 
@@ -123,6 +142,35 @@ export default function DownloadSheet({ fuente, titulo, onClose }: { fuente: Fue
           </button>
         </header>
 
+        <div className="dls-fmt" role="group" aria-label="Formato de la descarga">
+          <button
+            type="button"
+            className={compat ? "on" : ""}
+            aria-pressed={compat}
+            onClick={() => {
+              setPlan(null);
+              setCompat(true);
+              guardarFormatoCompatible(true);
+            }}
+          >
+            <b>Compatible</b>
+            <small>Se abre en cualquier aparato</small>
+          </button>
+          <button
+            type="button"
+            className={!compat ? "on" : ""}
+            aria-pressed={!compat}
+            onClick={() => {
+              setPlan(null);
+              setCompat(false);
+              guardarFormatoCompatible(false);
+            }}
+          >
+            <b>Original</b>
+            <small>El archivo exacto</small>
+          </button>
+        </div>
+
         {error && (
           <p className="dls-msg" role="alert">
             {error}
@@ -135,7 +183,9 @@ export default function DownloadSheet({ fuente, titulo, onClose }: { fuente: Fue
             <p className="dls-tip">
               {varias
                 ? `Son muchos archivos: te lo damos en ${plan.parts.length} partes para que sea rápido y no falle. Toca una, espera a que termine y toca la siguiente.`
-                : "Un solo ZIP con los originales, tal cual (sin perder calidad)."}
+                : compat
+                  ? "Un solo ZIP. Las fotos HEIC salen en JPG, los vídeos HEVC en MP4 y los audios raros en MP3; lo demás, tal cual."
+                  : "Un solo ZIP con los originales, tal cual (sin perder calidad)."}
             </p>
             <div className="dls-list">
               {plan.parts.map((p, i) => (

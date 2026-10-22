@@ -6,6 +6,14 @@ import { AnimatePresence, animate, motion, useMotionValue, useTransform } from "
 import type { AssetListItem } from "@upscale/shared";
 import { specRows } from "@/lib/format";
 import ViewerFilmstrip from "./ViewerFilmstrip";
+import { descargarUno, formatoCompatible } from "@/lib/download";
+
+/** «Descargar»: el original si así se eligió; si no, la versión compatible con todo. */
+const bajar = (id: string) => (e: React.MouseEvent) => {
+  if (!formatoCompatible()) return; // enlace normal = original
+  e.preventDefault();
+  descargarUno(id, true);
+};
 
 /** Mismo corte que usa el CSS del visor para pasar a diseño móvil (globals.css). */
 const MOBILE_BP = "(max-width: 860px)";
@@ -451,7 +459,7 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
                   <h4 className="viewer-audio-title">{a.filename}</h4>
                   {audioError ? (
                     <p className="viewer-audio-err">
-                      No se pudo reproducir aquí. <a href={`/api/dl/${a.id}`}>Descargar</a>
+                      No se pudo reproducir aquí. <a href={`/api/dl/${a.id}`} onClick={bajar(a.id)}>Descargar</a>
                     </p>
                   ) : (
                     <audio
@@ -503,13 +511,13 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
                       {videoState === "error" ? (
                         <>
                           <small>No se pudo reproducir aquí.</small>
-                          <a className="btn primary sm" href={`/api/dl/${a.id}`}>Descargar</a>
+                          <a className="btn primary sm" href={`/api/dl/${a.id}`} onClick={bajar(a.id)}>Descargar</a>
                         </>
                       ) : videoState === "slow" ? (
                         <>
                           <span className="viewer-spin" aria-hidden="true" />
                           <small>Está tardando en cargar…</small>
-                          <a className="btn sm" href={`/api/dl/${a.id}`}>Descargar</a>
+                          <a className="btn sm" href={`/api/dl/${a.id}`} onClick={bajar(a.id)}>Descargar</a>
                         </>
                       ) : (
                         <>
@@ -600,7 +608,7 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
               )}
               <div className="vm-toolbar">
                 <div className="vm-pill">
-                  <a className="vm-iconbtn" href={`/api/dl/${a.id}`} aria-label="Descargar">
+                  <a className="vm-iconbtn" href={`/api/dl/${a.id}`} onClick={bajar(a.id)} aria-label="Descargar">
                     <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v12m0 0 4.5-4.5M12 16l-4.5-4.5M5 19h14" /></svg>
                   </a>
                 </div>
@@ -658,7 +666,7 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
                   <svg width="15" height="15" viewBox="0 0 24 24" fill={a.isFavorite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2"><path d="M12 17.3 6.2 20l1.1-6.3L2.5 9.2l6.4-.9L12 2.5l3.1 5.8 6.4.9-4.8 4.5L17.8 20z" /></svg>
                   {a.isFavorite ? "Favorito" : "Favorito"}
                 </button>
-                <a className="btn primary" href={`/api/dl/${a.id}`}>
+                <a className="btn primary" href={`/api/dl/${a.id}`} onClick={bajar(a.id)}>
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14m0 0 6-6m-6 6-6-6" /></svg>
                   Descargar
                 </a>

@@ -10,7 +10,15 @@ import Viewer from "./Viewer";
 import DensityControl from "./DensityControl";
 import AddToAlbumSheet from "./AddToAlbumSheet";
 import DownloadSheet from "./DownloadSheet";
-import { descargarUno, descargarZip, UMBRAL_DIRECTO, type FuenteZip } from "@/lib/download";
+import {
+  descargarUno,
+  descargarZip,
+  EVENTO_FORMATO,
+  formatoCompatible,
+  guardarFormatoCompatible,
+  UMBRAL_DIRECTO,
+  type FuenteZip,
+} from "@/lib/download";
 import BrandMark from "./BrandMark";
 
 interface DayGroup {
@@ -579,6 +587,14 @@ export default function Gallery({
   // Descargas. Una sola cosa = el original directo (sin ZIP). Varias = ZIP pedido
   // por POST (la selección no cabe en una URL). Si es MUCHO (descargar todo, o
   // selecciones de varios GB) se enseña antes la hoja con tamaño y partes.
+  // formato de las descargas de este dispositivo (compatible con todo / original)
+  const [dlCompat, setDlCompat] = useState(true);
+  useEffect(() => {
+    setDlCompat(formatoCompatible());
+    const on = (e: Event) => setDlCompat(Boolean((e as CustomEvent<boolean>).detail));
+    window.addEventListener(EVENTO_FORMATO, on);
+    return () => window.removeEventListener(EVENTO_FORMATO, on);
+  }, []);
   const [dlSheet, setDlSheet] = useState<{ fuente: FuenteZip; titulo: string } | null>(null);
 
   function downloadSelection(ids: string[]) {
@@ -778,6 +794,21 @@ export default function Gallery({
                   }}
                 >
                   Descargar todo ({(total || assets.length).toLocaleString("es-ES")})
+                </button>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    guardarFormatoCompatible(!dlCompat);
+                    setMenuOpen(false);
+                    setToast(
+                      !dlCompat
+                        ? "Las descargas ahora se abren en cualquier aparato (JPG, MP4, MP3)"
+                        : "Las descargas ahora son el archivo original, tal cual",
+                    );
+                  }}
+                >
+                  <span>Formato: {dlCompat ? "Compatible" : "Original"}</span>
+                  <small className="gt-sub">{dlCompat ? "Se abre en cualquier aparato · toca para cambiar" : "Archivo exacto · toca para cambiar"}</small>
                 </button>
                 <button
                   role="menuitem"

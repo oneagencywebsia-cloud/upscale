@@ -23,9 +23,40 @@ export interface FuenteZip {
 /** Por encima de esto no se descarga de golpe: se enseña la hoja con el tamaño y las partes. */
 export const UMBRAL_DIRECTO = 1.5 * 1024 ** 3;
 
-export function descargarUno(id: string): void {
+/**
+ * Formato de las descargas en ESTE dispositivo:
+ *   «compatible» (por defecto) → se abre en cualquier aparato: fotos HEIC→JPG,
+ *       vídeos HEVC→MP4, audios CAF/AMR→MP3 (lo que ya es compatible va tal cual).
+ *   «original» → el archivo exacto, byte a byte (para editar o archivar).
+ */
+const CLAVE_FORMATO = "upscale-dl-compat";
+export const EVENTO_FORMATO = "upscale:dl-format";
+
+export function formatoCompatible(): boolean {
+  try {
+    return localStorage.getItem(CLAVE_FORMATO) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function guardarFormatoCompatible(compat: boolean): void {
+  try {
+    localStorage.setItem(CLAVE_FORMATO, compat ? "1" : "0");
+  } catch {
+    /* modo privado: vale solo para esta sesión */
+  }
+  window.dispatchEvent(new CustomEvent(EVENTO_FORMATO, { detail: compat }));
+}
+
+/** Enlace de descarga de UN archivo (por defecto, según la preferencia). */
+export function urlDescarga(id: string, compat = formatoCompatible()): string {
+  return `/api/dl/${id}${compat ? "?compat=1" : ""}`;
+}
+
+export function descargarUno(id: string, compat = formatoCompatible()): void {
   const a = document.createElement("a");
-  a.href = `/api/dl/${id}`;
+  a.href = urlDescarga(id, compat);
   a.rel = "noopener";
   document.body.appendChild(a);
   a.click();
@@ -53,7 +84,7 @@ function nuevoId(): string {
 }
 
 /** Lanza el ZIP y avisa a la barra de progreso. Devuelve el id de la descarga. */
-export function descargarZip(f: FuenteZip, parte?: { n: number; de: number }, titulo?: string): string {
+export function descargarZip(f: FuenteZip, parte?: { n: number; de: number }, titulo?: string, compat = formatoCompatible()): string {
   const job = nuevoId();
   const form = document.createElement("form");
   form.method = "POST";
@@ -68,6 +99,7 @@ export function descargarZip(f: FuenteZip, parte?: { n: number; de: number }, ti
     form.appendChild(i);
   };
   campo("job", job);
+  if (compat) campo("compat", "1");
   if (f.ids && f.ids.length) campo("ids", f.ids.join(","));
   if (f.kind) campo("kind", f.kind);
   if (f.fav) campo("fav", "1");
