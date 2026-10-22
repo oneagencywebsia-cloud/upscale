@@ -26,6 +26,11 @@ Tachar según se vayan haciendo. Orden sugerido: de arriba abajo.
   - Revisar las plantillas de correo (confirmación, recuperar contraseña) en español.
   - **Redirect URLs**: añadir el dominio definitivo.
 - [ ] **Dominio propio** apuntando a EasyPanel (y HTTPS), y poner el mismo en `WEB_ORIGIN` de la API.
+  - Al activar **upscale.com**: `SITE_URL=https://upscale.com` en la web (canónicas, sitemap, robots y llms se ajustan solos);
+    cuando el DNS ya responda, `CANONICAL_REDIRECT=1` para mandar `www.` y el host de EasyPanel al dominio final.
+  - Repetir en Google Cloud (orígenes autorizados) y en Supabase (Site URL + Redirect URLs) con el dominio nuevo.
+  - Dar de alta el dominio en **Google Search Console** y **Bing Webmaster Tools**, enviar `https://upscale.com/sitemap.xml`
+    y pedir la indexación de la portada y de las páginas nuevas (`/planes`, `/como-funciona`, `/formatos`, `/preguntas`, `/guias`).
 
 ## 2. Cobro de los planes (Stripe)
 

@@ -5,6 +5,9 @@ import Steps from "./Steps";
 import { BENEFITS, FAQ } from "./content";
 import { PLANS, REFERRAL, gbHuman, priceHuman } from "@/lib/plans";
 import Aurora from "@/components/Aurora";
+import Mark3D from "@/components/Mark3D";
+import Tilt from "./Tilt";
+import { PAGINAS } from "@/lib/seo";
 
 /** Las animaciones de entrada son CSS puro (`.rise`): con `motion` + `initial`
  *  el HTML del servidor llegaba con todo en opacidad 0 y la portada se veía en
@@ -51,6 +54,9 @@ export default function Landing({
           {invited && !loggedIn && !goodbye && (
             <p className="gift rise">🎁 Un amigo te regala <b>+{gbHuman(REFERRAL.invitedBonusBytes)}</b> de espacio</p>
           )}
+          <div className="hero-mark rise" aria-hidden="true">
+            <Mark3D size={210} />
+          </div>
           <p className="eyebrow rise">TUS FOTOS, VÍDEOS Y MÚSICA</p>
           <h1 id="hero-h" className="rise" style={{ ["--d" as string]: "0.06s" }}>
             Guarda todo. <span className="ul">Sin perder nada</span>.
@@ -75,37 +81,37 @@ export default function Landing({
           <h2 id="por-h" className="lsec-h">Por qué Upscale</h2>
           <div className="features">
             {BENEFITS.map((b, i) => (
-              <article key={b.t} className="feature rise-scroll">
+              <Tilt as="article" key={b.t} className="feature rise-scroll">
                 <span className="feature-n">{String(i + 1).padStart(2, "0")}</span>
                 <h3>{b.t}</h3>
                 <p>{b.d}</p>
-              </article>
+              </Tilt>
             ))}
           </div>
         </section>
 
         <section className="lsec" id="planes" aria-labelledby="pl-h">
           <h2 id="pl-h" className="lsec-h">Empieza gratis</h2>
-          <article className="plan-hero">
+          <Tilt as="article" className="plan-hero" max={5}>
             <span className="plan-tag">{free.name}</span>
             <p className="plan-price">{gbHuman(free.bytes)}<small> para ti, ya</small></p>
             <ul>
               {free.perks.map((p) => <li key={p}>{p}</li>)}
             </ul>
-          </article>
+          </Tilt>
 
           <details className="more-plans">
             <summary>¿Necesitas más espacio? Ver planes</summary>
             <div className="plan-row">
               {paid.map((p) => (
-                <article key={p.id} className={`plan-mini ${p.highlight ? "hl" : ""}`}>
+                <Tilt as="article" key={p.id} className={`plan-mini ${p.highlight ? "hl" : ""}`}>
                   {p.highlight && <span className="plan-pop">Más elegido</span>}
                   <h3>{p.name}</h3>
                   <p className="plan-gb">{gbHuman(p.bytes)}</p>
                   <p className="plan-eur">{priceHuman(p.priceMonthEur)}<small>/mes</small></p>
                   <p className="plan-tl">{p.tagline}</p>
                   <span className="plan-soon">Muy pronto</span>
-                </article>
+                </Tilt>
               ))}
             </div>
             <p className="fineprint">Los planes de pago se activan pronto. Mientras, ¡gana espacio gratis con amigos!</p>
@@ -113,7 +119,7 @@ export default function Landing({
         </section>
 
         <section className="lsec" aria-labelledby="inv-h">
-          <div className="invite-card">
+          <Tilt className="invite-card" max={4}>
             <h2 id="inv-h">Invita y gana espacio</h2>
             <div className="invite-eq" aria-hidden="true">
               <span><b>+{gbHuman(REFERRAL.inviterBonusBytes)}</b> para ti</span>
@@ -123,7 +129,7 @@ export default function Landing({
             <p>
               Por cada amigo que guarde su primera foto. Hasta <b>+{gbHuman(REFERRAL.maxRewarded * REFERRAL.inviterBonusBytes)}</b> gratis.
             </p>
-          </div>
+          </Tilt>
         </section>
 
         <section className="lsec" aria-labelledby="faq-h">
@@ -139,6 +145,9 @@ export default function Landing({
         </section>
 
         <section className="lsec final" aria-labelledby="fin-h">
+          <div className="hero-mark" aria-hidden="true">
+            <Mark3D size={130} />
+          </div>
           <h2 id="fin-h" className="lsec-h">Tu carrete te está esperando</h2>
           <p className="lede">Cada día que pasa, más fotos sin copia. Guárdalas hoy.</p>
           <div className="hero-cta">
@@ -146,6 +155,15 @@ export default function Landing({
           </div>
         </section>
       </main>
+
+      <nav className="pub-more landing-more" aria-label="Más sobre Upscale">
+        <b>Aprende más</b>
+        <ul>
+          {PAGINAS.filter((p) => p.kind !== "legal").map((p) => (
+            <li key={p.path}><Link href={p.path}>{p.label}</Link></li>
+          ))}
+        </ul>
+      </nav>
 
       <footer className="landing-foot">
         <span>© Upscale</span>

@@ -6,14 +6,14 @@ import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import type { Album } from "@upscale/shared";
 import { useCoverNav } from "./CoverTransition";
-import BrandMark from "./BrandMark";
+import Mark3D from "./Mark3D";
 
 /** Estado vacío: el símbolo de la marca, para que "no hay nada todavía" siga
  *  sintiéndose Upscale y no un placeholder genérico. */
 function EmptyMark() {
   return (
     <div className="empty-mark" aria-hidden="true">
-      <BrandMark size={64} />
+      <Mark3D size={104} />
     </div>
   );
 }
