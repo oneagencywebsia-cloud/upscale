@@ -5646,3 +5646,45 @@ html {
   color: #fff;
   background: var(--danger);
 }
+
+/* Selector de formato de la descarga (DownloadSheet.tsx) y subtítulo del menú «···» */
+.dls-fmt {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.dls-fmt button {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1.5px solid var(--stroke);
+  background: color-mix(in srgb, var(--light) 5%, transparent);
+  color: var(--light);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+.dls-fmt button b {
+  font: 700 14px var(--font-display);
+}
+.dls-fmt button small {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.dls-fmt button.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.dls-fmt button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.gt-dropdown .gt-sub {
+  display: block;
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--text-dim);
+}

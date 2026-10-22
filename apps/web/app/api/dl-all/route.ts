@@ -32,7 +32,7 @@ async function cuerpoDe(request: Request): Promise<Record<string, unknown>> {
     if (f) for (const [k, v] of f.entries()) if (typeof v === "string") raw[k] = v;
   }
   const out: Record<string, unknown> = {};
-  for (const k of ["ids", "kind", "fav", "album", "q", "camera", "from", "to", "part", "of", "job"]) if (raw[k] !== undefined && raw[k] !== "") out[k] = raw[k];
+  for (const k of ["ids", "kind", "fav", "album", "q", "camera", "from", "to", "part", "of", "job", "compat"]) if (raw[k] !== undefined && raw[k] !== "") out[k] = raw[k];
   return out;
 }
 
@@ -86,7 +86,7 @@ async function pasar(request: Request, init: { method: "GET" | "POST"; path: str
 export async function GET(request: Request) {
   const u = new URL(request.url);
   const body: Record<string, unknown> = {};
-  for (const k of ["ids", "kind", "fav", "album", "q", "camera", "from", "to", "part", "of", "job"]) {
+  for (const k of ["ids", "kind", "fav", "album", "q", "camera", "from", "to", "part", "of", "job", "compat"]) {
     const v = u.searchParams.get(k);
     if (v) body[k] = v;
   }

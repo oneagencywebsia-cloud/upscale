@@ -140,4 +140,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.33.2-reenvios-en-nuevos";
+export const VERSION = "0.34.0-descargas-compatibles";

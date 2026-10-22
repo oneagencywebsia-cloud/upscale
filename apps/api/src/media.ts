@@ -436,14 +436,17 @@ async function scaleImage(
   out: string,
   maxW: number,
   fmt: "webp" | "jpeg",
+  calidadJpeg = 88,
+  tiempoMs = RUN_OPTS.timeout,
 ): Promise<void> {
+  const OPTS = { maxBuffer: RUN_OPTS.maxBuffer, timeout: tiempoMs };
   const heic = /\.(heic|heif)$/i.test(src);
 
   // 1) sharp directo — solo para lo que sharp lee de verdad (no HEIC)
   if (!heic) {
     try {
       let p = sharp(src, { failOn: "none" }).rotate().resize(maxW, maxW, { fit: "inside", withoutEnlargement: true });
-      p = fmt === "webp" ? p.webp({ quality: 80 }) : p.jpeg({ quality: 88, mozjpeg: true });
+      p = fmt === "webp" ? p.webp({ quality: 80 }) : p.jpeg({ quality: calidadJpeg, mozjpeg: true });
       await p.toFile(out);
       return;
     } catch {
@@ -454,8 +457,8 @@ async function scaleImage(
   // 2) vips thumbnail: la vía más fiable para HEIC del iPhone — aplica irot + EXIF
   //    de serie (auto_rotate) y reescala en un paso.
   try {
-    const q = fmt === "webp" ? "[Q=80]" : "[Q=88]";
-    await run("vips", ["thumbnail", src, `${out}${q}`, String(maxW)], RUN_OPTS);
+    const q = fmt === "webp" ? "[Q=80]" : `[Q=${calidadJpeg}]`;
+    await run("vips", ["thumbnail", src, `${out}${q}`, String(maxW)], OPTS);
     return;
   } catch {
     /* sigue */
@@ -465,8 +468,8 @@ async function scaleImage(
   try {
     await run(
       "convert",
-      [src, "-auto-orient", "-resize", `${maxW}x${maxW}>`, "-quality", fmt === "webp" ? "80" : "88", `${fmt}:${out}`],
-      RUN_OPTS,
+      [src, "-auto-orient", "-resize", `${maxW}x${maxW}>`, "-quality", fmt === "webp" ? "80" : String(calidadJpeg), `${fmt}:${out}`],
+      OPTS,
     );
     return;
   } catch {
@@ -476,17 +479,17 @@ async function scaleImage(
   // 4) heif-convert → PNG (sin rotar en libheif 1.15) → sharp con giro explícito
   const png = `${out}.heifin.png`;
   try {
-    await run("heif-convert", [src, png], RUN_OPTS);
+    await run("heif-convert", [src, png], OPTS);
     let angle = 0;
     try {
-      const { stdout } = await run("vipsheader", ["-f", "orientation", src], RUN_OPTS);
+      const { stdout } = await run("vipsheader", ["-f", "orientation", src], OPTS);
       const o = Number(stdout.trim());
       angle = o === 3 || o === 4 ? 180 : o === 6 || o === 5 ? 90 : o === 8 || o === 7 ? 270 : 0;
     } catch {
       /* sin dato → 0 */
     }
     let p = sharp(png, { failOn: "none" }).rotate(angle).resize(maxW, maxW, { fit: "inside", withoutEnlargement: true });
-    p = fmt === "webp" ? p.webp({ quality: 80 }) : p.jpeg({ quality: 88, mozjpeg: true });
+    p = fmt === "webp" ? p.webp({ quality: 80 }) : p.jpeg({ quality: calidadJpeg, mozjpeg: true });
     await p.toFile(out);
     await import("node:fs/promises").then((m) => m.rm(png, { force: true })).catch(() => {});
     return;
@@ -505,7 +508,7 @@ async function scaleImage(
         ...(fmt === "webp" ? ["-c:v", "libwebp", "-quality", "80"] : ["-q:v", "3"]),
         out,
       ],
-      RUN_OPTS,
+      OPTS,
     );
     return;
   } catch {
@@ -533,11 +536,42 @@ async function scaleImage(
     }
     if (!ok) throw new Error("HEIC sin vista previa incrustada legible");
     let p = sharp(prev, { failOn: "none" }).rotate().resize(maxW, maxW, { fit: "inside", withoutEnlargement: true });
-    p = fmt === "webp" ? p.webp({ quality: 80 }) : p.jpeg({ quality: 88, mozjpeg: true });
+    p = fmt === "webp" ? p.webp({ quality: 80 }) : p.jpeg({ quality: calidadJpeg, mozjpeg: true });
     await p.toFile(out);
   } finally {
     await import("node:fs/promises").then((m) => m.rm(prev, { force: true })).catch(() => {});
   }
+}
+
+/**
+ * Descarga «compatible» de una foto: JPEG a RESOLUCIÓN COMPLETA (sin reducir),
+ * orientada, que abre cualquier aparato o programa. Sirve para HEIC/HEIF (iPhone),
+ * AVIF, TIFF y DNG/ProRAW. Reutiliza la cadena de decodificadores de
+ * `scaleImage` (vips → ImageMagick → heif-convert → ffmpeg → vista previa
+ * incrustada), la misma que ya saca las miniaturas de cualquier HEIC. Después se
+ * copian los metadatos del original (fecha, cámara, GPS…) con exiftool y se deja
+ * la orientación en «normal», porque la imagen ya sale girada.
+ */
+export async function convertirAJpegCompatible(src: string, out: string): Promise<void> {
+  await scaleImage(src, out, 100_000, "jpeg", 93, 120_000);
+  try {
+    await run(
+      "exiftool",
+      ["-overwrite_original", "-q", "-m", "-TagsFromFile", src, "-all:all", "-unsafe", "-Orientation#=1", out],
+      RUN_OPTS,
+    );
+  } catch {
+    /* sin exiftool o metadatos raros: la foto vale igual, solo sin sus etiquetas */
+  }
+}
+
+/** Audio «compatible»: MP3 (VBR ~190 kbps), con sus etiquetas. Para CAF, AMR, WMA, AIFF, OGG/OPUS… */
+export async function convertirAMp3(src: string, out: string): Promise<void> {
+  await run(
+    env.FFMPEG_PATH,
+    ["-y", "-i", src, "-vn", "-map_metadata", "0", "-c:a", "libmp3lame", "-q:a", "2", "-id3v2_version", "3", out],
+    { maxBuffer: 8 * 1024 * 1024, timeout: 15 * 60_000 },
+  );
 }
 
 /** Miniatura WebP ~`maxW` px de una IMAGEN (HEIC incluido). */

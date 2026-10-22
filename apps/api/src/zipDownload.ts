@@ -4,6 +4,8 @@ import archiver from "archiver";
 import { env } from "./env.js";
 import { query } from "./db.js";
 import { blobToLocalFile } from "./storage.js";
+import { prepararEntrega, planCompat, bytesCompat, type ArchivoEntregable } from "./compat.js";
+import { rm } from "node:fs/promises";
 
 /**
  * Descarga de archivos en ZIP (selección o biblioteca entera).
@@ -54,6 +56,10 @@ export interface ZipFila {
   captured_at: Date;
   original_key: string;
   bytes: string;
+  codec: string | null;
+  duration_s: string | null;
+  preview_key: string | null;
+  preview_bytes: string | null;
 }
 
 /** Lee el filtro de un body JSON / query. Todo lo raro se descarta. */
@@ -87,7 +93,8 @@ export function filtroDe(raw: Record<string, unknown> | undefined | null): ZipFi
 
 export async function filasDe(userId: string, f: ZipFiltro): Promise<ZipFila[]> {
   const params: unknown[] = [userId];
-  let sql = `select a.id, a.kind, a.filename, a.captured_at, a.original_key, a.bytes
+  let sql = `select a.id, a.kind, a.filename, a.captured_at, a.original_key, a.bytes,
+                      a.codec, a.duration_s, a.preview_key, a.preview_bytes
                from assets a where a.user_id = $1 and a.deleted_at is null`;
   if (f.ids) {
     params.push(f.ids);
@@ -255,6 +262,32 @@ export function progresoDe(job: string, userId: string): ProgresoZip | null {
   return pub;
 }
 
+// ---------------------------------------------------------------- LEEME
+
+/** Texto del LEEME.txt que acompaña al ZIP (solo si hay algo que contar). */
+export function textoLeeme(o: { compat: boolean; convertidos: number; notas: string[]; omitidos: string[] }): string | null {
+  const partes: string[] = [];
+  if (o.compat && o.convertidos > 0) {
+    partes.push(
+      `Descarga en formato COMPATIBLE: ${o.convertidos === 1 ? "1 archivo se convirtió" : `${o.convertidos} archivos se convirtieron`} para que se abra en cualquier aparato ` +
+        `(fotos HEIC/HEIF/AVIF/TIFF/DNG a JPG, vídeos HEVC/otros a MP4, audios CAF/AMR/WMA… a MP3).\r\n` +
+        `Si necesitas el archivo EXACTO (para editar o archivar), vuelve a descargar eligiendo «Originales».`,
+    );
+  }
+  if (o.notas.length) {
+    partes.push(`No se pudieron convertir (se incluye el original):\r\n${o.notas.slice(0, 200).map((n) => `  - ${n}`).join("\r\n")}`);
+  }
+  if (o.omitidos.length) {
+    const resto = o.omitidos.length > 500 ? `\r\n  … y ${o.omitidos.length - 500} más` : "";
+    partes.push(
+      `Algunos archivos no se pudieron incluir en este ZIP (${o.omitidos.length}).\r\n` +
+        `Suele ser algo temporal: vuelve a pedir la descarga de esos archivos y entrarán.\r\n` +
+        `${o.omitidos.slice(0, 500).map((n) => `  - ${n}`).join("\r\n")}${resto}`,
+    );
+  }
+  return partes.length ? `${partes.join("\r\n\r\n")}\r\n` : null;
+}
+
 // ---------------------------------------------------------------- el ZIP
 
 export interface ZipOpciones {
@@ -262,6 +295,8 @@ export interface ZipOpciones {
   parte?: { n: number; de: number } | null;
   /** id (uuid) que manda la web para poder preguntar por el progreso */
   job?: string | null;
+  /** «compatible con todo»: HEIC→JPG, HEVC→MP4, CAF/AMR→MP3 (ver compat.ts) */
+  compat?: boolean;
 }
 
 export async function servirZip(
@@ -312,8 +347,10 @@ export async function servirZip(
   if (opciones.parte && opciones.parte.de > 1) name += ` (parte ${opciones.parte.n} de ${opciones.parte.de})`;
 
   // Zip64 solo si hace falta (>= ~3,5 GB en total o algún archivo así de grande).
-  const totalBytes = rows.reduce((n, r) => n + (Number(r.bytes) || 0), 0);
-  const hayGrande = rows.some((r) => Number(r.bytes) > 3.5 * GB);
+  const compat = opciones.compat === true;
+  const tam = (r: ZipFila) => (compat ? bytesCompat(r) : Number(r.bytes) || 0);
+  const totalBytes = rows.reduce((n, r) => n + tam(r), 0);
+  const hayGrande = rows.some((r) => tam(r) > 3.5 * GB);
   const zip64 = totalBytes > 3.5 * GB || hayGrande;
   if (trabajo) {
     trabajo.total = rows.length;
@@ -412,14 +449,18 @@ export async function servirZip(
       /* sistema de archivos raro: nos quedamos con el suelo */
     }
 
-    const inflight = new Map<number, Promise<string | null>>();
+    type Preparado = { entrega: ArchivoEntregable; nota: string | null } | null;
+    const inflight = new Map<number, Promise<Preparado>>();
+    const temporales = new Set<string>(); // archivos convertidos: se borran SIEMPRE al acabar
+    const notas: string[] = [];
+    let convertidos = 0;
     const enVuelo = new Map<number, number>(); // índice -> bytes reservados
     const pins = new Map<number, () => void>(); // índice -> soltar el pin
     const bytesEnVuelo = () => [...enVuelo.values()].reduce((n, x) => n + x, 0);
     const grandesEnVuelo = () => [...enVuelo.values()].filter((x) => x > GRANDE).length;
     const kickoff = (i: number) => {
       if (i >= rows.length || inflight.has(i) || abortado) return;
-      const b = Number(rows[i]!.bytes) || 0;
+      const b = tam(rows[i]!);
       // SIEMPRE se permite al menos una descarga, aunque ese archivo solo ya se
       // salga del presupuesto — si no, un vídeo más grande que el presupuesto no
       // se descargaría nunca y el ZIP se quedaría colgado.
@@ -428,11 +469,16 @@ export async function servirZip(
       enVuelo.set(i, b);
       inflight.set(
         i,
-        blobToLocalFile(rows[i]!.original_key)
+        prepararEntrega(rows[i]!, compat)
           .then((p) => {
             // pin EN CUANTO está en disco, no al llegarle el turno; y no si el
             // bucle ya cortó (ese pin quedaría colgado para siempre)
-            if (p && pin && !terminado && !pins.has(i)) pins.set(i, pin(p));
+            if (p.entrega.enCache && pin && !terminado && !pins.has(i)) pins.set(i, pin(p.entrega.enCache));
+            if (p.entrega.temporal) {
+              temporales.add(p.entrega.temporal);
+              // una conversión que acaba DESPUÉS de cortar el bucle no deja restos
+              if (terminado) void rm(p.entrega.temporal, { force: true }).catch(() => {});
+            }
             return p;
           })
           .catch(() => null),
@@ -465,7 +511,7 @@ export async function servirZip(
       if (abortado || reply.raw.destroyed) break;
       const r = rows[i]!;
       if (!inflight.has(i)) kickoff(i); // el presupuesto pudo dejarlo fuera antes
-      const local = await inflight.get(i)!;
+      let prep = await inflight.get(i)!;
       inflight.delete(i);
       enVuelo.delete(i);
       // rellenar la ventana: puede entrar más de uno si los que acaban de salir liberaron presupuesto
@@ -474,14 +520,14 @@ export async function servirZip(
       // El archivo puede haber desaparecido entre la descarga y su turno (limpieza
       // de caché agresiva, borrado manual): se reintenta una vez y, si aún no
       // está, se salta y el ZIP continúa con el resto.
-      let ruta = local;
-      if (ruta && !existsSync(ruta)) {
-        req.log.warn({ id: r.id }, "zip: el original ya no estaba en disco, se rebaja de nuevo");
-        ruta = await blobToLocalFile(r.original_key).catch(() => null);
-        if (ruta && pin && !pins.has(i)) pins.set(i, pin(ruta));
-        if (ruta && !existsSync(ruta)) ruta = null;
+      if (prep && !existsSync(prep.entrega.ruta)) {
+        req.log.warn({ id: r.id }, "zip: el archivo ya no estaba en disco, se prepara de nuevo");
+        prep = await prepararEntrega(r, compat).catch(() => null);
+        if (prep?.entrega.enCache && pin && !pins.has(i)) pins.set(i, pin(prep.entrega.enCache));
+        if (prep?.entrega.temporal) temporales.add(prep.entrega.temporal);
+        if (prep && !existsSync(prep.entrega.ruta)) prep = null;
       }
-      if (!ruta) {
+      if (!prep) {
         soltarPin(i);
         omitidos.push(r.filename || `${r.kind}_${r.id}`);
         if (trabajo) {
@@ -491,8 +537,10 @@ export async function servirZip(
         req.log.warn({ id: r.id }, "zip: archivo omitido");
         continue;
       }
-      const local2 = ruta;
-      const nm = nameFor(r);
+      const local2 = prep.entrega.ruta;
+      if (prep.nota) notas.push(prep.nota);
+      if (prep.entrega.convertido) convertidos++;
+      const nm = nameFor({ filename: prep.entrega.nombre, kind: r.kind, id: r.id });
       try {
         await new Promise<void>((resolve) => {
           // Espera a que archiver TERMINE esta entrada antes de seguir: es lo que
@@ -532,11 +580,20 @@ export async function servirZip(
         });
       } finally {
         soltarPin(i);
+        if (prep.entrega.temporal) {
+          temporales.delete(prep.entrega.temporal);
+          void rm(prep.entrega.temporal, { force: true }).catch(() => {});
+        }
       }
       added++;
       if (trabajo) {
         trabajo.hechos++;
         trabajo.bytesEnviados = enviado();
+        // Con conversión el tamaño final solo es una estimación: a partir de unos
+        // cuantos archivos se proyecta con lo que de verdad ha salido
+        if (compat && trabajo.hechos >= 3 && trabajo.total > 0) {
+          trabajo.bytesTotal = Math.max(trabajo.bytesEnviados, Math.round((trabajo.bytesEnviados / trabajo.hechos) * trabajo.total));
+        }
         trabajo.t = Date.now();
       }
     }
@@ -545,21 +602,15 @@ export async function servirZip(
     // saltados): si no, quedarían intocables para el limpiador de caché PARA SIEMPRE
     terminado = true;
     for (const i of [...pins.keys()]) soltarPin(i);
+    for (const t of temporales) void rm(t, { force: true }).catch(() => {});
+    temporales.clear();
     req.log.info({ userId, added, omitidos: omitidos.length, zip64 }, "zip: finalizando");
 
     try {
       if (abortado || reply.raw.destroyed) archive.abort();
       else {
-        if (omitidos.length) {
-          // constancia dentro del propio ZIP: qué no pudo incluirse y qué hacer
-          const lista = omitidos.slice(0, 500).map((n) => `  - ${n}`).join("\r\n");
-          const resto = omitidos.length > 500 ? `\r\n  … y ${omitidos.length - 500} más` : "";
-          const txt =
-            `Algunos archivos no se pudieron incluir en este ZIP (${omitidos.length}).\r\n` +
-            `Suele ser algo temporal: vuelve a pedir la descarga de esos archivos y entrarán.\r\n\r\n` +
-            `${lista}${resto}\r\n`;
-          archive.append(Buffer.from(txt, "utf8"), { name: "LEEME - archivos omitidos.txt" });
-        }
+        const txt = textoLeeme({ compat, convertidos, notas, omitidos });
+        if (txt) archive.append(Buffer.from(txt, "utf8"), { name: "LEEME.txt" });
         await archive.finalize();
       }
     } catch (e) {

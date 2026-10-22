@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { formatoCompatible, guardarFormatoCompatible } from "@/lib/download";
 
 type Theme = "system" | "light" | "dark";
 const THEMES: { key: Theme; label: string }[] = [
@@ -31,6 +32,7 @@ export default function Preferences() {
   const [theme, setTheme] = useState<Theme>("system");
   const [density, setDensity] = useState(1);
   const [motionOn, setMotionOn] = useState(true);
+  const [dlCompat, setDlCompat] = useState(true);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -39,6 +41,7 @@ export default function Preferences() {
     const d = Number(read("upscale-density"));
     setDensity(d === 0 || d === 1 || d === 2 ? d : 1);
     setMotionOn(read("upscale-motion") !== "off");
+    setDlCompat(formatoCompatible());
     setReady(true);
   }, []);
 
@@ -80,6 +83,35 @@ export default function Preferences() {
           {THEMES.map((t) => (
             <button key={t.key} type="button" className={theme === t.key ? "on" : ""} aria-pressed={theme === t.key} onClick={() => pickTheme(t.key)}>
               <span className="seg-label">{t.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="prow">
+        <div>
+          <b>Formato de las descargas</b>
+          <small>
+            «Compatible» se abre en cualquier aparato (fotos HEIC → JPG, vídeos HEVC → MP4, audios raros → MP3). «Original» es el
+            archivo exacto.
+          </small>
+        </div>
+        <div className="seg" role="group" aria-label="Formato de las descargas">
+          {[
+            { v: true, label: "Compatible" },
+            { v: false, label: "Original" },
+          ].map((o) => (
+            <button
+              key={String(o.v)}
+              type="button"
+              className={dlCompat === o.v ? "on" : ""}
+              aria-pressed={dlCompat === o.v}
+              onClick={() => {
+                setDlCompat(o.v);
+                guardarFormatoCompatible(o.v);
+              }}
+            >
+              <span className="seg-label">{o.label}</span>
             </button>
           ))}
         </div>
