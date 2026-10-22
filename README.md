@@ -13,7 +13,7 @@ resolución, mismos FPS, mismos bits — y lo devuelve exactamente igual.
 
 | Área | Detalle |
 |---|---|
-| **Auth** | Registro/login con **Google** y **Apple** (Sign in with Apple / iCloud) vía Supabase. Multi-usuario. |
+| **Auth** | Registro/login con **Google** o correo vía Supabase. Multi-usuario. |
 | **Galería** | `/app` — hoja por fechas + inspector con ficha técnica y sello de integridad SHA-256. |
 | **Actividad** | `/app/actividad` — registro de lo que cada usuario ve y descarga. |
 | **Ajustes** | `/app/ajustes` — tokens de subida para el Atajo de iOS. |
@@ -26,7 +26,7 @@ resolución, mismos FPS, mismos bits — y lo devuelve exactamente igual.
 
 | Fase | Alcance | Estado |
 |---|---|---|
-| **1** | API + web (auth Google/Apple, galería, actividad, ajustes, landing 3D, PWA). Subida con Atajo iOS. | ✅ código completo — falta desplegar (`docs/DEPLOY.md`) |
+| **1** | API + web (auth Google/correo, galería, actividad, ajustes, landing 3D, PWA). Subida con Atajo iOS. | ✅ código completo — falta desplegar (`docs/DEPLOY.md`) |
 | **2** | App iOS nativa con subida automática en segundo plano. | ⚪ pendiente (necesita cuenta Apple Developer) |
 
 ## Stack

@@ -18,8 +18,8 @@ Tachar según se vayan haciendo. Orden sugerido: de arriba abajo.
       en la web ni en el repo. Con ella «Borrar mi cuenta» también elimina el usuario de Supabase;
       sin ella se borran archivos y datos, pero el email de acceso queda.
 - [ ] **Supabase → Authentication**:
-  - Comprobar que **Google** y **Apple** están activados con sus claves (la portada ofrece
-    ambos botones; si uno no está configurado, falla al pulsarlo).
+  - Comprobar que **Google** está activado con sus claves (la portada ofrece el botón;
+    si no está configurado, falla al pulsarlo).
   - **SMTP propio** (Authentication → SMTP Settings). El correo por defecto de Supabase tiene un
     límite muy bajo (unos pocos correos por hora): con registros reales, la confirmación de
     email dejaría de llegar. Servicios habituales: Resend, Brevo, Postmark.

@@ -3,7 +3,7 @@ import { supabaseServer } from "@/lib/supabase/server";
 import { safeNext } from "@/lib/safe-next";
 import { publicOrigin } from "@/lib/origin";
 
-/** Intercambia el código OAuth de Google/Apple por una sesión y entra a la app. */
+/** Intercambia el código OAuth de Google por una sesión y entra a la app. */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const origin = publicOrigin(request);

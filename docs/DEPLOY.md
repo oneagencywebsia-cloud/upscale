@@ -13,7 +13,7 @@ Código en GitHub: `oneagencywebsia-cloud/upscale` (público).
 1. supabase.com → **New Project** `upscale`.
 2. **Settings → Database → Connection string → Session pooler** (puerto 5432) → guarda como `DATABASE_URL`.
 3. **Settings → API** → guarda: `Project URL`, `anon public`, `JWT Secret`.
-4. **Authentication → Providers → Google** → sigue el asistente (crea el OAuth client en Google Cloud, pega Client ID + Secret). Apple solo si tienes cuenta Apple Developer.
+4. **Authentication → Providers → Google** → sigue el asistente (crea el OAuth client en Google Cloud, pega Client ID + Secret).
 5. **Authentication → URL Configuration** (lo rellenas al final):
    Site URL = `https://TU-DOMINIO`, Redirect URLs = `https://TU-DOMINIO/auth/callback`.
 6. En tu PC, aplica el esquema una vez:

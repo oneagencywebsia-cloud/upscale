@@ -43,7 +43,7 @@ export default function Privacidad() {
 
       <h2>2. Qué datos tratamos</h2>
       <ul>
-        <li><b>Tu cuenta:</b> email (o el identificador de Google/Apple si entras con ellos) y la contraseña si eliges esa opción (la guarda el proveedor de acceso, protegida con hash, nunca en claro).</li>
+        <li><b>Tu cuenta:</b> email (o el identificador de Google si entras con Google) y la contraseña si eliges esa opción (la guarda el proveedor de acceso, protegida con hash, nunca en claro).</li>
         <li><b>Tus archivos:</b> las fotos, vídeos y audios que subes, tal cual. Incluyen los datos que lleve cada archivo (fecha, cámara, ubicación GPS si la tiene).</li>
         <li><b>Uso:</b> un registro de lo que abres o descargas y desde qué navegador, para tu seguridad y para detectar abusos.</li>
         <li><b>Plan e invitaciones:</b> tu plan, el espacio extra, los códigos que canjeas y quién te invitó.</li>
@@ -55,7 +55,7 @@ export default function Privacidad() {
       <h2>4. Quién más interviene</h2>
       <p>Para funcionar usamos terceros que tratan datos por nuestra cuenta:</p>
       <ul>
-        <li><b>Inicio de sesión:</b> Supabase (y Google o Apple si eliges entrar con ellos).</li>
+        <li><b>Inicio de sesión:</b> Supabase (y Google si eliges entrar con Google).</li>
         <li><b>Almacenamiento de archivos:</b> una infraestructura de terceros, que incluye la plataforma de mensajería Telegram como almacén, y el servidor donde se aloja Upscale.</li>
       </ul>
       <p>Estos proveedores pueden estar fuera del Espacio Económico Europeo. No compartimos tus archivos con nadie más ni los usamos para publicidad ni para entrenar modelos.</p>

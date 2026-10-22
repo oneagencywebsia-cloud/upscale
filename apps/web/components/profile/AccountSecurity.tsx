@@ -123,7 +123,7 @@ export default function AccountSecurity({ email, providers }: { email: string; p
           {pwBusy ? "Guardando…" : hasPassword ? "Cambiar contraseña" : "Crear contraseña"}
         </button>
         {!hasPassword && (
-          <p className="pmsg">Entras con Google o Apple. Si creas una contraseña, podrás entrar también con tu correo.</p>
+          <p className="pmsg">Entras con Google. Si creas una contraseña, podrás entrar también con tu correo.</p>
         )}
         {pwMsg && (
           <p className={`pmsg ${pwMsg.ok ? "ok" : "bad"}`} role="status">

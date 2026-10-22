@@ -8,13 +8,13 @@ import { safeNext } from "@/lib/safe-next";
 export default function AuthButtons({ next: nextProp = "/app", label = "Registrar" }: { next?: string; label?: string }) {
   const router = useRouter();
   const next = safeNext(nextProp);
-  const [busy, setBusy] = useState<"google" | "apple" | "email" | null>(null);
+  const [busy, setBusy] = useState<"google" | "email" | null>(null);
   const [mode, setMode] = useState<"signup" | "signin">("signup");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
 
-  async function oauth(provider: "google" | "apple") {
+  async function oauth(provider: "google") {
     setBusy(provider);
     const supabase = supabaseBrowser();
     const redirectTo = `${location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
@@ -61,12 +61,6 @@ export default function AuthButtons({ next: nextProp = "/app", label = "Registra
           {busy === "google" ? "Abriendo…" : `${label} con Google`}
         </button>
 
-        <button className="oauth apple" type="button" disabled={busy !== null} onClick={() => oauth("apple")}>
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M17.05 12.04c-.03-2.9 2.37-4.29 2.48-4.36-1.35-1.98-3.46-2.25-4.21-2.28-1.79-.18-3.5 1.05-4.41 1.05-.91 0-2.31-1.03-3.8-1-1.96.03-3.77 1.14-4.78 2.9-2.04 3.54-.52 8.78 1.46 11.65.97 1.4 2.12 2.98 3.63 2.92 1.46-.06 2.01-.94 3.77-.94 1.76 0 2.26.94 3.8.91 1.57-.03 2.56-1.43 3.52-2.84 1.11-1.63 1.57-3.21 1.6-3.29-.04-.02-3.06-1.18-3.09-4.67ZM14.2 3.62c.8-.98 1.35-2.33 1.2-3.68-1.16.05-2.57.77-3.4 1.74-.74.86-1.39 2.24-1.22 3.56 1.3.1 2.62-.66 3.42-1.62Z" />
-          </svg>
-          {busy === "apple" ? "Abriendo…" : `${label} con Apple`}
-        </button>
       </div>
 
       <div className="auth-or"><span>o con email</span></div>
