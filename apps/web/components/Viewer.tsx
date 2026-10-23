@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, animate, motion, useMotionValue, useTransform } from "motion/react";
 import type { AssetListItem } from "@upscale/shared";
 import { specRows } from "@/lib/format";
+import { useDialogFocus } from "@/lib/dialog";
 import ViewerFilmstrip from "./ViewerFilmstrip";
 import { descargarUno, formatoCompatible } from "@/lib/download";
 
@@ -47,6 +48,7 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
   useEffect(() => setMounted(true), []);
 
   const open = index !== null;
+  const dialogo = useDialogFocus<HTMLDivElement>(open);
   const a = open ? assets[index] : null;
   const confirmDeleteMsg = (filename: string) =>
     inAlbum
@@ -398,6 +400,11 @@ export default function Viewer({ assets, index, onClose, onIndex, onFavorite, on
     <AnimatePresence>
       {open && a && (
         <motion.div
+          ref={dialogo}
+          tabIndex={-1}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Visor de archivos"
           className="viewer"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}

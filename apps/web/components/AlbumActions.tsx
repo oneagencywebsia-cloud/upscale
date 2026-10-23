@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
+import { useDialogFocus } from "@/lib/dialog";
 import type { AssetListItem } from "@upscale/shared";
 
 const PAGE = 120;
@@ -44,6 +45,7 @@ function AlbumPicker({ albumId, albumName, onClose }: { albumId: string; albumNa
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const dialogo = useDialogFocus<HTMLDivElement>(mounted);
   const sentinel = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const busy = useRef(false);
@@ -153,6 +155,8 @@ function AlbumPicker({ albumId, albumName, onClose }: { albumId: string; albumNa
   return createPortal(
     <div className="pick-backdrop" onPointerDown={onClose}>
       <motion.div
+        ref={dialogo}
+        tabIndex={-1}
         className="pick"
         role="dialog"
         aria-modal="true"

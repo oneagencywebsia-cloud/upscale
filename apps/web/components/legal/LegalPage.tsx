@@ -16,6 +16,7 @@ export default function LegalPage({
 }) {
   return (
     <div className="landing legal">
+      <a className="skip-link" href="#contenido">Saltar al contenido</a>
       <Aurora section="landing" />
       <header className="landing-nav">
         <Link href="/" className="landing-logo" aria-label="Upscale — inicio">
@@ -24,7 +25,7 @@ export default function LegalPage({
         </Link>
         <Link className="btn sm" href="/">Volver</Link>
       </header>
-      <main className="legal-body">
+      <main id="contenido" tabIndex={-1} className="legal-body">
         <h1>{title}</h1>
         <p className="legal-updated">Última actualización: {updated}</p>
         <aside className="legal-summary" aria-label="En pocas palabras">

@@ -18,6 +18,7 @@ import {
   type FuenteZip,
 } from "@/lib/download";
 import Mark3D from "./Mark3D";
+import Thumb from "./Thumb";
 
 interface DayGroup {
   key: string;
@@ -86,13 +87,12 @@ const Tile = memo(function Tile({ a, selected, selecting, onDown, onActivate }: 
     <button
       data-tile-id={a.id}
       className="frame tilt tile-in"
-      role="listitem"
       aria-label={a.filename}
       aria-current={selected}
       onPointerDown={(e) => onDown(e, a.id)}
       onClick={() => onActivate(a.id)}
     >
-      <img src={a.thumbUrl} alt={a.filename} loading="lazy" decoding="async" />
+      <Thumb src={a.thumbUrl} />
       {a.isFavorite && (
         <span className="badge fav" aria-hidden="true">
           ★
@@ -864,7 +864,6 @@ export default function Gallery({
           </h3>
           <div
             className="grid"
-            role="list"
             style={{ ["--tile" as string]: `${TILE[density]}px`, touchAction: selecting ? "pan-y" : undefined }}
             onPointerMove={onGridPointerMove}
             onPointerUp={endDrag}

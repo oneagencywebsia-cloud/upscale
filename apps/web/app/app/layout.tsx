@@ -32,9 +32,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <CoverTransitionProvider>
       <Aurora />
+      <a className="skip-link" href="#contenido">Saltar al contenido</a>
       <div className="app-shell">
         <TopBar profile={profile} photoUrl={photoUrl} />
-        {children}
+        <main id="contenido" tabIndex={-1}>
+          {children}
+        </main>
       </div>
       <MobileTabs profile={profile} photoUrl={photoUrl} />
       <InstallPrompt />

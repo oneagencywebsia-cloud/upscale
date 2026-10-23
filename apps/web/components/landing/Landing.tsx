@@ -23,17 +23,20 @@ export default function Landing({
   next,
   invited,
   goodbye = false,
+  authError = false,
 }: {
   loggedIn: boolean;
   next: string;
   invited: boolean;
   goodbye?: boolean;
+  authError?: boolean;
 }) {
   const free = PLANS[0];
   const paid = PLANS.slice(1);
 
   return (
     <div className="landing">
+      <a className="skip-link" href="#contenido">Saltar al contenido</a>
       <Aurora section="landing" />
       <Sky />
 
@@ -52,8 +55,11 @@ export default function Landing({
         </div>
       </header>
 
-      <main>
+      <main id="contenido" tabIndex={-1}>
         <section className="hero" id="empezar" aria-labelledby="hero-h">
+          {authError && !loggedIn && (
+            <p className="gift gift-err rise" role="alert">No pudimos iniciar tu sesión. Inténtalo otra vez o entra con tu correo.</p>
+          )}
           {goodbye && !loggedIn && (
             <p className="gift rise" role="status">Tu cuenta y tus archivos se han borrado. ¡Gracias por probar Upscale!</p>
           )}

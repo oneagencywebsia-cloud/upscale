@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { listAssets, getStorage, listCameras } from "@/lib/api";
 import { groupByDay, bytesHuman } from "@/lib/format";
 import Gallery from "@/components/Gallery";
@@ -5,6 +6,7 @@ import PrismMount from "@/components/PrismMount";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Biblioteca" };
 
 export default async function GalleryPage({
   searchParams,

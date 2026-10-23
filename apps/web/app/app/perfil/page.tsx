@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getUser } from "@/lib/supabase/server";
@@ -12,6 +13,7 @@ import Preferences from "@/components/profile/Preferences";
 import ExportData from "@/components/profile/ExportData";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Perfil" };
 
 const PROVIDER_LABEL: Record<string, string> = { google: "Google", apple: "Apple", email: "Correo" };
 const DAY = new Intl.DateTimeFormat("es-ES", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Madrid" });
