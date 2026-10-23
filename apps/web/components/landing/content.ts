@@ -57,3 +57,40 @@ export const FAQ = [
     a: "Abre Upscale en el navegador, pulsa el botón ↑ y elige lo que quieras. También puedes instalarla como app desde el menú de compartir.",
   },
 ] as const;
+
+/** Preguntas de la página /preguntas: las de la portada y algunas más. Misma regla:
+ *  la primera frase contesta directo, la segunda aclara, y todo es verdad hoy. */
+export const FAQ_EXTRA = [
+  {
+    q: "¿Qué pasa si subo dos veces el mismo archivo?",
+    a: "No se duplica. Upscale reconoce el contenido y conserva una sola copia, así que no gastas espacio de más.",
+  },
+  {
+    q: "¿Puedo descargar mis fotos en un formato que se abra en cualquier aparato?",
+    a: "Sí. Al descargar eliges entre Compatible y Original. Compatible convierte lo que no se abre en todas partes (por ejemplo, una foto HEIC pasa a JPG) y Original te da el archivo exacto.",
+  },
+  {
+    q: "¿Cómo descargo muchas fotos de golpe?",
+    a: "Selecciónalas y descárgalas en un ZIP. Si son muchas, Upscale las reparte en partes de tamaño cómodo para el móvil y muestra una barra de progreso.",
+  },
+  {
+    q: "¿Puedo usar Upscale en el móvil como una app?",
+    a: "Sí. Se instala desde el navegador, en Añadir a pantalla de inicio, y funciona como una app. En Android también aparece al compartir fotos desde otras apps.",
+  },
+  {
+    q: "¿Cómo gano más espacio gratis?",
+    a: "Invitando a amigos. Por cada amigo que guarde su primera foto, tú ganas 2 GB y él 1 GB, hasta 20 GB extra. También puedes canjear un código si te dan uno.",
+  },
+  {
+    q: "¿Cuándo habrá planes de pago?",
+    a: "Muy pronto. Habrá planes con más espacio y archivos más grandes. Si quieres que te avisemos, pulsa Avísame dentro de la app, en Espacio y plan.",
+  },
+  {
+    q: "¿Puedo borrar mi cuenta y mis archivos?",
+    a: "Sí, cuando quieras y tú solo, desde Ajustes. Se borran tus archivos y tus datos. Antes puedes descargarlo todo en un ZIP.",
+  },
+  {
+    q: "¿Hay límite de tamaño por archivo?",
+    a: "Sí, depende del plan. En el plan Gratis cada archivo puede pesar hasta 2 GB. Los planes de pago, cuando lleguen, permitirán archivos más grandes.",
+  },
+] as const;

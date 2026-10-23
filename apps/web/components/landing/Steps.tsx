@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { STEPS } from "./content";
+import Mark3D from "@/components/Mark3D";
 
 const ICONS = [
   // cuenta
@@ -30,6 +31,9 @@ export default function Steps() {
 
   return (
     <div className="steps">
+      <div className="steps-mark" aria-hidden="true">
+        <Mark3D size={132} step={(i + 1) as 1 | 2 | 3} />
+      </div>
       <ol className="steps-dots" aria-label="Pasos">
         {STEPS.map((s, n) => (
           <li key={s.t}>

@@ -1,3 +1,5 @@
+import Mark3D from "@/components/Mark3D";
+
 /** Esqueleto instantáneo mientras el servidor prepara la pantalla. Sin esto,
  *  pulsar una pestaña dejaba la pantalla anterior congelada hasta que el
  *  servidor lo tenía todo listo (parecía que el toque no había hecho nada). */
@@ -8,6 +10,9 @@ export default function Loading() {
         <div>
           <div className="skel skel-title" />
           <div className="skel skel-line" />
+        </div>
+        <div className="prism" aria-hidden="true">
+          <Mark3D size={88} interactive={false} />
         </div>
       </div>
       <div className="skel-grid" aria-hidden="true">

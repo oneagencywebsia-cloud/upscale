@@ -52,7 +52,18 @@ const nextConfig = {
   eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    // los archivos de /public se servían sin caché (max-age=0): cada visita volvía a
+    // pedir el logo y los iconos. Una semana + revalidar en segundo plano; el
+    // service worker (sw.js) y el manifest no se tocan.
+    const estatico = [{ key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=86400" }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      { source: "/brand/:file*", headers: estatico },
+      { source: "/icon-:size.png", headers: estatico },
+      { source: "/favicon-32.png", headers: estatico },
+      { source: "/apple-icon.png", headers: estatico },
+      { source: "/icon.svg", headers: estatico },
+    ];
   },
   async rewrites() {
     return [{ source: "/_api/:path*", destination: `${INTERNAL_API}/:path*` }];

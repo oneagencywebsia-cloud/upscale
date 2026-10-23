@@ -7,6 +7,7 @@ import RefCapture from "@/components/RefCapture";
 import { FAQ, STEPS } from "@/components/landing/content";
 import { PLANS } from "@/lib/plans";
 import { siteUrl } from "@/lib/site";
+import { ldJson, organizationLd } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,7 @@ export async function generateMetadata(): Promise<Metadata> {
     metadataBase: new URL(base),
     title: { absolute: TITLE },
     description: DESC,
-    alternates: { canonical: "/" },
+    alternates: { canonical: "/", languages: { es: "/", "x-default": "/" } },
     keywords: ["guardar fotos", "nube de fotos", "copia de seguridad de fotos", "guardar vídeos sin perder calidad", "almacenamiento de fotos original"],
     openGraph: { type: "website", url: "/", siteName: "Upscale", locale: "es_ES", title: TITLE, description: DESC },
     twitter: { card: "summary_large_image", title: TITLE, description: DESC },
@@ -49,12 +50,15 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ n
 
   const base = await siteUrl();
   const ld = [
+    organizationLd(base),
     {
       "@context": "https://schema.org",
       "@type": "WebSite",
+      "@id": `${base}/#website`,
       name: "Upscale",
       url: base,
       inLanguage: "es",
+      publisher: { "@id": `${base}/#organization` },
     },
     {
       "@context": "https://schema.org",
@@ -66,6 +70,15 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ n
         "Guarda tus fotos, vídeos y audio en su calidad original, sin recomprimir, y accede desde cualquier dispositivo.",
       url: base,
       inLanguage: "es",
+      isAccessibleForFree: true,
+      featureList: [
+        "Guarda el original sin recomprimir",
+        "Fotos, vídeos y audio",
+        "Descarga en formato original o compatible",
+        "ZIP por partes con barra de progreso",
+        "Invita y gana espacio",
+      ],
+      publisher: { "@id": `${base}/#organization` },
       offers: PLANS.filter((p) => p.priceMonthEur === 0).map((p) => ({
         "@type": "Offer",
         name: `Plan ${p.name}`,
@@ -97,7 +110,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ n
       <script
         type="application/ld+json"
         // "<" escapado: nada del contenido puede cerrar la etiqueta <script>
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(ld).replace(/</g, "\\u003c") }}
+        dangerouslySetInnerHTML={{ __html: ldJson(ld) }}
       />
       <Landing loggedIn={Boolean(user)} next={next} goodbye={adios === "1"} invited={Boolean(ref && /^[A-Za-z0-9_-]{3,40}$/.test(ref))} />
     </>

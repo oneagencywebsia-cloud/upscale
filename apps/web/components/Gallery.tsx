@@ -2,14 +2,12 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "motion/react";
 import type { AssetListItem } from "@upscale/shared";
 import { durationHuman, groupByDay } from "@/lib/format";
-import Viewer from "./Viewer";
 import DensityControl from "./DensityControl";
-import AddToAlbumSheet from "./AddToAlbumSheet";
-import DownloadSheet from "./DownloadSheet";
 import {
   descargarUno,
   descargarZip,
@@ -19,7 +17,7 @@ import {
   UMBRAL_DIRECTO,
   type FuenteZip,
 } from "@/lib/download";
-import BrandMark from "./BrandMark";
+import Mark3D from "./Mark3D";
 
 interface DayGroup {
   key: string;
@@ -29,6 +27,18 @@ interface DayGroup {
 
 // px mínimos por celda: 0 = fotos grandes (menos columnas) … 2 = pequeñas (más columnas).
 const TILE = [172, 108, 78];
+// El visor y las hojas de descarga / álbum pesan bastante y solo se usan al tocar:
+// van en trozos aparte (la galería carga antes) y se precargan cuando el navegador
+// está ocioso, así que al abrirlos ya están descargados.
+const Viewer = dynamic(() => import("./Viewer"), { ssr: false });
+const AddToAlbumSheet = dynamic(() => import("./AddToAlbumSheet"), { ssr: false });
+const DownloadSheet = dynamic(() => import("./DownloadSheet"), { ssr: false });
+function precargarHojas() {
+  void import("./Viewer");
+  void import("./AddToAlbumSheet");
+  void import("./DownloadSheet");
+}
+
 const PAGE = 120;
 
 /** Estado vacío: el símbolo de la marca, para que "no hay nada todavía" siga
@@ -36,7 +46,7 @@ const PAGE = 120;
 function EmptyMark() {
   return (
     <div className="empty-mark" aria-hidden="true">
-      <BrandMark size={64} />
+      <Mark3D size={104} />
     </div>
   );
 }
@@ -156,6 +166,18 @@ export default function Gallery({
   const [cursor, setCursor] = useState<string | null>(initialCursor);
   const sentinel = useRef<HTMLDivElement | null>(null);
   const [openIdx, setOpenIdx] = useState<number | null>(null);
+  // el visor se monta la primera vez que se abre y ya no se desmonta (así conserva su animación de salida)
+  const viewerUsado = useRef(false);
+  if (openIdx !== null) viewerUsado.current = true;
+  useEffect(() => {
+    const w = window as unknown as { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (n: number) => void };
+    if (w.requestIdleCallback) {
+      const id = w.requestIdleCallback(precargarHojas, { timeout: 4000 });
+      return () => w.cancelIdleCallback?.(id);
+    }
+    const t = setTimeout(precargarHojas, 2500);
+    return () => clearTimeout(t);
+  }, []);
   const [selecting, setSelecting] = useState(false);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [density, setDensityState] = useState(1);
@@ -950,6 +972,7 @@ export default function Gallery({
         />
       )}
 
+      {viewerUsado.current && (
       <Viewer
         assets={assets}
         index={openIdx}
@@ -964,6 +987,7 @@ export default function Gallery({
         inAlbum={!!albumId}
         onAddToAlbum={albumId ? undefined : (id) => setAddIds([id])}
       />
+      )}
     </>
   );
 }

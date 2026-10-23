@@ -1,6 +1,7 @@
 import { FAQ, STEPS } from "@/components/landing/content";
 import { PLANS, REFERRAL, gbHuman } from "@/lib/plans";
 import { siteUrl } from "@/lib/site";
+import { PAGINAS } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +24,12 @@ ${PLANS.map((p) => `- ${p.name}: ${gbHuman(p.bytes)}, archivos de hasta ${gbHuma
 ## Preguntas frecuentes
 ${FAQ.map((f) => `### ${f.q}\n${f.a}`).join("\n\n")}
 
-## Enlaces
+## Páginas
+${PAGINAS.filter((p) => p.kind !== "legal").map((p) => `- [${p.label}](${base}${p.path}): ${p.description}`).join("\n")}
+
+## Más
 - [Portada y registro](${base}/)
+- [Texto completo para IAs](${base}/llms-full.txt)
 - [Privacidad](${base}/privacidad)
 - [Términos de uso](${base}/terminos)
 `;
