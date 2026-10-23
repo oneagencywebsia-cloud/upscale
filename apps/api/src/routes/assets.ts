@@ -250,7 +250,21 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
           }
           throw e;
         }
-        req.log.info({ userId, filename: rawName, contentType }, "subida: cuerpo recibido");
+        // Integridad: lo que llegó tiene que pesar EXACTO lo que el cliente dijo que enviaba.
+        // Si no (corte de red, proxy que recorta…) se rechaza: guardar un archivo a medias
+        // sería perder el original sin que nadie se enterase.
+        if (declaredBytes > 0) {
+          const { size: recibidos } = await stat(tmpOrig);
+          if (recibidos !== declaredBytes) {
+            await rm(tmpOrig, { force: true });
+            req.log.error({ userId, filename: rawName, declaredBytes, recibidos }, "subida: cuerpo incompleto, descartado");
+            return reply.code(400).send({
+              code: "INCOMPLETE",
+              error: "La subida llegó incompleta (se cortó por el camino). Vuelve a intentarlo.",
+            });
+          }
+        }
+        req.log.info({ userId, filename: rawName, contentType, bytes: declaredBytes || undefined }, "subida: cuerpo recibido");
 
         const res = await ingestLocalFile({
           userId,
