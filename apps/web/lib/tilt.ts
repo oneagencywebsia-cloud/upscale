@@ -2,10 +2,12 @@
 
 import { useEffect, useRef } from "react";
 
-/** ¿El usuario no quiere movimiento? (preferencia del sistema o interruptor de Perfil). */
+/** ¿El usuario no quiere movimiento? (interruptor de la portada o de Perfil; si no, la preferencia del sistema). */
 export function sinMovimiento(): boolean {
   if (typeof window === "undefined") return true;
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.dataset.motion === "off";
+  const forzado = document.documentElement.dataset.motion; // el interruptor de la portada manda sobre el sistema
+  if (forzado === "on") return false;
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches || forzado === "off";
 }
 
 /**

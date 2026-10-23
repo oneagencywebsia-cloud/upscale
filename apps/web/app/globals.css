@@ -1411,7 +1411,7 @@ footer.status .dot {
   to { transform: translate3d(-14vmax, -16vmax, 0) scale(1.1); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .aurora-gl .ab { animation: none; }
+  :root:not([data-motion="on"]) .aurora-gl .ab { animation: none; }
 }
 :root[data-motion="off"] .aurora-gl .ab { animation: none; }
 
@@ -3892,8 +3892,8 @@ footer.status .dot {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .rise,
-  .rise-scroll {
+  :root:not([data-motion="on"]) .rise,
+  :root:not([data-motion="on"]) .rise-scroll {
     animation: none;
   }
 }
@@ -5876,8 +5876,8 @@ html {
   animation-play-state: paused;
 }
 @media (prefers-reduced-motion: reduce) {
-  .m3-float,
-  .m3-l {
+  :root:not([data-motion="on"]) .m3-float,
+  :root:not([data-motion="on"]) .m3-l {
     animation: none;
   }
 }
@@ -5927,7 +5927,7 @@ html {
   opacity: 1;
 }
 @media (prefers-reduced-motion: reduce) {
-  .tilt3d {
+  :root:not([data-motion="on"]) .tilt3d {
     transform: none;
     transition: none;
   }
@@ -6205,5 +6205,272 @@ html {
   }
   .pub-table.stack td + td {
     margin-top: 6px;
+  }
+}
+
+/* ===================================================================
+   «El ascenso»: fondo infinito de la portada (components/landing/Sky.tsx)
+   Escalones con la forma del símbolo suben a distintas profundidades; polvo de
+   luz y un sol cálido que respira. Solo `transform` / `opacity` / `translate`
+   (GPU) y SIN `var()` en los fotogramas. Con «reducir movimiento» o animaciones
+   apagadas: quietos y solo «respiran» (modo calmado).
+   =================================================================== */
+:root {
+  --sky-k: 1;
+  --sky-warm: #ffb454;
+  --sky-violet: #7d8cff;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --sky-k: 1.7;
+  }
+}
+:root[data-theme="light"] {
+  --sky-k: 1.7;
+}
+.landing > .sky {
+  position: fixed;
+  z-index: 0;
+}
+.sky {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  contain: layout paint;
+}
+.sky-layer {
+  position: absolute;
+  inset: 0;
+}
+.sky-sun {
+  position: absolute;
+  right: -18vmax;
+  bottom: -22vmax;
+  width: 64vmax;
+  height: 64vmax;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 200, 120, 0.5), rgba(255, 170, 110, 0.18) 55%, transparent 74%);
+  animation: sky-sun 9s ease-in-out infinite alternate;
+}
+.sky-step {
+  position: absolute;
+  left: var(--x);
+  top: 0;
+  width: var(--w);
+  height: calc(var(--w) * 0.72);
+  perspective: 700px;
+  will-change: transform, opacity;
+  animation: sky-rise var(--t) linear var(--d) infinite, sky-sway var(--st) ease-in-out var(--ds) infinite alternate;
+}
+.sky-step b {
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: calc(var(--o) * var(--sky-k));
+  filter: blur(var(--bl));
+  clip-path: polygon(50% 0, 100% 52%, 100% 82%, 50% 30%, 0 82%, 0 52%);
+  background: linear-gradient(180deg, var(--accent-2), color-mix(in srgb, var(--accent) 30%, transparent));
+  animation: sky-turn var(--tt) ease-in-out var(--dt) infinite alternate;
+}
+.sky-step.tone-b b {
+  background: linear-gradient(180deg, var(--sky-violet), color-mix(in srgb, var(--sky-violet) 25%, transparent));
+}
+.sky-step.tone-c b {
+  background: linear-gradient(180deg, var(--sky-warm), color-mix(in srgb, var(--sky-warm) 25%, transparent));
+}
+.sky-dot {
+  position: absolute;
+  left: var(--x);
+  top: 0;
+  width: var(--s);
+  height: var(--s);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent-2) calc(var(--o) * 100%), transparent);
+  box-shadow: 0 0 calc(var(--s) * 3) color-mix(in srgb, var(--accent-2) 55%, transparent);
+  animation: sky-rise var(--t) linear var(--d) infinite;
+}
+@keyframes sky-rise {
+  0% {
+    transform: translate3d(0, 106vh, 0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  86% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(0, -26vh, 0);
+    opacity: 0;
+  }
+}
+@keyframes sky-sway {
+  from {
+    translate: -22px 0;
+  }
+  to {
+    translate: 22px 0;
+  }
+}
+@keyframes sky-turn {
+  from {
+    transform: rotateY(-42deg) rotateZ(-4deg);
+  }
+  to {
+    transform: rotateY(42deg) rotateZ(4deg);
+  }
+}
+@keyframes sky-sun {
+  from {
+    transform: scale(0.94);
+    opacity: 0.7;
+  }
+  to {
+    transform: scale(1.14);
+    opacity: 1;
+  }
+}
+@keyframes sky-breathe {
+  from {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* el fondo se desplaza un poco con el scroll (profundidad); donde no hay soporte, queda fijo */
+@supports (animation-timeline: scroll()) {
+  .sky-layer {
+    animation: sky-scroll linear both;
+    animation-timeline: scroll(root);
+  }
+}
+@keyframes sky-scroll {
+  to {
+    transform: translate3d(0, -14vh, 0);
+  }
+}
+
+/* La aurora de la portada: más viva y más rápida (antes tardaba 26–39 s en moverse y no se notaba). */
+.landing .aurora-gl .ab1 {
+  animation-duration: 15s;
+}
+.landing .aurora-gl .ab2 {
+  animation-duration: 19s;
+}
+.landing .aurora-gl .ab3 {
+  animation-duration: 22s;
+}
+.landing .aurora-gl .ab4 {
+  animation-duration: 17s;
+}
+.landing .aurora-gl {
+  --b1: rgba(79, 197, 220, 0.55);
+  --b2: rgba(106, 124, 255, 0.5);
+  --b3: rgba(255, 190, 120, 0.34);
+  --b4: rgba(150, 120, 255, 0.42);
+}
+
+/* Modo calmado: «reducir movimiento» del sistema o interruptor en «pausado».
+   Sin viajes ni giros: cada escalón se queda en su sitio y respira en opacidad. */
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="on"]) .sky-layer,
+  :root:not([data-motion="on"]) .landing .aurora-gl .ab {
+    animation: none;
+  }
+  :root:not([data-motion="on"]) .sky-step,
+  :root:not([data-motion="on"]) .sky-dot {
+    animation: none;
+    transform: translate3d(0, calc(var(--y) * 1vh), 0);
+  }
+  :root:not([data-motion="on"]) .sky-step b {
+    animation: sky-breathe calc(var(--tt) * 0.8) ease-in-out infinite alternate;
+  }
+  :root:not([data-motion="on"]) .sky-sun {
+    animation: sky-breathe 9s ease-in-out infinite alternate;
+  }
+}
+:root[data-motion="off"] .sky-layer,
+:root[data-motion="off"] .landing .aurora-gl .ab {
+  animation: none;
+}
+:root[data-motion="off"] .sky-step,
+:root[data-motion="off"] .sky-dot {
+  animation: none;
+  transform: translate3d(0, calc(var(--y) * 1vh), 0);
+}
+:root[data-motion="off"] .sky-step b {
+  animation: sky-breathe calc(var(--tt) * 0.8) ease-in-out infinite alternate;
+}
+/* si la persona activa las animaciones con el interruptor, mandan sobre el sistema */
+:root[data-motion="on"] .rise,
+:root[data-motion="on"] .rise-scroll {
+  animation-play-state: running;
+}
+
+/* menos elementos en pantallas pequeñas */
+@media (max-width: 640px) {
+  .sky-step:nth-of-type(n + 11),
+  .sky-dot:nth-of-type(n + 13) {
+    display: none;
+  }
+}
+
+/* Interruptor de animaciones (components/MotionToggle.tsx) */
+.landing-nav-r {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.motion-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  font: 600 13px var(--font-body);
+  color: var(--text-dim);
+  background: var(--glass);
+  border: 1px solid var(--stroke);
+  transition: color 0.15s, border-color 0.15s, transform 0.1s;
+}
+.motion-toggle:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.motion-toggle:active {
+  transform: scale(0.96);
+}
+.motion-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.motion-toggle[aria-pressed="true"] {
+  color: var(--accent);
+}
+@media (max-width: 480px) {
+  .motion-toggle {
+    width: 40px;
+    padding: 0;
+    justify-content: center;
+  }
+  .motion-toggle-label {
+    display: none;
+  }
+}
+
+.sky-scrim {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 34% 58% at 50% 50%, color-mix(in srgb, var(--bg-2) 72%, transparent), transparent 100%);
+}
+@media (max-width: 640px) {
+  .sky-scrim {
+    background: radial-gradient(ellipse 80% 46% at 50% 52%, color-mix(in srgb, var(--bg-2) 62%, transparent), transparent 100%);
   }
 }
