@@ -6,6 +6,8 @@ import { BENEFITS, FAQ } from "./content";
 import { PLANS, REFERRAL, gbHuman, priceHuman } from "@/lib/plans";
 import Aurora from "@/components/Aurora";
 import Mark3D from "@/components/Mark3D";
+import MotionToggle from "@/components/MotionToggle";
+import Sky from "./Sky";
 import Tilt from "./Tilt";
 import { PAGINAS } from "@/lib/seo";
 
@@ -33,17 +35,21 @@ export default function Landing({
   return (
     <div className="landing">
       <Aurora section="landing" />
+      <Sky />
 
       <header className="landing-nav">
         <Link href="/" className="landing-logo" aria-label="Upscale — inicio">
           <BrandMark size={34} />
           <div className="brand"><div className="wm"><span className="wm-up">up</span>scale</div></div>
         </Link>
-        {loggedIn ? (
-          <Link className="btn primary sm" href="/app">Mi biblioteca</Link>
-        ) : (
-          <a className="btn sm" href="#empezar">Entrar</a>
-        )}
+        <div className="landing-nav-r">
+          <MotionToggle />
+          {loggedIn ? (
+            <Link className="btn primary sm" href="/app">Mi biblioteca</Link>
+          ) : (
+            <a className="btn sm" href="#empezar">Entrar</a>
+          )}
+        </div>
       </header>
 
       <main>

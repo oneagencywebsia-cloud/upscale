@@ -1,6 +1,8 @@
 import Link from "next/link";
 import BrandMark from "@/components/BrandMark";
 import Aurora from "@/components/Aurora";
+import MotionToggle from "@/components/MotionToggle";
+import Sky from "@/components/landing/Sky";
 import { PAGINAS, ldJson, breadcrumbLd, organizationLd } from "@/lib/seo";
 import { siteUrl } from "@/lib/site";
 
@@ -31,12 +33,16 @@ export default async function PublicPage({
   return (
     <div className="landing legal pub">
       <Aurora section="landing" />
+      <Sky compact />
       <header className="landing-nav">
         <Link href="/" className="landing-logo" aria-label="Upscale — inicio">
           <BrandMark size={34} />
           <div className="brand"><div className="wm"><span className="wm-up">up</span>scale</div></div>
         </Link>
-        <Link className="btn primary sm" href="/#empezar">Empezar gratis</Link>
+        <div className="landing-nav-r">
+          <MotionToggle />
+          <Link className="btn primary sm" href="/#empezar">Empezar gratis</Link>
+        </div>
       </header>
 
       <main className="legal-body pub-body">

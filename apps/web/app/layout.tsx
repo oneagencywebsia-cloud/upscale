@@ -42,7 +42,7 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-const THEME_INIT = `try{var d=document.documentElement,t=localStorage.getItem('upscale-theme');if(t)d.setAttribute('data-theme',t);if(localStorage.getItem('upscale-motion')==='off')d.setAttribute('data-motion','off')}catch(e){}`;
+const THEME_INIT = `try{var d=document.documentElement,t=localStorage.getItem('upscale-theme');if(t)d.setAttribute('data-theme',t);var m=localStorage.getItem('upscale-motion');if(m==='off'||m==='on')d.setAttribute('data-motion',m)}catch(e){}`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
