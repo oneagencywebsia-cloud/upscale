@@ -42,9 +42,9 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export default async function Page({ searchParams }: { searchParams: Promise<{ next?: string; ref?: string; adios?: string }> }) {
+export default async function Page({ searchParams }: { searchParams: Promise<{ next?: string; ref?: string; adios?: string; error?: string }> }) {
   const user = await getUser();
-  const { next: rawNext, ref, adios } = await searchParams;
+  const { next: rawNext, ref, adios, error: authError } = await searchParams;
   const next = safeNext(rawNext);
   if (user && !rawNext) redirect("/app");
 
@@ -112,7 +112,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ n
         // "<" escapado: nada del contenido puede cerrar la etiqueta <script>
         dangerouslySetInnerHTML={{ __html: ldJson(ld) }}
       />
-      <Landing loggedIn={Boolean(user)} next={next} goodbye={adios === "1"} invited={Boolean(ref && /^[A-Za-z0-9_-]{3,40}$/.test(ref))} />
+      <Landing loggedIn={Boolean(user)} next={next} goodbye={adios === "1"} authError={authError === "auth"} invited={Boolean(ref && /^[A-Za-z0-9_-]{3,40}$/.test(ref))} />
     </>
   );
 }

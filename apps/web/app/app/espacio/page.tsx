@@ -1,9 +1,11 @@
+import type { Metadata } from "next";
 import { getStorage, listAssets, getAccount } from "@/lib/api";
 import { bytesHuman } from "@/lib/format";
 import SpaceManager from "@/components/SpaceManager";
 import PlanPanel from "@/components/PlanPanel";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Espacio y plan" };
 
 export default async function EspacioPage() {
   let info: Awaited<ReturnType<typeof getStorage>> | null = null;

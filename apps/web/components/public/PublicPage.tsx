@@ -32,6 +32,7 @@ export default async function PublicPage({
 
   return (
     <div className="landing legal pub">
+      <a className="skip-link" href="#contenido">Saltar al contenido</a>
       <Aurora section="landing" />
       <Sky compact />
       <header className="landing-nav">
@@ -45,7 +46,7 @@ export default async function PublicPage({
         </div>
       </header>
 
-      <main className="legal-body pub-body">
+      <main id="contenido" tabIndex={-1} className="legal-body pub-body">
         <nav className="crumbs" aria-label="Migas de pan">
           <ol>
             <li><Link href="/">Inicio</Link></li>

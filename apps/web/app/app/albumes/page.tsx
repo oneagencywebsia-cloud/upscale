@@ -1,7 +1,9 @@
+import type { Metadata } from "next";
 import { listAlbums } from "@/lib/api";
 import AlbumGrid from "@/components/AlbumGrid";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Álbumes" };
 
 export default async function AlbumesPage() {
   let albums: Awaited<ReturnType<typeof listAlbums>>["albums"] = [];

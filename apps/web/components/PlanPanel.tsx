@@ -121,7 +121,7 @@ export default function PlanPanel({ account }: { account: AccountInfo }) {
           <button className="btn primary sm" type="button" onClick={copy}>{copied ? "¡Copiado!" : "Copiar"}</button>
           <button className="btn sm" type="button" onClick={share}>Compartir</button>
         </div>
-        <div className="plan-dots" aria-label={`${a.referral.rewarded} de ${a.referral.maxRewarded} invitaciones premiadas`}>
+        <div className="plan-dots" role="img" aria-label={`${a.referral.rewarded} de ${a.referral.maxRewarded} invitaciones premiadas`}>
           {dots.map((on, i) => <i key={i} className={on ? "on" : ""} />)}
         </div>
         <p className="panel-lede">

@@ -37,8 +37,11 @@ export const viewport: Viewport = {
   ],
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // El zoom con los dedos se permite (accesibilidad, WCAG 1.4.4). El visor de fotos
+  // gestiona sus propios gestos con `touch-action: none`, así que no se ve afectado,
+  // y `touch-action: manipulation` en la app evita el zoom accidental con doble toque.
+  maximumScale: 5,
+  userScalable: true,
   viewportFit: "cover",
 };
 

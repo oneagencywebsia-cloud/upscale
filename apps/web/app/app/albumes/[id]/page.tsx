@@ -15,17 +15,24 @@ export default async function AlbumPage({ params }: { params: Promise<{ id: stri
   let cursor: string | null = null;
   let error: string | null = null;
   try {
-    // Solo la primera página: el resto entra por scroll infinito (cursor keyset),
-    // igual que la galería principal.
-    [album, { items, nextCursor: cursor }] = await Promise.all([
-      getAlbum(id),
-      getAlbumAssets(id, undefined),
-    ]);
+    // Primero se comprueba que el álbum existe: pedir también su contenido a la vez hacía
+    // que un álbum inexistente (la API contesta 404) se mostrara como «Sin conexión».
+    album = await getAlbum(id);
   } catch {
     error = "No se pudo conectar con el servidor de Upscale.";
   }
 
   if (!error && !album) notFound();
+
+  if (!error) {
+    try {
+      // Solo la primera página: el resto entra por scroll infinito (cursor keyset),
+      // igual que la galería principal.
+      ({ items, nextCursor: cursor } = await getAlbumAssets(id, undefined));
+    } catch {
+      error = "No se pudo conectar con el servidor de Upscale.";
+    }
+  }
 
   const groups = groupByDay(items);
 

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "motion/react";
+import { useDialogFocus } from "@/lib/dialog";
 import type { Album } from "@upscale/shared";
 
 /**
@@ -36,7 +37,7 @@ export default function AddToAlbumSheet({
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [filter, setFilter] = useState("");
-  const sheet = useRef<HTMLDivElement>(null);
+  const sheet = useDialogFocus<HTMLDivElement>(mounted);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
@@ -59,7 +60,6 @@ export default function AddToAlbumSheet({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCloseRef.current();
     window.addEventListener("keydown", onKey);
-    sheet.current?.focus();
     return () => window.removeEventListener("keydown", onKey);
   }, [mounted]);
 

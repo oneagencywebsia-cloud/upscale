@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { listTokens, getIngestAccess } from "@/lib/api";
 import TokenManager from "@/components/TokenManager";
@@ -8,6 +9,7 @@ import DownloadAllButton from "@/components/DownloadAllButton";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Ajustes" };
 
 export default async function AjustesPage() {
   let tokens: Awaited<ReturnType<typeof listTokens>>["tokens"] = [];

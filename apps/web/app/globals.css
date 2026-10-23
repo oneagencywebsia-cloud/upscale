@@ -15,12 +15,17 @@
   --stroke-strong: rgba(170, 200, 255, 0.26);
   --light: #eef3ff;
   --text-dim: #a9b6d6;
-  --text-mute: #8493b8;
+  --text-mute: #93a1c6;
   --accent: #4fc5dc;
   --accent-2: #7adcec;
+  /* color del TEXTO cuando es de acento (en oscuro coincide con el relleno) */
+  --accent-ink: #4fc5dc;
+  --accent-2-ink: #7adcec;
   --on-accent: #04121a;
   --ok: #5fd3e0;
   --danger: #f16b6b;
+  /* rojo para FONDOS con texto blanco (≥4,5:1 en los dos temas) */
+  --danger-solid: #b53636;
   --halo: radial-gradient(circle at 50% 50%, rgba(255, 227, 168, 0.55), rgba(127, 224, 232, 0.32) 42%, transparent 72%);
   /* Sombras azules en capas: una de contacto (nítida), una media y una amplia
      y muy difusa. Nunca una sola mancha grande. */
@@ -54,12 +59,14 @@
     --stroke-strong: rgba(17, 23, 37, 0.2);
     --light: #111725;
     --text-dim: #55607a;
-    --text-mute: #8791a6;
-    --accent: #1e90ae;
+    --text-mute: #5b6781;
+    --accent: #17809c;
     --accent-2: #1a7e99;
+    --accent-ink: #0f6f8a;
+    --accent-2-ink: #0f6f8a;
     --on-accent: #ffffff;
-    --ok: #1e90ae;
-    --danger: #d0524f;
+    --ok: #0f6f8a;
+    --danger: #b53636;
     --halo: radial-gradient(circle at 50% 50%, rgba(255, 214, 140, 0.5), rgba(90, 200, 232, 0.28) 44%, transparent 72%);
     --bg-1: #f2f5ff;
     --bg-2: #e6ecfa;
@@ -91,12 +98,14 @@
   --stroke-strong: rgba(17, 23, 37, 0.2);
   --light: #111725;
   --text-dim: #55607a;
-  --text-mute: #8791a6;
-  --accent: #1e90ae;
+  --text-mute: #5b6781;
+  --accent: #17809c;
   --accent-2: #1a7e99;
+  --accent-ink: #0f6f8a;
+  --accent-2-ink: #0f6f8a;
   --on-accent: #ffffff;
-  --ok: #1e90ae;
-  --danger: #d0524f;
+  --ok: #0f6f8a;
+  --danger: #b53636;
   --halo: radial-gradient(circle at 50% 50%, rgba(255, 214, 140, 0.5), rgba(90, 200, 232, 0.28) 44%, transparent 72%);
   --bg-1: #f2f5ff;
   --bg-2: #e6ecfa;
@@ -199,7 +208,7 @@ button {
   font-feature-settings: "ss01" 1;
 }
 .wm-up {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .brand h1::before,
 .brand .wm::before,
@@ -721,7 +730,7 @@ button {
   letter-spacing: -0.02em;
 }
 .frame .vid svg {
-  color: var(--accent-2);
+  color: var(--accent-2-ink);
 }
 /* LIVE: el rasgo insignia de Upscale (original íntegro con su vídeo corto) se
    nota — degradado de marca + un punto que respira, en vez de una etiqueta
@@ -1163,7 +1172,7 @@ footer.status .dot {
   font-family: var(--font-mono);
   font-size: 12px;
   letter-spacing: 0.22em;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .hero h1,
 .hero h2 {
@@ -1300,7 +1309,7 @@ footer.status .dot {
 .auth-msg {
   margin: 0;
   font-size: 12.5px;
-  color: var(--accent-2);
+  color: var(--accent-2-ink);
   text-align: center;
 }
 
@@ -1324,7 +1333,7 @@ footer.status .dot {
 .feature-n {
   font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .feature h3 {
   margin: 8px 0 6px;
@@ -2082,7 +2091,7 @@ footer.status .dot {
   transition: color 0.16s;
 }
 .gt-search button[aria-pressed="true"] {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .gt-search input {
   border: 0;
@@ -2459,7 +2468,7 @@ footer.status .dot {
 }
 .up-pct {
   font: 700 18px var(--font-mono);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .up-track {
   height: 8px;
@@ -2579,7 +2588,7 @@ footer.status .dot {
   color: var(--light);
 }
 .up-nudge a {
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 600;
 }
 .up-actions {
@@ -2661,7 +2670,7 @@ footer.status .dot {
   padding: 48px 24px;
   border-radius: 28px;
   border: 2px dashed var(--accent);
-  color: var(--accent);
+  color: var(--accent-ink);
   background: color-mix(in srgb, var(--accent) 8%, transparent);
   text-align: center;
 }
@@ -2789,7 +2798,7 @@ footer.status .dot {
     position: relative;
   }
   .mtabs a.on {
-    color: var(--accent);
+    color: var(--accent-ink);
   }
   .mtab-ico {
     display: grid;
@@ -3186,7 +3195,7 @@ footer.status .dot {
     flex: none;
     border: 0;
     background: transparent;
-    color: var(--accent);
+    color: var(--accent-ink);
     font-weight: 700;
     font-size: 14px;
     padding: 4px 2px;
@@ -3330,7 +3339,7 @@ footer.status .dot {
 .album-new-plus {
   font-size: 26px;
   line-height: 1;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .album-new-form {
   display: flex;
@@ -3529,7 +3538,7 @@ footer.status .dot {
 }
 .atas-tile.done {
   opacity: 1;
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
   box-shadow: var(--sh-glow);
 }
 .atas-tile b {
@@ -3577,7 +3586,7 @@ footer.status .dot {
   text-align: center;
 }
 .atas-new b {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .atas-plus {
   width: 40px;
@@ -3756,7 +3765,7 @@ footer.status .dot {
 }
 .pick-tile.on .pick-mark {
   background: var(--accent);
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
 }
 .pick-vid {
   position: absolute;
@@ -3796,7 +3805,7 @@ footer.status .dot {
 .gt-toast-link {
   margin-left: 10px;
   font-weight: 700;
-  color: var(--accent-2);
+  color: var(--accent-2-ink);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -4020,7 +4029,7 @@ footer.status .dot {
 }
 .plan-link input:focus,
 .plan-code input:focus {
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
 }
 .plan-dots {
@@ -4104,7 +4113,7 @@ footer.status .dot {
 .plan-size {
   margin: 0 0 6px;
   font: 600 13px var(--font-mono);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .plan-opt ul {
   margin: 0 0 12px;
@@ -4118,7 +4127,7 @@ footer.status .dot {
 .plan-opt li::before {
   content: "✓";
   margin-right: 7px;
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 700;
 }
 .plan-opt .btn,
@@ -4136,7 +4145,7 @@ footer.status .dot {
    Audio: insignia en la rejilla y reproductor en el visor
    =================================================================== */
 .frame .badge.aud svg {
-  color: var(--accent-2);
+  color: var(--accent-2-ink);
 }
 .viewer-audio {
   display: flex;
@@ -4182,7 +4191,7 @@ footer.status .dot {
   font-size: 14px;
 }
 .viewer-audio-err a {
-  color: var(--accent-2);
+  color: var(--accent-2-ink);
 }
 @media (max-width: 860px) {
   .viewer-audio {
@@ -4230,7 +4239,7 @@ footer.status .dot {
 .first-steps em {
   font-style: normal;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .empty-first small {
   display: block;
@@ -4426,7 +4435,7 @@ html {
 .start-proof li::before {
   content: "✓";
   margin-right: 6px;
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 800;
 }
 .start-open {
@@ -4461,7 +4470,7 @@ html {
   text-decoration: none;
 }
 .scroll-hint:hover {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .lsec {
@@ -4481,7 +4490,7 @@ html {
   text-wrap: balance;
 }
 .lsec-h .ul {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .lsec .lede {
   margin: 0 auto 26px;
@@ -4520,7 +4529,7 @@ html {
   transition: transform 0.15s, background 0.2s, color 0.2s, border-color 0.2s;
 }
 .steps-dots button.done {
-  color: var(--accent);
+  color: var(--accent-ink);
   border-color: color-mix(in srgb, var(--accent) 60%, transparent);
 }
 .steps-dots button.on {
@@ -4556,7 +4565,7 @@ html {
   width: 76px;
   height: 76px;
   border-radius: 24px;
-  color: var(--accent-2);
+  color: var(--accent-2-ink);
   background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 .step-card h3 {
@@ -4577,7 +4586,7 @@ html {
   padding: 3px 12px;
   border-radius: 999px;
   font: 600 12px var(--font-mono);
-  color: var(--accent);
+  color: var(--accent-ink);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 .steps-nav .btn {
@@ -4634,7 +4643,7 @@ html {
 .plan-hero li::before {
   content: "✓";
   margin-right: 8px;
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 800;
 }
 .more-plans {
@@ -4656,7 +4665,7 @@ html {
   border-radius: 999px;
   font-weight: 600;
   font-size: 14.5px;
-  color: var(--accent);
+  color: var(--accent-ink);
   border: 1px solid var(--stroke-strong);
   background: var(--glass);
 }
@@ -4785,7 +4794,7 @@ html {
 }
 .invite-eq b {
   font: 800 28px var(--font-display);
-  color: var(--accent);
+  color: var(--accent-ink);
   letter-spacing: -0.03em;
 }
 .invite-eq i {
@@ -4824,7 +4833,7 @@ html {
   content: "+";
   flex: none;
   font: 500 22px var(--font-display);
-  color: var(--accent);
+  color: var(--accent-ink);
   transition: transform 0.2s;
 }
 .faq details[open] summary::after {
@@ -4864,7 +4873,7 @@ html {
 .start-legal a,
 .panel-lede a,
 .legal-body a {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .landing-foot {
   flex-wrap: wrap;
@@ -4933,7 +4942,7 @@ html {
 .adv > summary::after {
   content: "+";
   font: 500 24px var(--font-display);
-  color: var(--accent);
+  color: var(--accent-ink);
   transition: transform 0.2s;
 }
 .adv[open] > summary::after {
@@ -4950,7 +4959,7 @@ html {
 
 .btn.danger {
   color: #fff;
-  background: var(--danger);
+  background: var(--danger-solid);
   border-color: transparent;
 }
 .btn.danger:disabled {
@@ -5194,7 +5203,7 @@ html {
   transform: scale(1.08);
 }
 .emojis button.on {
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
   background: color-mix(in srgb, var(--accent) 22%, transparent);
 }
 .pform-photo {
@@ -5245,7 +5254,7 @@ html {
 .pfield input:focus-visible,
 .pfield textarea:focus-visible {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 .pform-inline {
@@ -5452,7 +5461,7 @@ html {
 }
 .dls-part.done .dls-n {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .dls-t {
   display: flex;
@@ -5471,7 +5480,7 @@ html {
 .dls-go {
   flex: none;
   font: 700 13px var(--font-display);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 /* ===================================================================
@@ -5522,7 +5531,7 @@ html {
 }
 .dlp-pct {
   font: 700 13px var(--font-mono);
-  color: var(--accent);
+  color: var(--accent-ink);
   font-variant-numeric: tabular-nums;
 }
 .dlp-x {
@@ -5680,7 +5689,7 @@ html {
   color: var(--text-dim);
 }
 .dls-fmt button.on {
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 .dls-fmt button:focus-visible {
@@ -5977,7 +5986,7 @@ html {
   text-decoration: none;
 }
 .crumbs a:hover {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .pub-lead {
   margin: 8px 0 22px;
@@ -6136,7 +6145,7 @@ html {
   border: 1px solid var(--stroke);
 }
 .pub-more a:hover {
-  color: var(--accent);
+  color: var(--accent-ink);
   border-color: color-mix(in srgb, var(--accent) 50%, transparent);
 }
 .landing-more {
@@ -6440,7 +6449,7 @@ html {
   transition: color 0.15s, border-color 0.15s, transform 0.1s;
 }
 .motion-toggle:hover {
-  color: var(--accent);
+  color: var(--accent-ink);
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 }
 .motion-toggle:active {
@@ -6451,7 +6460,7 @@ html {
   outline-offset: 2px;
 }
 .motion-toggle[aria-pressed="true"] {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 @media (max-width: 480px) {
   .motion-toggle {
@@ -6473,4 +6482,98 @@ html {
   .sky-scrim {
     background: radial-gradient(ellipse 80% 46% at 50% 52%, color-mix(in srgb, var(--bg-2) 62%, transparent), transparent 100%);
   }
+}
+
+/* ===================================================================
+   Accesibilidad: saltar al contenido y zoom con los dedos
+   =================================================================== */
+.skip-link {
+  position: fixed;
+  left: 12px;
+  top: -64px;
+  z-index: 200;
+  padding: 10px 16px;
+  border-radius: 12px;
+  font: 600 14px var(--font-body);
+  color: var(--on-accent);
+  background: var(--accent);
+  text-decoration: none;
+  box-shadow: var(--sh-2);
+  transition: top 0.15s;
+}
+.skip-link:focus {
+  top: calc(env(safe-area-inset-top) + 12px);
+  outline: 2px solid var(--light);
+  outline-offset: 2px;
+}
+main:focus {
+  outline: none;
+}
+/* con el zoom permitido, el doble toque no debe ampliar sin querer */
+.app-shell,
+.mtabs {
+  touch-action: manipulation;
+}
+
+/* contenedores de diálogo: reciben el foco por código, sin anillo (los controles de dentro sí lo muestran) */
+.viewer:focus,
+.atas-sheet:focus,
+.dls:focus,
+.pick:focus {
+  outline: none;
+}
+
+/* Página 404 y avisos de la portada */
+.nf {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: clamp(24px, 8vh, 80px) clamp(16px, 4vw, 40px) 60px;
+  text-align: center;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+}
+.nf h1 {
+  margin: 4px 0 0;
+  font: 800 clamp(30px, 6vw, 44px) var(--font-display);
+  letter-spacing: -0.03em;
+}
+.nf .lede {
+  margin: 6px 0 0;
+  color: var(--text-dim);
+  font-size: 17px;
+}
+.nf-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 18px;
+}
+.gift.gift-err {
+  color: var(--light);
+  background: color-mix(in srgb, var(--danger-solid) 16%, transparent);
+  border-color: color-mix(in srgb, var(--danger-solid) 50%, transparent);
+}
+.nf-actions .btn {
+  min-height: 48px;
+  padding: 0 22px;
+  white-space: nowrap;
+}
+/* los avisos de la portada pueden ocupar dos líneas: caja redondeada, no píldora */
+.gift {
+  max-width: min(440px, 100%);
+  border-radius: 18px;
+  text-align: center;
+  line-height: 1.45;
+}
+
+/* miniatura que no pudo cargar: marcador discreto en lugar del icono de imagen rota */
+.frame .thumb-fail {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text-mute);
+  background: linear-gradient(160deg, var(--surface-2), color-mix(in srgb, var(--surface-2) 70%, var(--accent)));
 }

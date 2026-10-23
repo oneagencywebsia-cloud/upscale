@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "motion/react";
+import { useDialogFocus } from "@/lib/dialog";
 import { bytesHuman } from "@/lib/format";
 import { descargarZip, esMovil, formatoCompatible, guardarFormatoCompatible, type FuenteZip } from "@/lib/download";
 
@@ -40,7 +41,7 @@ export default function DownloadSheet({
   const [plan, setPlan] = useState<Plan | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hechas, setHechas] = useState<Set<number>>(new Set());
-  const sheet = useRef<HTMLDivElement>(null);
+  const sheet = useDialogFocus<HTMLDivElement>(mounted);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const movil = useRef(false);
@@ -95,7 +96,6 @@ export default function DownloadSheet({
     if (!mounted) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCloseRef.current();
     window.addEventListener("keydown", onKey);
-    sheet.current?.focus();
     return () => window.removeEventListener("keydown", onKey);
   }, [mounted]);
 

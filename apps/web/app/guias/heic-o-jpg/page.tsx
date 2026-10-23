@@ -30,7 +30,7 @@ export default async function Page() {
       <div className="pub-table-wrap">
         <table className="pub-table stack">
           <caption className="sr-only">Comparativa entre HEIC y JPG</caption>
-          <thead><tr><th scope="col"></th><th scope="col">HEIC</th><th scope="col">JPG</th></tr></thead>
+          <thead><tr><th scope="col"><span className="sr-only">Característica</span></th><th scope="col">HEIC</th><th scope="col">JPG</th></tr></thead>
           <tbody>
             <tr><th scope="row">Tamaño</th><td data-label="HEIC">Más pequeño, a igual calidad</td><td data-label="JPG">Más grande</td></tr>
             <tr><th scope="row">Color</th><td data-label="HEIC">Más profundidad (HDR)</td><td data-label="JPG">8 bits por canal</td></tr>
