@@ -246,3 +246,23 @@ Detalle completo en `docs/NOTAS.md`. Resumen: notas con editor (TipTap, cargado 
 - **iPhone/iPad:** pantalla de arranque a medida de cada modelo en claro y oscuro (`/splash/<ancho>x<alto>-<tema>`, 17 pantallas × 2; solo tamaños de `lib/splash.ts`) y, como Safari no tiene botón de instalar, un aviso «Compartir → Añadir a pantalla de inicio» a partir de la 2.ª visita (se cierra 30 días).
 - **Android:** iconos «maskable» en PNG, `launch_handler` (reutiliza la ventana abierta), `interactive-widget=resizes-content` (el teclado no tapa el editor) y color de barra/arranque igual al de la app.
 - **Si algún día se quiere un widget de verdad:** habría que envolver la web en una app (Capacitor) y añadir el widget nativo; en iOS exige la cuota anual de Apple Developer. Queda apuntado en `docs/PENDIENTE.md`.
+## Portada: recorrido con escenas fijas
+
+Reglas: **nada de datos inventados** (ni usuarios, ni opiniones, ni «quedan X plazas»), solo lo que es verdad hoy. La portada alterna **escenas fijas** (el escenario se queda quieto y el contenido cambia al hacer scroll, `Scrolly.tsx`) con **tramos normales** donde la página baja:
+
+1. Escena A (gancho): promesa + un botón → «tu móvil se llena» (pérdida) → «súbelo y olvídate» (alivio) → «idéntico al original» (prueba).
+2. Tramo: la biblioteca en un móvil con vídeo + «1, 2, 3».
+3. Escena B (confianza): pantallas → «solo tuyo» → invita y gana.
+4. Tramo: planes con calculadora, captura → nota (`Demo.tsx`) y dudas.
+5. Escena C (cierre): el caos vuelve a juntarse en un sol y aparece el mismo botón.
+
+Fondo: cada capítulo tiene su ambiente (color, luz y anillos) y se funden entre sí solo con `opacity`. Texto: un titular corto y una línea de apoyo por capítulo; cada uno pulsa una sola emoción (esperanza, miedo a perder, alivio, prueba, comodidad, confianza, reciprocidad, urgencia sin presión falsa, cierre).
+
+Mecánica: `formas.ts` define las disposiciones (sol, caos, escalera de la marca, marcos, pantallas, cerradura, red) de los **mismos 28 elementos**; al hacer scroll cada elemento viaja de una a la siguiente y cambia de forma (círculo ↔ rectángulo redondeado). Un solo oyente de scroll con `requestAnimationFrame`, que se para fuera de pantalla; solo se escriben `transform`, `opacity`, `border-radius` y el ancho de cada elemento. Sin JavaScript, con «reducir movimiento» o con las animaciones apagadas, las escenas son una lista normal de capítulos (`[data-quieto]`). Los capítulos ocultos llevan `inert`.
+
+Imágenes y vídeo propios, sin servicios externos: `tools/generar-portada.mjs` (sharp + ffmpeg) genera ilustraciones y un vídeo de la biblioteca en `apps/web/public/landing/`.
+
+- **Planes siempre a la vista** (antes iban en un `<details>`). `Pricing.tsx`: una calculadora («¿cuánto pesa tu carrete?», estimación media de 3 MB/foto y 100 MB/min de vídeo con 10 % de holgura) marca el plan que encaja («Para tu carrete»); los cuatro planes se leen de un vistazo, con el precio por día para suavizar el pago. Los de pago dicen la verdad: «Muy pronto» (se entra gratis y se avisa, `next=/app/espacio`).
+- **Botón fijo en móvil** (`StickyCta.tsx`): aparece al pasar el primer botón y se esconde ante el botón final.
+- El registro se abre en la propia tarjeta (`StartBox`), sin saltos de página.
+- Los números de `lib/plans.ts` son la copia para pintar; la verdad está en `apps/api/src/plans.ts`.

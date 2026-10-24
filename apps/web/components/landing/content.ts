@@ -24,9 +24,12 @@ export const STEPS = [
 ] as const;
 
 export const BENEFITS = [
-  { t: "Idéntico al original", d: "Ni un píxel menos. Lo guardamos tal cual sale de tu cámara." },
-  { t: "Fotos, vídeo y audio", d: "Un solo sitio para todo lo que grabas y fotografías." },
-  { t: "Solo tuyo", d: "Cada persona ve únicamente lo suyo." },
+  { t: "Idéntico al original", d: "Ni un píxel menos. Lo guardamos tal cual sale de tu cámara, y lo descargas igual." },
+  { t: "Fotos, vídeo, audio… y notas", d: "Apunta lo que quieras recordar. Pega una captura y Upscale lee su texto para que lo edites." },
+  { t: "Se abre en cualquier aparato", d: "¿Una foto HEIC que no abre en tu PC? La descargas en JPG con un toque. Y tu vídeo, en MP4." },
+  { t: "Subidas que no se rompen", d: "Si se corta la conexión, reintenta solo. Y comprobamos que llegue entero antes de guardarlo." },
+  { t: "Solo tuyo", d: "Cada persona ve únicamente lo suyo. Nadie más, ni por error." },
+  { t: "Te lo llevas cuando quieras", d: "Descarga toda tu biblioteca en un ZIP o borra tu cuenta. Sin letra pequeña." },
 ] as const;
 
 /** Respuestas: la primera frase contesta directo (así las citan los buscadores
@@ -39,6 +42,14 @@ export const FAQ = [
   {
     q: "¿Pierden calidad mis fotos y vídeos?",
     a: "No. Guardamos tu foto o vídeo exactamente como lo hiciste, sin perder nada de calidad. Cuando lo descargas es idéntico.",
+  },
+  {
+    q: "¿Cuánto costará pasar a un plan de pago?",
+    a: "Los precios previstos son Plus 1,99 €/mes, Pro 4,99 €/mes y Max 12,99 €/mes. Aún no hay cobro: empiezas gratis y te avisamos cuando se activen.",
+  },
+  {
+    q: "¿Puedo guardar notas y capturas de pantalla?",
+    a: "Sí. Escribes notas con formato y adjuntas capturas: Upscale lee el texto de la imagen y te lo deja listo para editar. Puedes personalizar el color y el aspecto de cada nota.",
   },
   {
     q: "¿Qué tipos de archivo puedo guardar?",
