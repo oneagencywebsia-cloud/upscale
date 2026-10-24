@@ -49,20 +49,20 @@ export default async function Page() {
 
       <h2>Qué pasa con tu original</h2>
       <p>
-        Cada archivo se guarda tal cual lo hizo tu cámara, byte a byte, sin recomprimir. Nada de versiones «optimizadas»: lo que descargas
+        Cada archivo se guarda tal cual lo hizo tu cámara, sin perder nada de calidad. Nada de versiones «aligeradas»: lo que descargas
         es idéntico a lo que subiste. Si subes dos veces el mismo archivo no se duplica, así que no gastas espacio de más.
       </p>
 
       <h2>Cómo descargar</h2>
       <p>
-        Puedes bajar un archivo suelto o seleccionar muchos y descargarlos en un ZIP, repartido en partes cómodas para el móvil y con barra de progreso.
-        Al descargar eliges entre <b>Original</b>, el archivo exacto, y <b>Compatible</b>, que convierte lo que no se abre en todas partes.
+        Puedes bajar un archivo suelto o seleccionar muchos y descargarlos de una vez, repartidos en partes cómodas para el móvil y con barra de progreso.
+        Al descargar eliges entre <b>Original</b>, el archivo exacto, y <b>Fácil de abrir</b>, que convierte lo que no se abre en todas partes.
         Mira qué se convierte en <Link href="/formatos">Formatos compatibles</Link>.
       </p>
 
       <h2>Tu privacidad</h2>
       <p>
-        Cada persona ve únicamente lo suyo. Puedes llevarte todo en un ZIP o borrar tu cuenta y tus archivos cuando quieras desde Ajustes.
+        Cada persona ve únicamente lo suyo. Puedes llevarte todo de una vez o borrar tu cuenta y tus archivos cuando quieras desde Ajustes.
         Los detalles están en la <Link href="/privacidad">política de privacidad</Link>.
       </p>
     </PublicPage>

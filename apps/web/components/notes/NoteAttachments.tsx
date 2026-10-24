@@ -120,7 +120,7 @@ export default function NoteAttachments({ noteId, adjuntos, setAdjuntos, inserta
           <input ref={input} type="file" accept="image/*" multiple hidden onChange={(e) => { const fs = [...(e.target.files ?? [])]; e.target.value = ""; void subir(fs); }} />
         </div>
       </div>
-      <p className="natt-hint">{teclado ? `Sube, arrastra o pega (${atajo("V")}) una captura` : "Sube una captura"} y Upscale lee su texto para que lo puedas editar. Se guarda en tu biblioteca, no en el servidor.</p>
+      <p className="natt-hint">{teclado ? `Sube, arrastra o pega (${atajo("V")}) una captura` : "Sube una captura"} y Upscale lee su texto para que lo puedas editar. Se guarda en tu biblioteca.</p>
 
       {(adjuntos.length > 0 || subiendo.length > 0) && (
         <ul className="natt-list">

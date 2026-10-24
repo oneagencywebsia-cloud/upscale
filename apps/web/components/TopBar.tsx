@@ -116,13 +116,16 @@ export default function TopBar({ profile, photoUrl }: { profile: Profile; photoU
               Mi perfil
             </Link>
             <Link role="menuitem" href="/app/widgets" onClick={navClick("/app/widgets", pathname.startsWith("/app/widgets"))}>
-              Widgets
+              En mi pantalla
             </Link>
             <Link role="menuitem" href="/app/ajustes" onClick={navClick("/app/ajustes", pathname === "/app/ajustes")}>
               Ajustes de subida
             </Link>
+            <Link role="menuitem" href="/preguntas">
+              Ayuda
+            </Link>
             <button role="menuitem" type="button" onClick={logout}>
-              Cerrar sesión
+              Salir
             </button>
           </motion.div>
         )}

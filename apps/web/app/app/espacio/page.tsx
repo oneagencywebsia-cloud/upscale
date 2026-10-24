@@ -43,8 +43,7 @@ export default async function EspacioPage() {
 
       {info?.driver === "local" && (
         <p className="panel-lede" style={{ marginTop: 12 }}>
-          Los archivos viven en el disco del servidor. Cuando se acerque al 100 %, borra aquí lo
-          más grande que ya tengas editado o descargado. Borrar es definitivo.
+          Cuando el espacio se acerque al 100 %, borra aquí lo más grande que ya tengas guardado en otro sitio. Borrar es para siempre.
         </p>
       )}
 

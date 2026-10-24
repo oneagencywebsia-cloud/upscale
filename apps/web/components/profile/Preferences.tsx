@@ -9,6 +9,7 @@ const THEMES: { key: Theme; label: string }[] = [
   { key: "light", label: "Claro" },
   { key: "dark", label: "Oscuro" },
 ];
+const LETRAS = ["Normal", "Grande", "Muy grande"];
 const DENSITIES = ["Grandes", "Medias", "Pequeñas"];
 
 const read = (k: string): string | null => {
@@ -31,6 +32,7 @@ const write = (k: string, v: string | null) => {
 export default function Preferences() {
   const [theme, setTheme] = useState<Theme>("system");
   const [density, setDensity] = useState(1);
+  const [letra, setLetra] = useState(0);
   const [motionOn, setMotionOn] = useState(true);
   const [dlCompat, setDlCompat] = useState(true);
   const [ready, setReady] = useState(false);
@@ -40,6 +42,8 @@ export default function Preferences() {
     setTheme(t === "light" || t === "dark" ? t : "system");
     const d = Number(read("upscale-density"));
     setDensity(d === 0 || d === 1 || d === 2 ? d : 1);
+    const l = Number(read("upscale-letra"));
+    setLetra(l === 1 || l === 2 ? l : 0);
     setMotionOn(read("upscale-motion") !== "off");
     setDlCompat(formatoCompatible());
     setReady(true);
@@ -59,6 +63,17 @@ export default function Preferences() {
   function pickDensity(i: number) {
     setDensity(i);
     write("upscale-density", String(i));
+  }
+  function pickLetra(i: number) {
+    setLetra(i);
+    const root = document.documentElement;
+    if (i === 0) {
+      root.removeAttribute("data-letra");
+      write("upscale-letra", null);
+    } else {
+      root.setAttribute("data-letra", String(i));
+      write("upscale-letra", String(i));
+    }
   }
   function toggleMotion(on: boolean) {
     setMotionOn(on);
@@ -90,15 +105,28 @@ export default function Preferences() {
 
       <div className="prow">
         <div>
-          <b>Formato de las descargas</b>
+          <b>Tamaño de la letra</b>
+          <small>Hace más grande todo lo que ves, para leer mejor.</small>
+        </div>
+        <div className="seg" role="group" aria-label="Tamaño de la letra">
+          {LETRAS.map((l, i) => (
+            <button key={l} type="button" className={letra === i ? "on" : ""} aria-pressed={letra === i} onClick={() => pickLetra(i)}>
+              <span className="seg-label">{l}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="prow">
+        <div>
+          <b>Cómo se descargan tus archivos</b>
           <small>
-            «Compatible» se abre en cualquier aparato (fotos HEIC → JPG, vídeos HEVC → MP4, audios raros → MP3). «Original» es el
-            archivo exacto.
+            «Fácil de abrir» los convierte para que se abran en cualquier aparato. «Original» te da el archivo exacto que subiste.
           </small>
         </div>
         <div className="seg" role="group" aria-label="Formato de las descargas">
           {[
-            { v: true, label: "Compatible" },
+            { v: true, label: "Fácil de abrir" },
             { v: false, label: "Original" },
           ].map((o) => (
             <button

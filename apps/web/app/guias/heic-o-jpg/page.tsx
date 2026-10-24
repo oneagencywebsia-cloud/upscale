@@ -48,7 +48,7 @@ export default async function Page() {
 
       <h2>La solución de Upscale</h2>
       <p>
-        Upscale guarda tu HEIC original sin tocarlo. Cuando descargas en modo <b>Compatible</b>, recibes un JPG a resolución completa, con la fecha, la cámara
+        Upscale guarda tu HEIC original sin tocarlo. Cuando descargas en modo <b>Fácil de abrir</b>, recibes un JPG a resolución completa, con la fecha, la cámara
         y la ubicación de la foto. Si prefieres el archivo exacto, eliges <b>Original</b>. Los vídeos HEVC y los audios poco comunes tienen su equivalente:
         mira todos los casos en <Link href="/formatos">Formatos compatibles</Link>.
       </p>

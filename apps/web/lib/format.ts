@@ -27,7 +27,7 @@ export function durationHuman(s: number | null): string {
 }
 
 export function fpsHuman(fps: number | null): string {
-  return fps ? `${fps.toFixed(2)} fps` : "—";
+  return fps ? `${Math.round(fps)} por segundo` : "—";
 }
 
 export function bitrateHuman(bps: number | null): string {
@@ -107,21 +107,21 @@ export function groupByDay(items: AssetListItem[], by: "capturedAt" | "uploadedA
 
 export function specRows(a: Asset): Array<[string, string]> {
   const rows: Array<[string, string]> = a.kind === "audio"
-    ? [["Códec", a.codec ? a.codec.toUpperCase() : "—"]]
+    ? [["Tipo de audio", a.codec ? a.codec.toUpperCase() : "—"]]
     : [
-        ["Resolución", a.width && a.height ? `${a.width} × ${a.height}` : "—"],
-        ["Códec", a.codec ? a.codec.toUpperCase() : "—"],
+        ["Tamaño de la imagen", a.width && a.height ? `${a.width} × ${a.height}` : "—"],
+        ["Tipo de vídeo", a.codec ? a.codec.toUpperCase() : "—"],
       ];
   if (a.kind === "audio") {
     rows.push(["Duración", durationHuman(a.durationS)]);
-    rows.push(["Bitrate", bitrateHuman(a.videoBitrate)]);
+    rows.push(["Calidad del sonido", bitrateHuman(a.videoBitrate)]);
   }
   if (a.kind === "video") {
-    rows.push(["Fotogramas", fpsHuman(a.fps)]);
-    rows.push(["Bitrate", bitrateHuman(a.videoBitrate)]);
+    rows.push(["Imágenes", fpsHuman(a.fps)]);
+    rows.push(["Calidad", bitrateHuman(a.videoBitrate)]);
     rows.push(["Duración", durationHuman(a.durationS)]);
   }
-  rows.push(["Tamaño", bytesHuman(a.bytes)]);
+  rows.push(["Peso", bytesHuman(a.bytes)]);
   if (a.cameraModel) rows.push(["Cámara", [a.cameraMake, a.cameraModel].filter(Boolean).join(" ")]);
   // misma zona horaria que los encabezados de día: si no, la ficha podía decir
   // "16/09" bajo una sección titulada "martes 15".

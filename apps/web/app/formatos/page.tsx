@@ -36,14 +36,14 @@ export default async function Page() {
         </table>
       </div>
 
-      <h2>Original o Compatible</h2>
+      <h2>Original o Fácil de abrir</h2>
       <p>
-        <b>Original</b> te da el archivo exacto que subiste, byte a byte. <b>Compatible</b> (el modo por defecto) convierte solo lo que muchos aparatos no abren,
+        <b>Original</b> te da el archivo exacto que subiste. <b>Fácil de abrir</b> (lo normal) convierte solo lo que muchos aparatos no abren,
         para que lo puedas ver o compartir sin instalar nada. Lo que ya es universal no se toca. El original sigue guardado: puedes bajarlo cuando quieras.
       </p>
       <p>
         Puedes cambiar de modo en el menú de la galería, en la hoja de descarga o en tu perfil. Si un archivo no se puede convertir, recibes el original
-        (en un ZIP, queda anotado en un archivo LEEME). Para copias de seguridad completas, la descarga de toda la biblioteca empieza en Original.
+        (si bajas varios, queda anotado en un archivo LEEME). Para copias de seguridad completas, la descarga de toda la biblioteca empieza en Original.
       </p>
 
       <h2>¿Por qué existen tantos formatos?</h2>

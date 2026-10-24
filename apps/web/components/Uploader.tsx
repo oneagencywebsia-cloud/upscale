@@ -173,8 +173,8 @@ function uploadOne(
       }
       if (s === 402) return end({ ok: false, retry: false, delayMs: 0, error: "No te queda espacio para este archivo" });
       if (s === 413) return end({ ok: false, retry: false, delayMs: 0, error: body.error ?? "Pesa más de lo que admite tu plan" });
-      if (s === 401 || s === 403) return end({ ok: false, retry: false, delayMs: 0, error: "Tu sesión ha caducado. Vuelve a entrar." });
-      if (s >= 500 || s === 408 || s === 0) return end({ ok: false, retry: true, delayMs: 3000, error: "El servidor ha tardado en contestar" });
+      if (s === 401 || s === 403) return end({ ok: false, retry: false, delayMs: 0, error: "Por seguridad, tienes que entrar otra vez." });
+      if (s >= 500 || s === 408 || s === 0) return end({ ok: false, retry: true, delayMs: 3000, error: "Está tardando más de lo normal. Se vuelve a intentar solo." });
       return end({ ok: false, retry: false, delayMs: 0, error: body.error ?? `No se pudo guardar (${s})` });
     };
     xhr.onerror = () => end({ ok: false, retry: true, delayMs: 3000, error: "Se cortó la conexión" });

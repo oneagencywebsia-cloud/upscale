@@ -632,7 +632,7 @@ export default function Gallery({
       return;
     }
     descargarZip({ ids });
-    setToast(`Preparando ZIP de ${ids.length}… se guardará en Descargas`);
+    setToast(`Preparando la descarga de ${ids.length}… se guardará en Descargas`);
   }
 
   function downloadAll() {
@@ -824,13 +824,13 @@ export default function Gallery({
                     setMenuOpen(false);
                     setToast(
                       !dlCompat
-                        ? "Las descargas ahora se abren en cualquier aparato (JPG, MP4, MP3)"
-                        : "Las descargas ahora son el archivo original, tal cual",
+                        ? "Las descargas ahora se abren en cualquier aparato"
+                        : "Las descargas ahora son el archivo exacto que subiste",
                     );
                   }}
                 >
-                  <span>Formato: {dlCompat ? "Compatible" : "Original"}</span>
-                  <small className="gt-sub">{dlCompat ? "Se abre en cualquier aparato · toca para cambiar" : "Archivo exacto · toca para cambiar"}</small>
+                  <span>Descarga: {dlCompat ? "fácil de abrir" : "tal cual la subiste"}</span>
+                  <small className="gt-sub">{dlCompat ? "Se abre en cualquier aparato · toca para cambiar" : "El archivo exacto · toca para cambiar"}</small>
                 </button>
                 <button
                   role="menuitem"
@@ -936,7 +936,7 @@ export default function Gallery({
                 router.push(`/app/widgets/nuevo?fotos=${ids.join(",")}`);
               }}
             >
-              Widget
+              Pantalla
             </button>
           )}
           {!albumId && (

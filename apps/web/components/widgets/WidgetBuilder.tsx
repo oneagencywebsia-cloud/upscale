@@ -218,7 +218,7 @@ export default function WidgetBuilder({ id }: { id: string }) {
       setInstalar(w);
       window.history.replaceState(null, "", `/app/widgets/${w.id}`);
     } catch (e) {
-      setError(e instanceof ErrorWidgets ? e.message : "No se pudo crear el widget");
+      setError(e instanceof ErrorWidgets ? e.message : "No se pudo crear. Inténtalo otra vez.");
     } finally {
       setGuardando(false);
     }
@@ -228,8 +228,8 @@ export default function WidgetBuilder({ id }: { id: string }) {
     return (
       <div className="app notes">
         <div className="empty" role="alert">
-          <h3>Ese widget no existe</h3>
-          <Link className="btn primary" href="/app/widgets">Volver a Widgets</Link>
+          <h3>Eso ya no existe</h3>
+          <Link className="btn primary" href="/app/widgets">Volver a Mi pantalla</Link>
         </div>
       </div>
     );
@@ -247,7 +247,7 @@ export default function WidgetBuilder({ id }: { id: string }) {
         <Opciones etiqueta="Tamaño de la vista previa" valor={talla} opciones={TALLAS.map((t) => [t.id, t.nombre] as [Talla, string])} onChange={setTalla} columnas={3} />
       </div>
       <div className="wb-lienzo" style={{ aspectRatio: `${tallaDef.w} / ${tallaDef.h}` }} aria-busy={pintando}>
-        {vista && listo ? <img src={vista} alt="Así se verá el widget" /> : <p>{kind ? "Elige el contenido y lo verás aquí." : "Elige un tipo de widget."}</p>}
+        {vista && listo ? <img src={vista} alt="Así se verá" /> : <p>{kind ? "Elige el contenido y lo verás aquí." : "Elige qué quieres ver."}</p>}
         {pintando && <span className="wb-pinta nspin" aria-hidden="true" />}
       </div>
       {vistaError && <p className="sp-warn" role="alert">{vistaError}</p>}
@@ -257,8 +257,8 @@ export default function WidgetBuilder({ id }: { id: string }) {
   return (
     <div className={`app notes wb${movil ? " movil" : ""}`}>
       <header className="wb-cab">
-        <Link href="/app/widgets" className="btn ghost sm">← Widgets</Link>
-        <h1 className="wb-h1">{existente ? "Editar widget" : "Nuevo widget"}</h1>
+        <Link href="/app/widgets" className="btn ghost sm">← Mi pantalla</Link>
+        <h1 className="wb-h1">{existente ? "Editar" : "Añadir a mi pantalla"}</h1>
       </header>
 
       {movil && kind && (
@@ -293,7 +293,7 @@ export default function WidgetBuilder({ id }: { id: string }) {
                 ))}
               </ul>
               <h2 id="wb-1b" className="wb-sub">{movil ? "O elige tú qué enseñar" : "O elige tú qué enseñar"}</h2>
-              <div className="wb-tipos" role="radiogroup" aria-label="Tipo de widget">
+              <div className="wb-tipos" role="radiogroup" aria-label="Qué quieres ver">
                 {TIPOS.map((t) => (
                   <button key={t.id} type="button" role="radio" aria-checked={kind === t.id} className={`wb-tipo${kind === t.id ? " on" : ""}`} onClick={() => elegirTipo(t.id)}>
                     <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={t.icono} /></svg>
@@ -402,7 +402,7 @@ export default function WidgetBuilder({ id }: { id: string }) {
                     </ul>
                   )}
                   <label className="wb-check"><input type="checkbox" checked={config.mostrarTitulo !== false} onChange={(e) => set({ mostrarTitulo: e.target.checked })} /> Mostrar el título</label>
-                  <p className="wb-ayuda">El widget usa el color, el recuadro y la letra de la nota. Si la cambias, el widget se actualiza solo.</p>
+                  <p className="wb-ayuda">Se verá con el color y la letra de tu nota. Si cambias la nota, esto se actualiza solo.</p>
                 </div>
               )}
 
@@ -430,7 +430,7 @@ export default function WidgetBuilder({ id }: { id: string }) {
                   <label className="wb-campo sp-range"><span>Separación entre fotos <b>{config.hueco ?? 6}</b></span><input type="range" min={0} max={24} value={config.hueco ?? 6} onChange={(e) => set({ hueco: Number(e.target.value) })} /></label>
                 )}
                 <label className="wb-campo sp-range"><span>Esquinas redondeadas <b>{config.esquinas ?? 0}</b></span><input type="range" min={0} max={60} value={config.esquinas ?? 0} onChange={(e) => set({ esquinas: Number(e.target.value) })} /></label>
-                <label className="wb-campo"><span>Nombre del widget</span><input className="wb-nombre" value={nombre} maxLength={60} onChange={(e) => setNombre(e.target.value)} placeholder="Por ejemplo: Mi perro" enterKeyHint="done" /></label>
+                <label className="wb-campo"><span>Ponle un nombre</span><input className="wb-nombre" value={nombre} maxLength={60} onChange={(e) => setNombre(e.target.value)} placeholder="Por ejemplo: Mi perro" enterKeyHint="done" /></label>
               </div>
             </section>
           )}

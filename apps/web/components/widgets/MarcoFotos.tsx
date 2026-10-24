@@ -85,7 +85,7 @@ export default function MarcoFotos({ token, segundos, reloj }: { token: string; 
         src && <img key={i} src={src} alt="" className={`marco-img${activa === i ? " on" : ""}`} />
       ))}
       {verHora && hora && <time className="marco-hora">{hora}</time>}
-      {error && !capas[0] && !capas[1] && <p className="marco-error" role="alert">No se pudo cargar. Comprueba la dirección o que el widget siga existiendo.</p>}
+      {error && !capas[0] && !capas[1] && <p className="marco-error" role="alert">No se pudo cargar. Mira que el enlace esté bien y que siga existiendo.</p>}
     </main>
   );
 }

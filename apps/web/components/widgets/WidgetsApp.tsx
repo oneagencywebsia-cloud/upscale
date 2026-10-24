@@ -21,7 +21,7 @@ export default function WidgetsApp() {
   const cargar = useCallback(() => {
     api<{ items: Widget[]; max: number }>("")
       .then((r) => { setItems(r.items); setMax(r.max); setError(null); })
-      .catch((e) => setError(e instanceof ErrorWidgets && e.status === 401 ? "Tu sesión ha caducado. Vuelve a entrar." : "No se pudieron cargar tus widgets."));
+      .catch((e) => setError(e instanceof ErrorWidgets && e.status === 401 ? "Por seguridad, tienes que entrar otra vez." : "No se pudo cargar. Inténtalo otra vez."));
   }, []);
   useEffect(cargar, [cargar]);
 
@@ -44,10 +44,10 @@ export default function WidgetsApp() {
     <div className="app notes">
       <div className="libhead">
         <div>
-          <h2>Widgets<span className="lh-flourish" aria-hidden="true" /></h2>
-          <p>{items ? (items.length === 1 ? "1 widget" : `${items.length} widgets`) : " "}</p>
+          <h2>En mi pantalla<span className="lh-flourish" aria-hidden="true" /></h2>
+          <p>{items ? (items.length === 1 ? "1 elemento" : `${items.length} elementos`) : " "}</p>
         </div>
-        <Link href="/app/widgets/nuevo" className="btn primary wg-nuevo">+ Nuevo widget</Link>
+        <Link href="/app/widgets/nuevo" className="btn primary wg-nuevo">+ Añadir</Link>
       </div>
 
       <p className="wg-intro">Pon tus fotos, notas y álbumes en la pantalla de inicio, de fondo de pantalla o como marco de fotos. Elige qué enseñar y Upscale lo mantiene al día.</p>
@@ -59,9 +59,9 @@ export default function WidgetsApp() {
       ) : items.length === 0 ? (
         <div className="empty">
           <div className="empty-mark" aria-hidden="true"><Mark3D size={104} /></div>
-          <h3>Crea tu primer widget</h3>
+          <h3>Pon tus fotos en tu pantalla</h3>
           <p>Una foto que cambia cada día, un mosaico de tus favoritas, una nota con su color o tus recuerdos de hoy. Tú eliges.</p>
-          <Link href="/app/widgets/nuevo" className="btn primary">+ Nuevo widget</Link>
+          <Link href="/app/widgets/nuevo" className="btn primary">+ Añadir</Link>
         </div>
       ) : (
         <ul className="wg-grid">
@@ -91,11 +91,11 @@ export default function WidgetsApp() {
                           try {
                             await api(`/${w.id}/regenerate`, { method: "POST" });
                             cargar();
-                            decir("Nueva dirección creada: la anterior ya no funciona");
-                          } catch { decir("No se pudo cambiar la dirección"); }
+                            decir("Enlace nuevo creado: el anterior ya no funciona");
+                          } catch { decir("No se pudo crear el enlace nuevo"); }
                         }}
                       >
-                        Nueva dirección
+                        Crear un enlace nuevo
                       </button>
                       <button role="menuitem" type="button" className="warn" onClick={() => { setMenu(null); setBorrar(w); }}>Eliminar</button>
                     </div>
@@ -108,9 +108,9 @@ export default function WidgetsApp() {
       )}
 
       {items && items.length > 0 && items.length < max && (
-        <Link href="/app/widgets/nuevo" className="wg-fab" aria-label="Nuevo widget">
+        <Link href="/app/widgets/nuevo" className="wg-fab" aria-label="Añadir a mi pantalla">
           <span aria-hidden="true">+</span>
-          <b>Nuevo widget</b>
+          <b>Añadir a mi pantalla</b>
         </Link>
       )}
 
@@ -118,7 +118,7 @@ export default function WidgetsApp() {
       {instalar && <InstallDialog widget={instalar} onClose={() => setInstalar(null)} />}
       {borrar && (
         <Confirmar
-          texto={`«${borrar.name}» se eliminará y su dirección dejará de funcionar. Tus fotos y notas no se tocan.`}
+          texto={`«${borrar.name}» se quitará de tu pantalla y su enlace dejará de funcionar. Tus fotos y notas no se tocan.`}
           si="Eliminar"
           onNo={() => setBorrar(null)}
           onSi={async () => {

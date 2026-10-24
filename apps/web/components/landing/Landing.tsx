@@ -58,7 +58,7 @@ export default function Landing({
       <main id="contenido" tabIndex={-1}>
         <section className="hero" id="empezar" aria-labelledby="hero-h">
           {authError && !loggedIn && (
-            <p className="gift gift-err rise" role="alert">No pudimos iniciar tu sesión. Inténtalo otra vez o entra con tu correo.</p>
+            <p className="gift gift-err rise" role="alert">No pudimos dejarte entrar. Inténtalo otra vez o entra con tu correo.</p>
           )}
           {goodbye && !loggedIn && (
             <p className="gift rise" role="status">Tu cuenta y tus archivos se han borrado. ¡Gracias por probar Upscale!</p>

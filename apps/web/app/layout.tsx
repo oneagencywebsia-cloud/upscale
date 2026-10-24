@@ -16,7 +16,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     metadataBase: new URL(await siteUrl()),
     title: { default: "Upscale", template: "%s · Upscale" },
-    description: "Guarda tus fotos, vídeos y audio en su calidad original, sin recomprimir.",
+    description: "Guarda tus fotos, vídeos y música en su calidad original, sin perder nada.",
     applicationName: "Upscale",
     category: "technology",
     manifest: "/manifest.webmanifest",
@@ -55,7 +55,7 @@ export const viewport: Viewport = {
   interactiveWidget: "resizes-content",
 };
 
-const THEME_INIT = `try{var d=document.documentElement,t=localStorage.getItem('upscale-theme');if(t)d.setAttribute('data-theme',t);var m=localStorage.getItem('upscale-motion');if(m==='off'||m==='on')d.setAttribute('data-motion',m)}catch(e){}`;
+const THEME_INIT = `try{var d=document.documentElement,t=localStorage.getItem('upscale-theme');if(t)d.setAttribute('data-theme',t);var z=localStorage.getItem('upscale-letra');if(z==='1'||z==='2')d.setAttribute('data-letra',z);var m=localStorage.getItem('upscale-motion');if(m==='off'||m==='on')d.setAttribute('data-motion',m)}catch(e){}`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

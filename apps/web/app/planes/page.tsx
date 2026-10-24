@@ -55,8 +55,8 @@ export default async function Page() {
       <h2>Qué incluye el plan Gratis</h2>
       <ul>
         {free.perks.map((x) => <li key={x}>{x}</li>)}
-        <li>Descargas en formato Original o Compatible</li>
-        <li>Descarga de toda tu biblioteca en un ZIP cuando quieras</li>
+        <li>Descargas tal cual (Original) o fáciles de abrir</li>
+        <li>Descarga de toda tu biblioteca cuando quieras</li>
       </ul>
 
       <h2>Gana espacio gratis</h2>

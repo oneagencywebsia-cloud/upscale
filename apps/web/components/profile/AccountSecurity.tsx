@@ -58,7 +58,7 @@ export default function AccountSecurity({ email, providers }: { email: string; p
   }
 
   async function signOut(scope: "local" | "global") {
-    if (scope === "global" && !confirm("¿Cerrar la sesión en TODOS tus dispositivos, incluido este?")) return;
+    if (scope === "global" && !confirm("¿Salir de Upscale en TODOS tus aparatos, también en este?")) return;
     setOutBusy(scope === "local" ? "here" : "all");
     await supabaseBrowser().auth.signOut({ scope });
     router.push("/");
@@ -134,10 +134,10 @@ export default function AccountSecurity({ email, providers }: { email: string; p
 
       <div className="pform-actions">
         <button className="btn sm" type="button" disabled={outBusy !== null} onClick={() => signOut("local")}>
-          {outBusy === "here" ? "Saliendo…" : "Cerrar sesión aquí"}
+          {outBusy === "here" ? "Saliendo…" : "Salir de este aparato"}
         </button>
         <button className="btn ghost sm" type="button" disabled={outBusy !== null} onClick={() => signOut("global")}>
-          {outBusy === "all" ? "Saliendo…" : "Cerrar sesión en todos los dispositivos"}
+          {outBusy === "all" ? "Saliendo…" : "Salir en todos mis aparatos"}
         </button>
       </div>
     </div>

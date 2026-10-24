@@ -31,7 +31,7 @@ export default function AlbumActions({ albumId, albumName }: { albumId: string; 
         Añadir fotos
       </motion.button>
       <Link href={`/app/widgets/nuevo?tipo=album&album=${albumId}`} className="btn ghost sm">
-        Widget del álbum
+        Álbum en mi pantalla
       </Link>
       {open && <AlbumPicker albumId={albumId} albumName={albumName} onClose={() => setOpen(false)} />}
     </>

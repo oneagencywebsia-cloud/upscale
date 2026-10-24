@@ -73,11 +73,11 @@ export default function InstallDialog({ widget, onClose }: { widget: Widget; onC
 
   return createPortal(
     <div className="nmodal id-modal" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="nmodal-box wide id-box" role="dialog" aria-modal="true" aria-label="Poner el widget en tu pantalla" tabIndex={-1} ref={ref}>
+      <div className="nmodal-box wide id-box" role="dialog" aria-modal="true" aria-label="Ponlo en tu pantalla" tabIndex={-1} ref={ref}>
         <div className="id-cab">
           <div>
             <h2>Ponlo en tu pantalla</h2>
-            <p>«{widget.name}» se actualiza solo.</p>
+            <p>«{widget.name}» se pone al día solo.</p>
           </div>
           <button type="button" className="btn primary sm" onClick={onClose}>Listo</button>
         </div>
@@ -86,7 +86,7 @@ export default function InstallDialog({ widget, onClose }: { widget: Widget; onC
           <Opciones
             etiqueta="Cómo quieres verlo"
             valor={modo}
-            opciones={[["fondo", "Fondo de pantalla"], ["widget", "Widget"], ["marco", "Marco de fotos"]]}
+            opciones={[["fondo", "Fondo de pantalla"], ["widget", "Pantalla de inicio"], ["marco", "Marco de fotos"]]}
             onChange={setModo}
             columnas={3}
           />
@@ -117,17 +117,17 @@ export default function InstallDialog({ widget, onClose }: { widget: Widget; onC
                   <Paso n={1} texto={<><b>Instala Scriptable</b> (es gratis).</>}>
                     <a className="btn id-grande" href="https://apps.apple.com/app/scriptable/id1405459188" target="_blank" rel="noopener noreferrer">Abrir en la App Store</a>
                   </Paso>
-                  <Paso n={2} texto={<><b>Copia el script</b> de este widget.</>}>
-                    <Copiar texto={script} etiqueta="Copiar el script" grande />
+                  <Paso n={2} texto={<><b>Copia el código</b> de este elemento.</>}>
+                    <Copiar texto={script} etiqueta="Copiar el código" grande />
                   </Paso>
                   <Paso n={3} texto={<><b>Pégalo en Scriptable</b>: ábrela, pulsa <b>+</b>, pega y guarda.</>}>
                     <a className="btn id-grande" href="scriptable:///">Abrir Scriptable</a>
                   </Paso>
-                  <Paso n={4} texto={<><b>Añade el widget</b>: mantén pulsada la pantalla de inicio → <b>+</b> → <b>Scriptable</b> → elige el tamaño → <b>Añadir</b>. Toca el widget, después <b>Script</b>, y elige el tuyo.</>} />
+                  <Paso n={4} texto={<><b>Colócalo</b>: mantén pulsado un hueco de la pantalla de inicio → <b>+</b> → <b>Scriptable</b> → elige el tamaño → <b>Añadir</b>. Toca el widget, después <b>Script</b>, y elige el tuyo.</>} />
                 </ol>
               ) : (
                 <ol className="id-pasos">
-                  <Paso n={1} texto={<>Android no deja a una web crear widgets. Usa una app de widgets que muestre una <b>imagen desde internet</b>, por ejemplo <b>KWGT</b>.</>}>
+                  <Paso n={1} texto={<>En Android hace falta una app gratuita que enseñe una <b>imagen de internet</b>, por ejemplo <b>KWGT</b>.</>}>
                     <a className="btn id-grande" href="https://play.google.com/store/apps/details?id=org.kustom.widget" target="_blank" rel="noopener noreferrer">Ver KWGT en Google Play</a>
                   </Paso>
                   <Paso n={2} texto={<><b>Copia la dirección</b> del tamaño que quieras y pégala en la app:</>}>
@@ -157,7 +157,7 @@ export default function InstallDialog({ widget, onClose }: { widget: Widget; onC
             </div>
           )}
 
-          <p className="id-aviso">🔒 Quien tenga esta dirección ve <b>solo este widget</b>, no tu cuenta ni tus originales. Si la compartes sin querer, en «Mis widgets» toca <b>⋯ → Nueva dirección</b> y la anterior deja de funcionar.</p>
+          <p className="id-aviso">🔒 Quien tenga este enlace ve <b>solo esto</b>, no tu cuenta ni tus archivos originales. Si lo compartes sin querer, en «En mi pantalla» toca <b>⋯ → Crear un enlace nuevo</b> y el anterior deja de funcionar.</p>
         </div>
       </div>
     </div>,

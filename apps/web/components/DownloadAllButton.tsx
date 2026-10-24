@@ -4,7 +4,7 @@ import { useState } from "react";
 import DownloadSheet from "./DownloadSheet";
 
 /** «Descargar todo» para páginas del servidor (Ajustes): abre la hoja con tamaño y partes. */
-export default function DownloadAllButton({ label = "Descargar todo (ZIP)" }: { label?: string }) {
+export default function DownloadAllButton({ label = "Descargar todo" }: { label?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <>

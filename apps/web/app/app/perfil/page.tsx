@@ -59,7 +59,6 @@ export default async function PerfilPage() {
     { k: "Elementos", v: st ? st.count.toLocaleString("es-ES") : "—", hint: "fotos y vídeos" },
     { k: "Espacio usado", v: st ? bytesHuman(st.usedBytes) : "—", hint: "originales íntegros" },
     { k: "Álbumes", v: al ? al.length.toLocaleString("es-ES") : "—" },
-    { k: "Tokens de subida", v: tk ? tk.length.toLocaleString("es-ES") : "—", hint: "Atajo de iOS" },
     { k: "Cuenta creada", v: fmt(DAY, user.created_at) },
     { k: "Último acceso", v: fmt(DAY_TIME, user.last_sign_in_at) },
   ];
@@ -132,7 +131,7 @@ export default async function PerfilPage() {
       <section className="panel">
         <h3>Más</h3>
         <p className="panel-lede">
-          <Link href="/app/espacio">Espacio y plan</Link> · <Link href="/app/widgets">Widgets</Link> · <Link href="/app/ajustes">Ajustes</Link> ·{" "}
+          <Link href="/app/espacio">Espacio y plan</Link> · <Link href="/app/widgets">En mi pantalla</Link> · <Link href="/app/ajustes">Ajustes</Link> ·{" "}
           <Link href="/app/ajustes#borrar">Borrar mi cuenta</Link> · <Link href="/privacidad">Privacidad</Link> ·{" "}
           <Link href="/terminos">Términos</Link>
         </p>
