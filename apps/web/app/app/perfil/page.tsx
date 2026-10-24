@@ -132,7 +132,7 @@ export default async function PerfilPage() {
       <section className="panel">
         <h3>Más</h3>
         <p className="panel-lede">
-          <Link href="/app/espacio">Espacio y plan</Link> · <Link href="/app/ajustes">Ajustes</Link> ·{" "}
+          <Link href="/app/espacio">Espacio y plan</Link> · <Link href="/app/widgets">Widgets</Link> · <Link href="/app/ajustes">Ajustes</Link> ·{" "}
           <Link href="/app/ajustes#borrar">Borrar mi cuenta</Link> · <Link href="/privacidad">Privacidad</Link> ·{" "}
           <Link href="/terminos">Términos</Link>
         </p>

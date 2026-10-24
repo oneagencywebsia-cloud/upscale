@@ -115,6 +115,9 @@ export default function TopBar({ profile, photoUrl }: { profile: Profile; photoU
             <Link role="menuitem" href="/app/perfil" onClick={navClick("/app/perfil", pathname === "/app/perfil")}>
               Mi perfil
             </Link>
+            <Link role="menuitem" href="/app/widgets" onClick={navClick("/app/widgets", pathname.startsWith("/app/widgets"))}>
+              Widgets
+            </Link>
             <Link role="menuitem" href="/app/ajustes" onClick={navClick("/app/ajustes", pathname === "/app/ajustes")}>
               Ajustes de subida
             </Link>

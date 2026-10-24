@@ -212,53 +212,100 @@ function Biblioteca({ onClose, onElegir, ya }: { onClose: () => void; onElegir: 
   const [items, setItems] = useState<AssetListResponse["items"] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState(false);
-  const [mas, setMas] = useState(false);
+  const [cargando, setCargando] = useState(false);
+  const [q, setQ] = useState("");
+  const [consulta, setConsulta] = useState("");
+  const lista = useRef<HTMLDivElement>(null);
+  const centinela = useRef<HTMLDivElement>(null);
+  const peticion = useRef(0);
 
-  async function cargar(c?: string) {
+  useEffect(() => {
+    const t = window.setTimeout(() => setConsulta(q.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [q]);
+
+  async function cargar(c: string | null, nueva: boolean) {
+    const mi = ++peticion.current;
+    setCargando(true);
     try {
-      const p = new URLSearchParams({ kind: "photo", limit: "60", sort: "added" });
+      const p = new URLSearchParams({ kind: "photo", limit: "120", sort: "added" });
+      if (consulta) p.set("q", consulta);
       if (c) p.set("cursor", c);
       const r = await fetch(`/api/assets?${p}`, { cache: "no-store" });
       if (!r.ok) throw new Error();
       const d = (await r.json()) as AssetListResponse;
-      setItems((prev) => (c && prev ? [...prev, ...d.items] : d.items));
+      if (mi !== peticion.current) return; // llegó tarde: otra búsqueda manda
+      setItems((prev) => (!nueva && prev ? [...prev, ...d.items] : d.items));
       setCursor(d.nextCursor);
+      setError(false);
     } catch {
-      setError(true);
+      if (mi === peticion.current) setError(true);
+    } finally {
+      if (mi === peticion.current) setCargando(false);
     }
   }
+
+  // empieza de cero al abrir y cada vez que cambia la búsqueda
   useEffect(() => {
-    void cargar();
+    setItems(null);
+    setCursor(null);
+    void cargar(null, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [consulta]);
+
+  // al llegar al final de la lista se piden más (toda la biblioteca, sin botón escondido)
+  useEffect(() => {
+    const el = centinela.current;
+    if (!el || !cursor || cargando || error) return;
+    const io = new IntersectionObserver(([e]) => e.isIntersecting && void cargar(cursor, false), { root: lista.current, rootMargin: "400px" });
+    io.observe(el);
+    return () => io.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cursor, cargando, error, items]);
+
+  useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [onClose]);
 
   return createPortal(
     <div className="nmodal" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="nmodal-box wide" role="dialog" aria-modal="true" aria-label="Elegir una imagen de la biblioteca" tabIndex={-1} ref={ref}>
-        <h2>Elige una imagen</h2>
-        {error ? (
-          <p className="sp-warn" role="alert">No se pudo cargar tu biblioteca.</p>
-        ) : items === null ? (
-          <p className="nocr-wait" role="status"><span className="nspin" aria-hidden="true" /> Cargando…</p>
-        ) : items.length === 0 ? (
-          <p className="natt-hint">Todavía no tienes fotos en la biblioteca.</p>
-        ) : (
-          <ul className="nlib">
-            {items.map((a) => (
-              <li key={a.id}>
-                <button type="button" disabled={ya.has(a.id)} onClick={() => onElegir(a.id, a.filename)} aria-label={`${a.filename}${ya.has(a.id) ? " (ya adjunta)" : ""}`}>
-                  <img src={a.thumbUrl} alt="" loading="lazy" decoding="async" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <div className="nmodal-acts">
-          {cursor && <button type="button" className="btn ghost" disabled={mas} onClick={async () => { setMas(true); await cargar(cursor); setMas(false); }}>Cargar más</button>}
-          <button type="button" className="btn" onClick={onClose}>Cerrar</button>
+      <div className="nmodal-box wide nlib-box" role="dialog" aria-modal="true" aria-label="Elegir una imagen de la biblioteca" tabIndex={-1} ref={ref}>
+        <div className="nlib-head">
+          <h2>Elige una imagen</h2>
+          <button type="button" className="btn sm" onClick={onClose}>Cerrar</button>
+        </div>
+        <input
+          type="search"
+          className="nlib-q"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Buscar por nombre o fecha…"
+          aria-label="Buscar en tu biblioteca"
+        />
+        <div className="nlib-scroll" ref={lista}>
+          {error && items === null ? (
+            <p className="sp-warn" role="alert">No se pudo cargar tu biblioteca. <button type="button" className="btn sm" onClick={() => void cargar(null, true)}>Reintentar</button></p>
+          ) : items === null ? (
+            <p className="nocr-wait" role="status"><span className="nspin" aria-hidden="true" /> Cargando…</p>
+          ) : items.length === 0 ? (
+            <p className="natt-hint">{consulta ? "No hay fotos que coincidan." : "Todavía no tienes fotos en la biblioteca."}</p>
+          ) : (
+            <ul className="nlib">
+              {items.map((a) => (
+                <li key={a.id}>
+                  <button type="button" disabled={ya.has(a.id)} onClick={() => onElegir(a.id, a.filename)} aria-label={`${a.filename}${ya.has(a.id) ? " (ya adjunta)" : ""}`}>
+                    <img src={a.thumbUrl} alt="" loading="lazy" decoding="async" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div ref={centinela} className="nlib-end" aria-hidden="true" />
+          {cargando && items !== null && <p className="nocr-wait" role="status"><span className="nspin" aria-hidden="true" /> Cargando más…</p>}
+          {error && items !== null && <p className="sp-warn" role="alert">No se pudieron cargar más. <button type="button" className="btn sm" onClick={() => void cargar(cursor, false)}>Reintentar</button></p>}
+          {items !== null && items.length > 0 && !cursor && !cargando && <p className="natt-hint nlib-fin">Esas son todas tus fotos{consulta ? " para esta búsqueda" : ""} ({items.length.toLocaleString("es-ES")}).</p>}
         </div>
       </div>
     </div>,

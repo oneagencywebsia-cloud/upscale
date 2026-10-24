@@ -11,12 +11,14 @@ FROM node:20-bookworm-slim AS base
 # de 10 bits (HDR) — salían sin miniatura. Se instala libheif 1.19 + plugin
 # libde265 desde bookworm-backports; vips e ImageMagick lo cogen por la lib
 # compartida. fonts-dejavu-core: el nombre en las portadas de audio generadas.
+# tesseract (libre, local): lee el texto de las capturas de las notas (docs/NOTAS.md).
 # exiftool: última vía — saca el JPEG incrustado que TODO HEIC del
 # iPhone lleva dentro (8 bits, sin decodificar HEVC: no puede fallar).
 RUN echo 'deb http://deb.debian.org/debian bookworm-backports main' > /etc/apt/sources.list.d/backports.list \
   && apt-get update \
   && apt-get install -y --no-install-recommends \
        ffmpeg ca-certificates imagemagick libimage-exiftool-perl fonts-dejavu-core \
+       tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng \
   && apt-get install -y --no-install-recommends -t bookworm-backports \
        libheif1 libheif-plugin-libde265 libheif-examples libvips-tools \
   && rm -rf /var/lib/apt/lists/*

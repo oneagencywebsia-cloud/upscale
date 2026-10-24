@@ -49,12 +49,30 @@ export async function POST(request: Request) {
         "x-filename": encodeURIComponent(file.name || "IMG.bin"),
         "content-type": file.type || "application/octet-stream",
         "x-captured-at": new Date(file.lastModified || Date.now()).toISOString(),
+        // el tamaño exacto: la API comprueba cuota y que el archivo llegue entero (sin él, no se podía)
+        "content-length": String(file.size),
       },
       body: file.stream(),
       // @ts-expect-error -- requerido por undici para body de tipo stream
       duplex: "half",
     }).catch(() => null);
     if (res && res.ok) ok++;
+  }
+
+  // Sin archivos pero con texto o un enlace (Compartir desde el navegador, Notas, WhatsApp…): se guarda como nota.
+  if (!files.length && form) {
+    const campo = (n: string) => (typeof form.get(n) === "string" ? (form.get(n) as string).trim() : "");
+    const titulo = campo("title").slice(0, 200);
+    const texto = [campo("text"), campo("url")].filter(Boolean).join("\n\n").slice(0, 50_000);
+    if (titulo || texto) {
+      const res = await fetch(`${API}/v1/notes`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ title: titulo, text: texto }),
+      }).catch(() => null);
+      const nota = res && res.ok ? ((await res.json().catch(() => null)) as { id?: string } | null) : null;
+      if (nota?.id) return NextResponse.redirect(publicUrl(`/app/notas/${nota.id}`, request), 303);
+    }
   }
 
   return NextResponse.redirect(publicUrl(`/app?shared=${ok}`, request), 303);
