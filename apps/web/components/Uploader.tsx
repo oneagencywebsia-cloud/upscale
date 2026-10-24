@@ -11,6 +11,23 @@ import { bytesHuman } from "@/lib/format";
 const sizeHuman = (b: number) => (b >= 1024 ** 3 ? gbHuman(b) : bytesHuman(Math.max(0, b)));
 
 /**
+ * Solo en iPhone/iPad: lista EXPLÍCITA de tipos (sin comodines como `image/*` o `video/*`).
+ * Hipótesis a comprobar en un iPhone real: Safari convierte lo que elige el usuario de la Fototeca
+ * a un formato «compatible» (HEVC → H.264, a ≤30 fps y sin HDR; HEIC → JPEG) cuando la página pide
+ * un comodín, y entrega el original cuando la página nombra su tipo (HEIC, QuickTime…). Un vídeo de
+ * iPhone 13 en 4K a 54 fps y Dolby Vision (HEVC, 27 MB) llegó como H.264 a 27 fps (6 MB).
+ * En el resto de sistemas se queda SIN `accept` (en Windows uno esconde archivos del iPhone).
+ */
+const ACEPTAR_IOS = [
+  "image/heic", "image/heif", "image/jpeg", "image/png", "image/gif", "image/webp", "image/tiff", "image/avif", "image/x-adobe-dng",
+  "video/quicktime", "video/mp4", "video/x-m4v", "video/hevc",
+  "audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/aac", "audio/wav", "audio/x-wav", "audio/flac", "audio/ogg", "audio/x-caf",
+  ".heic", ".heif", ".mov", ".mp4", ".m4v", ".m4a", ".mp3", ".dng", ".caf",
+].join(",");
+
+const esIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+/**
  * Subida de archivos — pensada para que no haga falta explicarla:
  *  - un solo botón «Subir» (en el iPhone el sistema ya ofrece Fototeca / Hacer
  *    foto / Archivos) y, en el ordenador, ARRASTRAR Y SOLTAR en cualquier parte
@@ -262,6 +279,8 @@ export default function Uploader({ onDone }: { onDone: () => void }) {
   const overall = Math.round(
     real.reduce((s, j) => s + j.size * (j.phase === "done" || j.phase === "dup" || j.phase === "error" ? 100 : j.pct), 0) / totalBytes,
   );
+  const [ios, setIos] = useState(false);
+  useEffect(() => setIos(esIOS()), []);
   const anyDegraded = jobs.some((j) => j.degraded);
 
   // cerrar la pestaña a mitad de una subida de varios GB la tira entera
@@ -610,7 +629,7 @@ export default function Uploader({ onDone }: { onDone: () => void }) {
     <>
       {/* Sin `accept` a propósito: con uno, Windows a veces esconde archivos del iPhone (HEIC,
           Live Photos…) antes de que la app los vea. Lo que no sea foto, vídeo o audio se avisa aquí. */}
-      <input ref={input} type="file" multiple hidden onChange={onPick} />
+      <input ref={input} type="file" multiple hidden onChange={onPick} accept={ios ? ACEPTAR_IOS : undefined} />
       <motion.button
         className="upload"
         type="button"
