@@ -62,6 +62,7 @@ export default function Scrolly({ escena, capitulos, efectos = [] }: { escena: I
       escenario.style.setProperty("--cy", `${(H / 2 + (ancho ? 0 : -H * 0.17)).toFixed(0)}px`);
     };
 
+    const cache = Array.from({ length: N }, () => ({ w: -1, r: -1 }));
     const pintar = (p: number) => {
       const c = p * (N_CAPITULOS - 1);
       const i = Math.min(N_CAPITULOS - 2, Math.floor(c));
@@ -82,11 +83,20 @@ export default function Scrolly({ escena, capitulos, efectos = [] }: { escena: I
         const s = mezcla(a.s, b.s, t) * escala;
         const asp = mezcla(a.a, b.a, t);
         const nodo = formas[k]!;
-        // el ancho cambia con la proporción (así las fotos de dentro no se deforman); lo demás, solo transform
-        nodo.style.width = `${(100 * asp).toFixed(1)}px`;
+        // El ancho y el redondeo repintan la capa: solo se tocan cuando cambian de verdad (>1 %)
+        const anchoPx = Math.round(100 * asp);
+        const rad = Math.round(mezcla(a.r, b.r, t));
+        const ant = cache[k]!;
+        if (ant.w !== anchoPx) {
+          nodo.style.width = `${anchoPx}px`;
+          ant.w = anchoPx;
+        }
+        if (ant.r !== rad) {
+          nodo.style.borderRadius = `${rad}%`;
+          ant.r = rad;
+        }
         nodo.style.transform = `translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,0) rotate(${mezcla(a.g, b.g, t).toFixed(1)}deg) scale(${(s / 100).toFixed(4)}) translate(-50%,-50%)`;
         nodo.style.opacity = mezcla(a.o, b.o, t).toFixed(2);
-        nodo.style.borderRadius = `${mezcla(a.r, b.r, t).toFixed(1)}%`;
       }
       // texto: cada capítulo se ve cerca de su momento; los botones solo se pueden pulsar en el suyo
       for (let j = 0; j < caps.length; j++) {
@@ -94,6 +104,7 @@ export default function Scrolly({ escena, capitulos, efectos = [] }: { escena: I
         const v = Math.max(0, 1 - Math.abs(d) * 2.1);
         const cap = caps[j]!;
         cap.style.opacity = v.toFixed(2);
+        cap.style.visibility = v > 0.01 ? "visible" : "hidden";
         cap.style.transform = `translate3d(0,${(-d * 38).toFixed(1)}px,0)`;
         cap.style.pointerEvents = v > 0.55 ? "auto" : "none";
         cap.toggleAttribute("inert", v < 0.4);
@@ -103,7 +114,6 @@ export default function Scrolly({ escena, capitulos, efectos = [] }: { escena: I
       for (let j = 0; j < fondos.length; j++) {
         const o = Math.max(0, 1 - Math.abs(c - j));
         fondos[j]!.style.opacity = o.toFixed(3);
-        fondos[j]!.style.transform = `scale(${(1 + (c - j) * 0.06).toFixed(3)})`;
         fondos[j]!.dataset.act = o > 0.02 ? "1" : "0";
       }
     };
@@ -150,6 +160,8 @@ export default function Scrolly({ escena, capitulos, efectos = [] }: { escena: I
     ro.observe(el);
     const io = new IntersectionObserver((es) => {
       visible = es[0]?.isIntersecting ?? true;
+      // fuera de pantalla la escena entera deja de existir para el compositor (menos capas, menos memoria)
+      el.dataset.vis = visible ? "1" : "0";
       if (visible) pedir();
     }, { rootMargin: "200px 0px" });
     io.observe(el);
