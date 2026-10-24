@@ -9106,7 +9106,7 @@ html[data-letra="2"] { zoom: 1.3; }
    ====================================================================== */
 .sc {
   position: relative;
-  height: calc(100svh + (var(--n) - 1) * 88svh);
+  height: calc(100svh + (var(--n) - 1) * 135svh);
 }
 .sc-escenario {
   position: sticky;
