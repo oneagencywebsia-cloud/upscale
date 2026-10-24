@@ -15,7 +15,8 @@ export default function WidgetsApp() {
   const [instalar, setInstalar] = useState<Widget | null>(null);
   const [borrar, setBorrar] = useState<Widget | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
-  const [v, setV] = useState(() => Date.now()); // para refrescar las vistas
+  const [v] = useState(() => Date.now()); // para refrescar las vistas
+  const [menu, setMenu] = useState<string | null>(null);
 
   const cargar = useCallback(() => {
     api<{ items: Widget[]; max: number }>("")
@@ -23,6 +24,19 @@ export default function WidgetsApp() {
       .catch((e) => setError(e instanceof ErrorWidgets && e.status === 401 ? "Tu sesión ha caducado. Vuelve a entrar." : "No se pudieron cargar tus widgets."));
   }, []);
   useEffect(cargar, [cargar]);
+
+  // cerrar el menú «⋯» al tocar fuera o con Escape
+  useEffect(() => {
+    if (!menu) return;
+    const fuera = (e: Event) => !(e.target as HTMLElement).closest(".wg-menu-wrap") && setMenu(null);
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setMenu(null);
+    document.addEventListener("pointerdown", fuera);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("pointerdown", fuera);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [menu]);
 
   const decir = (t: string) => { setAviso(t); window.setTimeout(() => setAviso(null), 5000); };
 
@@ -33,7 +47,7 @@ export default function WidgetsApp() {
           <h2>Widgets<span className="lh-flourish" aria-hidden="true" /></h2>
           <p>{items ? (items.length === 1 ? "1 widget" : `${items.length} widgets`) : " "}</p>
         </div>
-        <Link href="/app/widgets/nuevo" className="btn primary" aria-disabled={items ? items.length >= max : false}>+ Nuevo widget</Link>
+        <Link href="/app/widgets/nuevo" className="btn primary wg-nuevo">+ Nuevo widget</Link>
       </div>
 
       <p className="wg-intro">Pon tus fotos, notas y álbumes en la pantalla de inicio, de fondo de pantalla o como marco de fotos. Elige qué enseñar y Upscale lo mantiene al día.</p>
@@ -63,26 +77,41 @@ export default function WidgetsApp() {
                 </div>
               </div>
               <div className="wg-acts">
-                <button type="button" className="btn sm primary" onClick={() => setInstalar(w)}>Poner en pantalla</button>
-                <Link href={`/app/widgets/${w.id}`} className="btn sm ghost">Editar</Link>
-                <button
-                  type="button"
-                  className="btn sm ghost"
-                  onClick={async () => {
-                    try {
-                      await api(`/${w.id}/regenerate`, { method: "POST" });
-                      cargar();
-                      decir("Nueva dirección creada: la anterior ya no funciona");
-                    } catch { decir("No se pudo cambiar la dirección"); }
-                  }}
-                >
-                  Nueva dirección
-                </button>
-                <button type="button" className="btn sm ghost warn" onClick={() => setBorrar(w)}>Eliminar</button>
+                <button type="button" className="btn primary" onClick={() => setInstalar(w)}>Poner en pantalla</button>
+                <Link href={`/app/widgets/${w.id}`} className="btn ghost">Editar</Link>
+                <span className="wg-menu-wrap">
+                  <button type="button" className="btn ghost wg-mas" aria-label={`Más acciones de ${w.name}`} aria-haspopup="menu" aria-expanded={menu === w.id} onClick={() => setMenu(menu === w.id ? null : w.id)}>⋯</button>
+                  {menu === w.id && (
+                    <div className="ned-menu wg-menu" role="menu">
+                      <button
+                        role="menuitem"
+                        type="button"
+                        onClick={async () => {
+                          setMenu(null);
+                          try {
+                            await api(`/${w.id}/regenerate`, { method: "POST" });
+                            cargar();
+                            decir("Nueva dirección creada: la anterior ya no funciona");
+                          } catch { decir("No se pudo cambiar la dirección"); }
+                        }}
+                      >
+                        Nueva dirección
+                      </button>
+                      <button role="menuitem" type="button" className="warn" onClick={() => { setMenu(null); setBorrar(w); }}>Eliminar</button>
+                    </div>
+                  )}
+                </span>
               </div>
             </li>
           ))}
         </ul>
+      )}
+
+      {items && items.length > 0 && items.length < max && (
+        <Link href="/app/widgets/nuevo" className="wg-fab" aria-label="Nuevo widget">
+          <span aria-hidden="true">+</span>
+          <b>Nuevo widget</b>
+        </Link>
       )}
 
       <div className="ntoast-wrap" aria-live="polite">{aviso && <div className="ntoast" role="status"><span>{aviso}</span></div>}</div>

@@ -43,6 +43,14 @@ Todo se actualiza solo: si cambias la nota, la foto o el álbum, el widget cambi
 Con sesión: `GET/POST /v1/widgets` · `PATCH/DELETE /v1/widgets/:id` · `POST /v1/widgets/:id/regenerate` · `POST /v1/widgets/preview` (dibuja sin guardar) · `GET /v1/widgets/:id/image` (con `download=1` y `wallpaper=1`).
 Pública: `GET /v1/w/<llave>.png|.jpg|.json` (el `.json` da los datos de la nota/espacio/álbum para apps que quieran pintarlos ellas).
 
+## En el móvil
+
+- **Asistente de una decisión por pantalla** (qué → contenido → aspecto), con barra de progreso y una barra de acciones fija abajo que ocupa el sitio de las pestañas (`body[data-enfoque]`). La vista previa ya no es «fija» (en pantallas pequeñas se pisaba con el contenido): va en bloque, solo cuando ya hay algo que enseñar.
+- **Un toque**: «Mis recuerdos de hoy», «Mosaico de mis últimas/favoritas» y «Mi espacio» se crean sin elegir nada y abren directamente «Ponlo en tu pantalla».
+- **Desde la biblioteca**: *Seleccionar* → marcar fotos → **Widget** abre el asistente ya en el paso 2 con esas fotos (`/app/widgets/nuevo?fotos=id,id`).
+- **Medidas**: botones de al menos 48 px, tipos en 2 columnas, fotos en cuadrícula de 3, álbumes y notas como filas anchas con miniatura, campos de 16 px (iOS no hace zoom), selector de fotos e «instalar» como hojas a pantalla completa con la acción abajo y márgenes de zona segura.
+- **Instalar**: tres caminos (Fondo de pantalla, Widget, Marco de fotos); el Widget se divide en iPhone (pasos numerados con botones a la App Store y a Scriptable) y Android (KWGT).
+
 ## Dónde se crean
 
 Menú de la cuenta → **Widgets**; «Poner en mi pantalla (widget)» en el menú «Más» de cada nota; «Widget del álbum» en cada álbum.

@@ -6,8 +6,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { Album, AssetDetail } from "@upscale/shared";
 import FotoPicker from "./FotoPicker";
 import InstallDialog from "./InstallDialog";
+import Opciones from "./Opciones";
 import { api, ErrorWidgets, TALLAS, TIPOS, type ConfigWidget, type Rotacion, type Talla, type TipoWidget, type Widget } from "@/lib/widgets";
 import { api as apiNotas, type NoteListItem, type NoteListResponse } from "@/lib/notes";
+import { useMovil } from "@/lib/dispositivo";
 
 const ROTACIONES: [Rotacion, string][] = [
   ["fija", "Siempre la misma"],
@@ -15,38 +17,45 @@ const ROTACIONES: [Rotacion, string][] = [
   ["hora", "Cambia cada hora"],
   ["vez", "Cambia cada vez"],
 ];
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function Seg<T extends string | number>({ label, value, opciones, onChange }: { label: string; value: T | undefined; opciones: [T, string][]; onChange: (v: T) => void }) {
-  return (
-    <div className="sp-seg" role="group" aria-label={label}>
-      {opciones.map(([v, t]) => (
-        <button key={String(v)} type="button" aria-pressed={value === v} onClick={() => onChange(v)}>
-          {t}
-        </button>
-      ))}
-    </div>
-  );
-}
+/** Widgets que no necesitan elegir nada: un toque y listos. */
+const RAPIDOS: { titulo: string; desc: string; kind: TipoWidget; config: ConfigWidget; icono: string }[] = [
+  { titulo: "Mis recuerdos de hoy", desc: "Fotos de este día en otros años", kind: "recuerdos", config: { rotar: "dia" }, icono: TIPOS.find((t) => t.id === "recuerdos")!.icono },
+  { titulo: "Mosaico de mis últimas fotos", desc: "Lo último que has subido", kind: "coleccion", config: { origen: "recientes", celdas: 4, rotar: "dia", hueco: 6 }, icono: TIPOS.find((t) => t.id === "coleccion")!.icono },
+  { titulo: "Mosaico de mis favoritas", desc: "Las fotos con ★", kind: "coleccion", config: { origen: "favoritas", celdas: 4, rotar: "dia", hueco: 6 }, icono: "M12 17.3 6.2 20l1.1-6.3L2.5 9.2l6.4-.9L12 2.5l3.1 5.8 6.4.9-4.8 4.5L17.8 20z" },
+  { titulo: "Mi espacio", desc: "Cuánto llevas guardado", kind: "espacio", config: {}, icono: TIPOS.find((t) => t.id === "espacio")!.icono },
+];
 
-/** Constructor: tipo → contenido → aspecto, con vista previa en vivo. `id === "nuevo"` crea; si no, edita. */
+/**
+ * Constructor de widgets. En el móvil es un asistente de UNA decisión por pantalla (qué → contenido →
+ * aspecto) con la barra de acciones abajo; en pantallas grandes se ve todo junto con la vista previa al lado.
+ * `id === "nuevo"` crea; si no, edita. Se puede llegar con `?tipo=`, `?nota=`, `?album=` o `?fotos=id,id` (desde la galería).
+ */
 export default function WidgetBuilder({ id }: { id: string }) {
   const router = useRouter();
   const sp = useSearchParams();
+  const movil = useMovil();
   const nuevo = id === "nuevo";
+
+  const fotosUrl = useMemo(() => (sp.get("fotos") ?? "").split(",").filter((x) => UUID.test(x)).slice(0, 30), [sp]);
+  const tipoUrl = TIPOS.find((x) => x.id === sp.get("tipo"))?.id ?? (fotosUrl.length ? (fotosUrl.length > 1 ? "coleccion" : "foto") : null);
 
   const [existente, setExistente] = useState<Widget | null>(null);
   const [cargado, setCargado] = useState(nuevo);
   const [fallo, setFallo] = useState(false);
-  const [kind, setKind] = useState<TipoWidget | null>(() => {
-    const t = sp.get("tipo");
-    return TIPOS.some((x) => x.id === t) ? (t as TipoWidget) : null;
-  });
+  const [kind, setKind] = useState<TipoWidget | null>(tipoUrl);
   const [config, setConfig] = useState<ConfigWidget>(() => {
     const c: ConfigWidget = {};
     if (sp.get("nota")) c.noteId = sp.get("nota")!;
     if (sp.get("album")) c.albumId = sp.get("album")!;
+    if (fotosUrl.length) {
+      c.assetIds = fotosUrl;
+      if (fotosUrl.length > 1) Object.assign(c, { origen: "seleccion", celdas: fotosUrl.length >= 9 ? 9 : fotosUrl.length >= 6 ? 6 : 4, rotar: "fija", hueco: 6 });
+    }
     return c;
   });
+  const [paso, setPaso] = useState<1 | 2 | 3>(tipoUrl ? 2 : 1);
   const [nombre, setNombre] = useState("");
   const [talla, setTalla] = useState<Talla>("medium");
   const [guardando, setGuardando] = useState(false);
@@ -56,6 +65,15 @@ export default function WidgetBuilder({ id }: { id: string }) {
   const [albumes, setAlbumes] = useState<Album[] | null>(null);
   const [notas, setNotas] = useState<NoteListItem[] | null>(null);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
+
+  // asistente en el móvil: sin la barra de pestañas (la barra de acciones ocupa su sitio)
+  useEffect(() => {
+    if (!movil) return;
+    document.body.dataset.enfoque = "1";
+    return () => {
+      delete document.body.dataset.enfoque;
+    };
+  }, [movil]);
 
   // editar: cargar el widget
   useEffect(() => {
@@ -68,12 +86,12 @@ export default function WidgetBuilder({ id }: { id: string }) {
         setKind(w.kind);
         setConfig(w.config);
         setNombre(w.name);
+        setPaso(2);
         setCargado(true);
       })
       .catch(() => setFallo(true));
   }, [id, nuevo]);
 
-  // listas para elegir (álbumes y notas) solo cuando hacen falta
   const necesitaAlbumes = kind === "album" || (kind === "coleccion" && config.origen === "album");
   useEffect(() => {
     if (!necesitaAlbumes || albumes) return;
@@ -84,7 +102,6 @@ export default function WidgetBuilder({ id }: { id: string }) {
     apiNotas<NoteListResponse>("?view=active").then((r) => setNotas(r.items)).catch(() => setNotas([]));
   }, [kind, notas]);
 
-  // miniaturas de las fotos elegidas que aún no se conocen
   useEffect(() => {
     const faltan = (config.assetIds ?? []).filter((i) => !thumbs[i]).slice(0, 30);
     if (!faltan.length) return;
@@ -102,12 +119,25 @@ export default function WidgetBuilder({ id }: { id: string }) {
   const set = useCallback((p: Partial<ConfigWidget>) => setConfig((c) => ({ ...c, ...p })), []);
 
   function elegirTipo(t: TipoWidget) {
+    const conserva = (t === "foto" || (t === "coleccion" && config.origen === "seleccion")) && config.assetIds?.length ? config.assetIds : undefined;
     setKind(t);
-    setConfig(t === "coleccion" ? { origen: "recientes", celdas: 4, rotar: "dia", hueco: 6 } : t === "recuerdos" ? { rotar: "dia" } : t === "nota" ? { mostrarTitulo: true, noteId: sp.get("nota") ?? undefined } : t === "album" ? { mostrarNombre: true, rotar: "fija", albumId: sp.get("album") ?? undefined } : {});
+    setConfig(
+      t === "coleccion"
+        ? { origen: conserva ? "seleccion" : "recientes", celdas: 4, rotar: conserva ? "fija" : "dia", hueco: 6, assetIds: conserva }
+        : t === "recuerdos"
+          ? { rotar: "dia" }
+          : t === "nota"
+            ? { mostrarTitulo: true, noteId: sp.get("nota") ?? undefined }
+            : t === "album"
+              ? { mostrarNombre: true, rotar: "fija", albumId: sp.get("album") ?? undefined }
+              : t === "foto"
+                ? { assetIds: conserva }
+                : {},
+    );
     setError(null);
+    setPaso(2);
   }
 
-  /** ¿ya hay lo mínimo para dibujar? */
   const listo = useMemo(() => {
     if (!kind) return false;
     if (kind === "foto") return (config.assetIds?.length ?? 0) >= 1;
@@ -117,7 +147,7 @@ export default function WidgetBuilder({ id }: { id: string }) {
     return true;
   }, [kind, config]);
 
-  // vista previa en vivo (con pausa para no pedir en cada pulsación)
+  // vista previa en vivo (con pausa para no pedir en cada toque)
   const [vista, setVista] = useState<string | null>(null);
   const [vistaError, setVistaError] = useState<string | null>(null);
   const [pintando, setPintando] = useState(false);
@@ -131,12 +161,7 @@ export default function WidgetBuilder({ id }: { id: string }) {
     const t = window.setTimeout(async () => {
       setPintando(true);
       try {
-        const r = await fetch(`/api/widgets/preview?s=${talla}`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ kind, config }),
-          signal: ac.signal,
-        });
+        const r = await fetch(`/api/widgets/preview?s=${talla}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind, config }), signal: ac.signal });
         if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? "No se pudo dibujar");
         const url = URL.createObjectURL(await r.blob());
         if (anterior.current) URL.revokeObjectURL(anterior.current);
@@ -179,6 +204,26 @@ export default function WidgetBuilder({ id }: { id: string }) {
     }
   }
 
+  /** Un toque: crea el widget con valores razonables y abre «Ponlo en tu pantalla». */
+  async function crearRapido(r: (typeof RAPIDOS)[number]) {
+    if (guardando) return;
+    setGuardando(true);
+    setError(null);
+    try {
+      const w = await api<Widget>("", { method: "POST", json: { kind: r.kind, config: r.config, name: r.titulo.replace(/^Mi(s)? /, "").replace(/^./, (c) => c.toUpperCase()) } });
+      setExistente(w);
+      setKind(w.kind);
+      setConfig(w.config);
+      setNombre(w.name);
+      setInstalar(w);
+      window.history.replaceState(null, "", `/app/widgets/${w.id}`);
+    } catch (e) {
+      setError(e instanceof ErrorWidgets ? e.message : "No se pudo crear el widget");
+    } finally {
+      setGuardando(false);
+    }
+  }
+
   if (fallo)
     return (
       <div className="app notes">
@@ -191,20 +236,63 @@ export default function WidgetBuilder({ id }: { id: string }) {
   if (!cargado) return <div className="app notes" aria-busy="true"><div className="ned-skel" /></div>;
 
   const tallaDef = TALLAS.find((t) => t.id === talla)!;
-  const albumElegido = albumes?.find((a) => a.id === config.albumId);
+  const mostrar = (n: 1 | 2 | 3) => !movil || paso === n;
+  const hayPaso1 = !existente;
+  const titulosPaso = ["¿Qué quieres ver?", "Elige el contenido", "Último detalle"] as const;
+
+  const bloqueVista = (
+    <section className="wb-prev" aria-label="Vista previa">
+      <div className="wb-prev-cab">
+        <h2>Así se verá</h2>
+        <Opciones etiqueta="Tamaño de la vista previa" valor={talla} opciones={TALLAS.map((t) => [t.id, t.nombre] as [Talla, string])} onChange={setTalla} columnas={3} />
+      </div>
+      <div className="wb-lienzo" style={{ aspectRatio: `${tallaDef.w} / ${tallaDef.h}` }} aria-busy={pintando}>
+        {vista && listo ? <img src={vista} alt="Así se verá el widget" /> : <p>{kind ? "Elige el contenido y lo verás aquí." : "Elige un tipo de widget."}</p>}
+        {pintando && <span className="wb-pinta nspin" aria-hidden="true" />}
+      </div>
+      {vistaError && <p className="sp-warn" role="alert">{vistaError}</p>}
+    </section>
+  );
 
   return (
-    <div className="app notes wb">
-      <div className="ned-top">
+    <div className={`app notes wb${movil ? " movil" : ""}`}>
+      <header className="wb-cab">
         <Link href="/app/widgets" className="btn ghost sm">← Widgets</Link>
         <h1 className="wb-h1">{existente ? "Editar widget" : "Nuevo widget"}</h1>
-      </div>
+      </header>
+
+      {movil && kind && (
+        <nav className="wb-pasos" aria-label="Progreso">
+          <ol>
+            {[1, 2, 3].map((n) => (
+              <li key={n} className={n === paso ? "on" : n < paso ? "ok" : ""} aria-current={n === paso ? "step" : undefined}>
+                <span className="sr-only">Paso {n} de 3</span>
+              </li>
+            ))}
+          </ol>
+          <p>
+            Paso {paso} de 3 · <b>{titulosPaso[paso - 1]}</b>
+          </p>
+        </nav>
+      )}
 
       <div className="wb-grid">
         <div className="wb-form">
-          {!existente && (
+          {hayPaso1 && mostrar(1) && (
             <section aria-labelledby="wb-1">
-              <h2 id="wb-1">1 · ¿Qué quieres ver?</h2>
+              <h2 id="wb-1">{movil ? "Listos en un toque" : "1 · Listos en un toque"}</h2>
+              <ul className="wb-rapidos">
+                {RAPIDOS.map((r) => (
+                  <li key={r.titulo}>
+                    <button type="button" disabled={guardando} onClick={() => crearRapido(r)}>
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={r.icono} /></svg>
+                      <span><b>{r.titulo}</b><small>{r.desc}</small></span>
+                      <i aria-hidden="true">›</i>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <h2 id="wb-1b" className="wb-sub">{movil ? "O elige tú qué enseñar" : "O elige tú qué enseñar"}</h2>
               <div className="wb-tipos" role="radiogroup" aria-label="Tipo de widget">
                 {TIPOS.map((t) => (
                   <button key={t.id} type="button" role="radio" aria-checked={kind === t.id} className={`wb-tipo${kind === t.id ? " on" : ""}`} onClick={() => elegirTipo(t.id)}>
@@ -214,47 +302,53 @@ export default function WidgetBuilder({ id }: { id: string }) {
                   </button>
                 ))}
               </div>
+              {movil && <p className="wb-consejo">💡 Consejo: en tu biblioteca pulsa <b>Seleccionar</b>, marca varias fotos y toca <b>Widget</b>.</p>}
             </section>
           )}
 
-          {kind && (
+          {movil && mostrar(2) && kind && listo && bloqueVista}
+
+          {kind && mostrar(2) && (
             <section aria-labelledby="wb-2">
-              <h2 id="wb-2">{existente ? "Contenido" : "2 · Contenido"}</h2>
+              <h2 id="wb-2">{movil ? "Contenido" : "2 · Contenido"}</h2>
 
               {(kind === "foto" || (kind === "coleccion" && config.origen === "seleccion")) && (
                 <div className="wb-bloque">
                   <div className="wb-fotos">
+                    <button type="button" className="wb-add" onClick={() => setPicker(true)}>
+                      <b>+</b>
+                      <span>{(config.assetIds?.length ?? 0) ? "Cambiar fotos" : "Elegir fotos"}</span>
+                    </button>
                     {(config.assetIds ?? []).map((i) => (
                       <span key={i} className="wb-foto">
                         {thumbs[i] ? <img src={thumbs[i]} alt="" /> : <i aria-hidden="true" />}
                         <button type="button" aria-label="Quitar esta foto" onClick={() => set({ assetIds: (config.assetIds ?? []).filter((x) => x !== i) })}>✕</button>
                       </span>
                     ))}
-                    <button type="button" className="wb-add" onClick={() => setPicker(true)}>
-                      <b>+</b>
-                      <span>{(config.assetIds?.length ?? 0) ? "Cambiar fotos" : "Elegir de mi biblioteca"}</span>
-                    </button>
                   </div>
+                  <p className="wb-ayuda">
+                    {(config.assetIds?.length ?? 0) === 0 ? "Toca «Elegir fotos» y marca las que quieras de tu biblioteca." : `${config.assetIds!.length} ${config.assetIds!.length === 1 ? "foto elegida" : "fotos elegidas"}.`}
+                    {kind === "coleccion" && (config.assetIds?.length ?? 0) < 2 && " Elige al menos 2."}
+                  </p>
                   {kind === "foto" && (config.assetIds?.length ?? 0) > 1 && (
-                    <label className="wb-campo"><span>Rotación</span><Seg label="Rotación" value={config.rotar} opciones={ROTACIONES} onChange={(v) => set({ rotar: v })} /></label>
+                    <div className="wb-campo"><span>Rotación</span><Opciones etiqueta="Rotación" valor={config.rotar} opciones={ROTACIONES} onChange={(v) => set({ rotar: v })} /></div>
                   )}
                 </div>
               )}
 
               {kind === "coleccion" && (
                 <div className="wb-bloque">
-                  <label className="wb-campo">
+                  <div className="wb-campo">
                     <span>¿De dónde salen las fotos?</span>
-                    <Seg
-                      label="Origen"
-                      value={config.origen}
+                    <Opciones
+                      etiqueta="Origen"
+                      valor={config.origen}
                       opciones={[["recientes", "Mis últimas"], ["favoritas", "Favoritas"], ["album", "De un álbum"], ["seleccion", "Las que yo elija"]]}
                       onChange={(v) => set({ origen: v, rotar: v === "seleccion" ? "fija" : config.rotar === "fija" ? "dia" : config.rotar })}
                     />
-                  </label>
-                  <label className="wb-campo"><span>Fotos en el mosaico</span><Seg label="Celdas" value={config.celdas} opciones={[[2, "2"], [4, "4"], [6, "6"], [9, "9"]]} onChange={(v) => set({ celdas: v })} /></label>
-                  {config.origen !== "seleccion" && <label className="wb-campo"><span>Rotación</span><Seg label="Rotación" value={config.rotar} opciones={ROTACIONES} onChange={(v) => set({ rotar: v })} /></label>}
-                  <label className="wb-campo sp-range"><span>Separación <b>{config.hueco ?? 6}</b></span><input type="range" min={0} max={24} value={config.hueco ?? 6} onChange={(e) => set({ hueco: Number(e.target.value) })} /></label>
+                  </div>
+                  <div className="wb-campo"><span>Fotos en el mosaico</span><Opciones etiqueta="Celdas" valor={config.celdas} opciones={[[2, "2"], [4, "4"], [6, "6"], [9, "9"]]} onChange={(v) => set({ celdas: v })} columnas={4} /></div>
+                  {config.origen !== "seleccion" && <div className="wb-campo"><span>Rotación</span><Opciones etiqueta="Rotación" valor={config.rotar} opciones={ROTACIONES} onChange={(v) => set({ rotar: v })} /></div>}
                 </div>
               )}
 
@@ -264,15 +358,15 @@ export default function WidgetBuilder({ id }: { id: string }) {
                   {albumes === null ? (
                     <p className="nocr-wait"><span className="nspin" aria-hidden="true" /> Cargando álbumes…</p>
                   ) : albumes.length === 0 ? (
-                    <p className="natt-hint">Todavía no tienes álbumes. Crea uno desde la biblioteca.</p>
+                    <p className="wb-ayuda">Todavía no tienes álbumes. Crea uno desde la biblioteca.</p>
                   ) : (
-                    <ul className="wb-lista" role="radiogroup" aria-label="Álbum">
+                    <ul className="wb-filas" role="radiogroup" aria-label="Álbum">
                       {albumes.map((a) => (
                         <li key={a.id}>
                           <button type="button" role="radio" aria-checked={config.albumId === a.id} className={config.albumId === a.id ? "on" : ""} onClick={() => set({ albumId: a.id })}>
                             {a.coverUrl ? <img src={a.coverUrl} alt="" loading="lazy" /> : <i aria-hidden="true" />}
-                            <b>{a.name}</b>
-                            <span>{a.count.toLocaleString("es-ES")} {a.count === 1 ? "elemento" : "elementos"}</span>
+                            <span><b>{a.name}</b><small>{a.count.toLocaleString("es-ES")} {a.count === 1 ? "elemento" : "elementos"}</small></span>
+                            <em aria-hidden="true">{config.albumId === a.id ? "✓" : ""}</em>
                           </button>
                         </li>
                       ))}
@@ -281,7 +375,7 @@ export default function WidgetBuilder({ id }: { id: string }) {
                   {kind === "album" && (
                     <>
                       <label className="wb-check"><input type="checkbox" checked={config.mostrarNombre !== false} onChange={(e) => set({ mostrarNombre: e.target.checked })} /> Mostrar el nombre del álbum</label>
-                      <label className="wb-campo"><span>Portada</span><Seg label="Portada" value={config.rotar} opciones={ROTACIONES} onChange={(v) => set({ rotar: v })} /></label>
+                      <div className="wb-campo"><span>Portada</span><Opciones etiqueta="Portada" valor={config.rotar} opciones={ROTACIONES} onChange={(v) => set({ rotar: v })} /></div>
                     </>
                   )}
                 </div>
@@ -293,73 +387,91 @@ export default function WidgetBuilder({ id }: { id: string }) {
                   {notas === null ? (
                     <p className="nocr-wait"><span className="nspin" aria-hidden="true" /> Cargando notas…</p>
                   ) : notas.length === 0 ? (
-                    <p className="natt-hint">Todavía no tienes notas. <Link href="/app/notas">Crea una</Link> y vuelve.</p>
+                    <p className="wb-ayuda">Todavía no tienes notas. <Link href="/app/notas">Crea una</Link> y vuelve.</p>
                   ) : (
-                    <ul className="wb-lista wb-notas" role="radiogroup" aria-label="Nota">
+                    <ul className="wb-filas" role="radiogroup" aria-label="Nota">
                       {notas.map((n) => (
                         <li key={n.id}>
                           <button type="button" role="radio" aria-checked={config.noteId === n.id} className={config.noteId === n.id ? "on" : ""} onClick={() => set({ noteId: n.id })}>
-                            <b>{n.title.trim() || "Sin título"}</b>
-                            <span>{n.preview || "Nota vacía"}</span>
+                            <i className="wb-nota-color" style={{ background: n.style?.bg?.type === "solid" ? n.style.bg.color : n.style?.bg?.type === "gradient" ? n.style.bg.from : undefined }} aria-hidden="true" />
+                            <span><b>{n.title.trim() || "Sin título"}</b><small>{n.preview || "Nota vacía"}</small></span>
+                            <em aria-hidden="true">{config.noteId === n.id ? "✓" : ""}</em>
                           </button>
                         </li>
                       ))}
                     </ul>
                   )}
                   <label className="wb-check"><input type="checkbox" checked={config.mostrarTitulo !== false} onChange={(e) => set({ mostrarTitulo: e.target.checked })} /> Mostrar el título</label>
-                  <p className="natt-hint">El widget usa el color, el recuadro y la letra de la nota. Si la cambias, el widget se actualiza solo.</p>
+                  <p className="wb-ayuda">El widget usa el color, el recuadro y la letra de la nota. Si la cambias, el widget se actualiza solo.</p>
                 </div>
               )}
 
               {kind === "recuerdos" && (
                 <div className="wb-bloque">
-                  <p className="natt-hint">Fotos que hiciste este mismo día en años anteriores («Hace 2 años»). Si hoy no hay ninguna, enseña una foto cualquiera.</p>
-                  <label className="wb-campo"><span>Rotación</span><Seg label="Rotación" value={config.rotar} opciones={ROTACIONES} onChange={(v) => set({ rotar: v })} /></label>
+                  <p className="wb-ayuda">Fotos que hiciste este mismo día en años anteriores («Hace 2 años»). Si hoy no hay ninguna, enseña una foto cualquiera.</p>
+                  <div className="wb-campo"><span>Rotación</span><Opciones etiqueta="Rotación" valor={config.rotar} opciones={ROTACIONES} onChange={(v) => set({ rotar: v })} /></div>
                 </div>
               )}
 
-              {kind === "espacio" && <p className="natt-hint">Muestra cuánto espacio llevas usado y cuántas fotos, vídeos, audios y notas tienes. Se actualiza solo.</p>}
+              {kind === "espacio" && <p className="wb-ayuda">Muestra cuánto espacio llevas usado y cuántas fotos, vídeos, audios y notas tienes. Se actualiza solo.</p>}
             </section>
           )}
 
-          {kind && (
+          {movil && mostrar(3) && kind && bloqueVista}
+
+          {kind && mostrar(3) && (
             <section aria-labelledby="wb-3">
-              <h2 id="wb-3">{existente ? "Aspecto" : "3 · Aspecto"}</h2>
+              <h2 id="wb-3">{movil ? "Aspecto y nombre" : "3 · Aspecto"}</h2>
               <div className="wb-bloque">
                 {kind === "foto" && (
-                  <label className="wb-campo"><span>Marco</span><Seg label="Marco" value={config.marco ?? "sin"} opciones={[["sin", "Sin marco"], ["fino", "Borde blanco"], ["polaroid", "Polaroid"]]} onChange={(v) => set({ marco: v })} /></label>
+                  <div className="wb-campo"><span>Marco</span><Opciones etiqueta="Marco" valor={config.marco ?? "sin"} opciones={[["sin", "Sin marco"], ["fino", "Borde blanco"], ["polaroid", "Polaroid"]]} onChange={(v) => set({ marco: v })} columnas={movil ? 1 : undefined} /></div>
+                )}
+                {kind === "coleccion" && (
+                  <label className="wb-campo sp-range"><span>Separación entre fotos <b>{config.hueco ?? 6}</b></span><input type="range" min={0} max={24} value={config.hueco ?? 6} onChange={(e) => set({ hueco: Number(e.target.value) })} /></label>
                 )}
                 <label className="wb-campo sp-range"><span>Esquinas redondeadas <b>{config.esquinas ?? 0}</b></span><input type="range" min={0} max={60} value={config.esquinas ?? 0} onChange={(e) => set({ esquinas: Number(e.target.value) })} /></label>
-                <label className="wb-campo"><span>Nombre del widget</span><input className="wb-nombre" value={nombre} maxLength={60} onChange={(e) => setNombre(e.target.value)} placeholder="Por ejemplo: Mi perro" /></label>
+                <label className="wb-campo"><span>Nombre del widget</span><input className="wb-nombre" value={nombre} maxLength={60} onChange={(e) => setNombre(e.target.value)} placeholder="Por ejemplo: Mi perro" enterKeyHint="done" /></label>
               </div>
             </section>
           )}
 
           {error && <p className="sp-warn" role="alert">{error}</p>}
-          <div className="wb-acts">
-            <button type="button" className="btn primary" disabled={!listo || guardando} onClick={() => guardar(true)}>
-              {guardando ? "Guardando…" : "Guardar y ponerlo en mi pantalla"}
-            </button>
-            <button type="button" className="btn ghost" disabled={!listo || guardando} onClick={() => guardar(false)}>Guardar</button>
-          </div>
+
+          {!movil && kind && (
+            <div className="wb-acts">
+              <button type="button" className="btn primary" disabled={!listo || guardando} onClick={() => guardar(true)}>{guardando ? "Guardando…" : "Guardar y ponerlo en mi pantalla"}</button>
+              <button type="button" className="btn ghost" disabled={!listo || guardando} onClick={() => guardar(false)}>Guardar</button>
+            </div>
+          )}
         </div>
 
-        <aside className="wb-prev" aria-label="Vista previa">
-          <h2>Vista previa</h2>
-          <Seg label="Tamaño de la vista previa" value={talla} opciones={TALLAS.map((t) => [t.id, t.nombre] as [Talla, string])} onChange={setTalla} />
-          <div className="wb-lienzo" style={{ aspectRatio: `${tallaDef.w} / ${tallaDef.h}` }} aria-busy={pintando}>
-            {vista && listo ? <img src={vista} alt="Así se verá el widget" /> : <p>{kind ? "Completa el contenido para verlo aquí." : "Elige un tipo de widget."}</p>}
-            {pintando && <span className="wb-pinta nspin" aria-hidden="true" />}
-          </div>
-          {vistaError && <p className="sp-warn" role="alert">{vistaError}</p>}
-          <p className="natt-hint">En tu pantalla se verá igual, con el tamaño que elija tu móvil.</p>
-        </aside>
+        {!movil && <aside className="wb-lado">{bloqueVista}</aside>}
       </div>
+
+      {movil && kind && (
+        <div className="wb-bar" role="group" aria-label="Pasos">
+          {(paso > 1 && hayPaso1) || paso > 2 ? (
+            <button type="button" className="btn ghost wb-atras" onClick={() => setPaso((p) => (Math.max(hayPaso1 ? 1 : 2, p - 1)) as 1 | 2 | 3)}>Atrás</button>
+          ) : (
+            <Link href="/app/widgets" className="btn ghost wb-atras">Cancelar</Link>
+          )}
+          {paso < 3 ? (
+            <button type="button" className="btn primary" disabled={paso === 2 && !listo} onClick={() => setPaso((p) => (p + 1) as 1 | 2 | 3)}>
+              {paso === 2 && !listo ? "Elige el contenido" : "Siguiente"}
+            </button>
+          ) : (
+            <>
+              <button type="button" className="btn" disabled={!listo || guardando} onClick={() => guardar(false)}>Guardar</button>
+              <button type="button" className="btn primary" disabled={!listo || guardando} onClick={() => guardar(true)}>{guardando ? "Guardando…" : "Poner en pantalla"}</button>
+            </>
+          )}
+        </div>
+      )}
 
       {picker && (
         <FotoPicker
           inicial={config.assetIds ?? []}
-          max={kind === "foto" ? 30 : 30}
+          max={30}
           min={kind === "coleccion" ? 2 : 1}
           onClose={() => setPicker(false)}
           onListo={(ids, mini) => {

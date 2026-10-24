@@ -928,6 +928,17 @@ export default function Gallery({
           <button className="btn sm" onClick={() => downloadSelection([...sel])}>
             Descargar
           </button>
+          {assets.some((a) => sel.has(a.id) && a.kind === "photo") && (
+            <button
+              className="btn ghost sm"
+              onClick={() => {
+                const ids = assets.filter((a) => sel.has(a.id) && a.kind === "photo").slice(0, 30).map((a) => a.id);
+                router.push(`/app/widgets/nuevo?fotos=${ids.join(",")}`);
+              }}
+            >
+              Widget
+            </button>
+          )}
           {!albumId && (
             <button className="btn ghost sm" onClick={() => setAddIds([...sel])}>
               <span className="sb-lg">Añadir a álbum</span>
