@@ -113,6 +113,11 @@ const base = z.object({
   FFMPEG_PATH: z.string().default("ffmpeg"),
   FFPROBE_PATH: z.string().default("ffprobe"),
   TMP_DIR: z.string().default("./tmp"),
+
+  TESSERACT_PATH: z.string().default("tesseract"),
+  OCR_LANGS: z.string().regex(/^[a-z_+]+$/).default("spa+eng"),
+  OCR_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
+  OCR_TIMEOUT_MS: z.coerce.number().int().min(5000).default(60000),
 });
 
 const schema = base.superRefine((v, ctx) => {

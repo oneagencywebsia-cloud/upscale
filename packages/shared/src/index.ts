@@ -141,3 +141,70 @@ export interface AccountInfo {
     inviterBonusBytes: number;
   };
 }
+
+// ---------------------------------------------------------------- Notas
+
+/** Personalización de una nota. Todo es opcional: lo que falta se toma del tema. */
+export interface NoteStyle {
+  /** id del estilo predefinido del que se partió (solo informativo) */
+  preset?: string;
+  bg?:
+    | { type: "solid"; color: string }
+    | { type: "gradient"; from: string; to: string; angle: number };
+  /** color del texto, `#rrggbb` */
+  text?: string;
+  border?: { width: number; style: "none" | "solid" | "dashed" | "dotted" | "double"; color: string; radius: number };
+  shadow?: "none" | "soft" | "medium" | "strong";
+  font?: "sans" | "serif" | "mono" | "display";
+  /** px, 13–24 */
+  size?: number;
+  /** 1,2–2 */
+  lineHeight?: number;
+  align?: "left" | "center" | "right";
+  /** px, 8–48 */
+  padding?: number;
+}
+
+/** Documento del editor (ProseMirror). El servidor solo acepta nodos y marcas conocidos. */
+export interface NoteDoc {
+  type: "doc";
+  content?: unknown[];
+}
+
+export interface NoteListItem {
+  id: string;
+  title: string;
+  /** primeros caracteres del texto, para la tarjeta */
+  preview: string;
+  style: NoteStyle;
+  tags: string[];
+  pinned: boolean;
+  archivedAt: string | null;
+  deletedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  attachmentCount: number;
+  /** miniatura de la primera captura adjunta */
+  coverUrl: string | null;
+}
+
+export interface NoteAttachment {
+  assetId: string;
+  filename: string;
+  width: number | null;
+  height: number | null;
+  thumbUrl: string;
+  posterUrl: string | null;
+  /** ya se extrajo su texto */
+  ocrDone: boolean;
+}
+
+export interface Note extends NoteListItem {
+  body: NoteDoc;
+  attachments: NoteAttachment[];
+}
+
+export interface NoteListResponse {
+  items: NoteListItem[];
+  nextCursor: string | null;
+}
