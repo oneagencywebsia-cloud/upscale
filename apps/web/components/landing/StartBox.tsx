@@ -13,11 +13,14 @@ export default function StartBox({
   next,
   invited = false,
   label = "Empezar gratis",
+  proof = true,
 }: {
   loggedIn: boolean;
   next: string;
   invited?: boolean;
   label?: string;
+  /** la fila «5 GB gratis · Sin tarjeta · 1 minuto» bajo el botón */
+  proof?: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -49,11 +52,13 @@ export default function StartBox({
           <button type="button" className="btn primary start-btn" onClick={() => setOpen(true)}>
             {label}
           </button>
+          {proof && (
           <ul className="start-proof" aria-label="Lo que incluye">
             <li>5 GB gratis{invited ? " + 1 GB de regalo" : ""}</li>
             <li>Sin tarjeta</li>
             <li>1 minuto</li>
           </ul>
+          )}
         </>
       )}
     </div>
