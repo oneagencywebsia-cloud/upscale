@@ -1,1 +1,1 @@
-Generado por tools/generar-portada.mjs. Ilustraciones propias; no son fotos de personas.
+Generado por tools/generar-portada.mjs. Ilustraciones propias (ver tools/ilustraciones.mjs); no son fotos de personas reales.
