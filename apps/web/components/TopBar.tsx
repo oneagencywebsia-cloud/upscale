@@ -51,6 +51,7 @@ export default function TopBar({ profile, photoUrl }: { profile: Profile; photoU
 
   const nav = [
     { href: "/app/albumes", label: "Álbumes", on: pathname.startsWith("/app/albumes") },
+    { href: "/app/notas", label: "Notas", on: pathname.startsWith("/app/notas") },
     { href: "/app/espacio", label: "Espacio", on: pathname === "/app/espacio" },
     { href: "/app/ajustes", label: "Ajustes", on: pathname === "/app/ajustes" },
   ];

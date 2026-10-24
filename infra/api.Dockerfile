@@ -4,9 +4,9 @@
 
 FROM node:20-bookworm-slim
 
-# ffmpeg/ffprobe para metadatos y miniaturas/pósters
+# ffmpeg/ffprobe para metadatos y miniaturas/pósters · tesseract (libre, local) para leer el texto de las capturas de las notas
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+  && apt-get install -y --no-install-recommends ffmpeg ca-certificates tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng \
   && rm -rf /var/lib/apt/lists/*
 
 RUN corepack enable

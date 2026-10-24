@@ -145,4 +145,4 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
-export const VERSION = "0.34.0-descargas-compatibles";
+export const VERSION = "0.35.0-notas";

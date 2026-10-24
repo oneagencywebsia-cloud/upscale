@@ -175,7 +175,7 @@ export async function noteRoutes(app: FastifyInstance): Promise<void> {
     return r.rowCount ? await notaCompleta(userId, req.params.id) : reply.code(404).send({ error: "no existe" });
   });
 
-  app.delete("/v1/notes-trash", { preHandler: requireUser }, async (req) => {
+  app.delete("/v1/notes/trash", { preHandler: requireUser }, async (req) => {
     const r = await query("delete from notes where user_id = $1 and deleted_at is not null", [principalOf(req).userId]);
     return { ok: true, deleted: r.rowCount };
   });
@@ -194,7 +194,7 @@ export async function noteRoutes(app: FastifyInstance): Promise<void> {
     await query(
       `insert into note_assets (note_id, asset_id, position) values ($1,$2,$3) on conflict do nothing`,
       [req.params.id, assetId, Number(n)]);
-    await query("update notes set updated_at = now() where id = $1", [req.params.id]);
+    // (no se toca updated_at: es el testigo de edición del texto y adjuntar no debe provocar falsos conflictos)
     return reply.code(201).send({ attachments: await adjuntos(req.params.id) });
   });
 
@@ -205,7 +205,6 @@ export async function noteRoutes(app: FastifyInstance): Promise<void> {
       `delete from note_assets na using notes n where na.note_id = n.id and n.id = $1 and n.user_id = $2 and na.asset_id = $3`,
       [req.params.id, userId, req.params.assetId]);
     if (!r.rowCount) return reply.code(404).send({ error: "no existe" });
-    await query("update notes set updated_at = now() where id = $1", [req.params.id]);
     return { attachments: await adjuntos(req.params.id) };
   });
 

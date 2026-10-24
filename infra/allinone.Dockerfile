@@ -8,6 +8,7 @@
 FROM node:20-bookworm-slim AS base
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ffmpeg ca-certificates libheif-examples libheif1 libvips-tools imagemagick fonts-dejavu-core \
+      tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng \
   && rm -rf /var/lib/apt/lists/*
 ENV PNPM_HOME=/pnpm
 ENV PATH=/pnpm:$PATH

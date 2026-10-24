@@ -12,8 +12,8 @@ export const STEPS = [
     time: "10 segundos",
   },
   {
-    t: "Suelta tus cosas",
-    d: "Arrastra tus fotos, vídeos y música. Todo a la vez.",
+    t: "Sube tus cosas",
+    d: "Elige tus fotos, vídeos y música (en el ordenador, también puedes arrastrarlos). Todo a la vez.",
     time: "1 toque",
   },
   {
