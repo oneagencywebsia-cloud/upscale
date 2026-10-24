@@ -9125,7 +9125,6 @@ html[data-letra="2"] { zoom: 1.3; }
 .sc-fondo {
   position: absolute;
   inset: -8%;
-  will-change: opacity, transform;
   background:
     radial-gradient(60% 55% at var(--gx) var(--gy), hsl(var(--c3) / 0.55), transparent 70%),
     radial-gradient(75% 65% at 78% 35%, hsl(var(--c1) / 0.42), transparent 72%),
@@ -9136,10 +9135,11 @@ html[data-letra="2"] { zoom: 1.3; }
 .sc-fondo::before {
   content: "";
   position: absolute;
-  inset: 0;
-  background: repeating-radial-gradient(circle at var(--rx) var(--ry), transparent 0 54px, rgb(255 255 255 / 0.16) 55px 56px);
-  -webkit-mask-image: radial-gradient(60% 60% at var(--rx) var(--ry), #000 20%, transparent 78%);
-  mask-image: radial-gradient(60% 60% at var(--rx) var(--ry), #000 20%, transparent 78%);
+  left: calc(var(--rx) - 50vmin);
+  top: calc(var(--ry) - 50vmin);
+  width: 100vmin;
+  height: 100vmin;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1000 1000'><defs><radialGradient id='g'><stop offset='0' stop-color='white' stop-opacity='0'/><stop offset='0.18' stop-color='white' stop-opacity='.5'/><stop offset='0.62' stop-color='white' stop-opacity='.16'/><stop offset='1' stop-color='white' stop-opacity='0'/></radialGradient></defs><circle cx='500' cy='500' r='60' fill='none' stroke='url(%23g)' stroke-width='2.2'/><circle cx='500' cy='500' r='116' fill='none' stroke='url(%23g)' stroke-width='2.2'/><circle cx='500' cy='500' r='172' fill='none' stroke='url(%23g)' stroke-width='2.2'/><circle cx='500' cy='500' r='228' fill='none' stroke='url(%23g)' stroke-width='2.2'/><circle cx='500' cy='500' r='284' fill='none' stroke='url(%23g)' stroke-width='2.2'/><circle cx='500' cy='500' r='340' fill='none' stroke='url(%23g)' stroke-width='2.2'/><circle cx='500' cy='500' r='396' fill='none' stroke='url(%23g)' stroke-width='2.2'/><circle cx='500' cy='500' r='452' fill='none' stroke='url(%23g)' stroke-width='2.2'/></svg>") center / 100% 100% no-repeat;
   opacity: var(--ro);
 }
 .sc[data-escena="a"] .sc-fondo[data-m="0"] { --c1: 200 90% 66%; --c2: 176 80% 62%; --c3: 42 100% 75%; --gx: 78%; --gy: 22%; --rx: 72%; --ry: 30%; --ro: 0.9; }
@@ -9165,6 +9165,7 @@ html[data-letra="2"] { zoom: 1.3; }
   inset: 0;
   z-index: -1;
   pointer-events: none;
+  contain: layout paint style;
 }
 .sc-f {
   position: absolute;
@@ -9176,8 +9177,8 @@ html[data-letra="2"] { zoom: 1.3; }
   opacity: 0;
   overflow: hidden;
   will-change: transform, opacity;
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.22), 0 16px 40px -14px rgb(8 18 70 / 0.5);
 }
+.sc-f:nth-child(-n + 4), .sc-f-roto { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.22), 0 16px 40px -14px rgb(8 18 70 / 0.5); }
 .sc-f b {
   display: block;
   width: 100%;
@@ -9212,7 +9213,6 @@ html[data-letra="2"] { zoom: 1.3; }
   display: flex;
   align-items: center;
   padding: 0 clamp(20px, 6vw, 96px);
-  will-change: transform, opacity;
 }
 .sc-txt { max-width: 520px; }
 .sc-eyebrow {
@@ -9272,6 +9272,7 @@ html[data-letra="2"] { zoom: 1.3; }
   .sc-h { font-size: clamp(30px, 9vw, 44px); }
 }
 /* sin recorrido: lista normal de capítulos */
+.sc[data-vis="0"] .sc-escenario { visibility: hidden; }
 .sc[data-quieto] { height: auto; }
 .sc[data-quieto] .sc-escenario { position: static; height: auto; overflow: visible; }
 .sc[data-quieto] .sc-escenario::after,
@@ -9408,7 +9409,7 @@ html[data-letra="2"] { zoom: 1.3; }
 .sc-cap .sc-garantia,
 .sc-cap .sc-hint {
   opacity: 0;
-  transform: translate3d(0, 16px, 0);
+  transform: translateY(16px);
   transition: opacity 0.55s ease, transform 0.75s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 .sc-cap.on .sc-eyebrow,
@@ -9432,10 +9433,13 @@ html[data-letra="2"] { zoom: 1.3; }
 .sc[data-quieto] .sc-cap .sc-hint { opacity: 1; transform: none; transition: none; }
 
 /* efectos de cada capítulo: viven en su fondo, solo corren mientras se ve (data-act="1") */
-.fx { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.fx { position: absolute; inset: 0; pointer-events: none; overflow: hidden; contain: strict; }
+/* un fondo apagado no pinta ni ocupa capas: solo existen los (1-2) que se ven */
+.sc-fondo[data-act="0"] { visibility: hidden; }
+.sc-fondo[data-act="1"] { will-change: opacity; }
 .sc-fondo[data-act="0"] .fx *,
 .sc-fondo[data-act="0"] .fx { animation-play-state: paused !important; }
-.fx-motas i, .fx-confeti i { position: absolute; display: block; border-radius: 50%; will-change: transform, opacity; }
+.fx-motas i, .fx-confeti i { position: absolute; display: block; border-radius: 50%; }
 .fx-motas i { animation: fx-sube 12s linear infinite; }
 .fx-cae i { animation-name: fx-cae; }
 .fx-t-calido i { background: radial-gradient(circle, #fff3c9, rgb(255 190 120 / 0)); }
@@ -9457,20 +9461,17 @@ html[data-letra="2"] { zoom: 1.3; }
 }
 /* rayos: luz cálida que gira despacio detrás de las formas */
 .fx-rayos {
-  left: calc(var(--cx, 60%) - 60vmax);
-  top: calc(var(--cy, 50%) - 60vmax);
+  left: calc(var(--cx, 60%) - 55vmax);
+  top: calc(var(--cy, 50%) - 55vmax);
   right: auto;
   bottom: auto;
-  width: 120vmax;
-  height: 120vmax;
-  will-change: transform;
-  background: repeating-conic-gradient(from 0deg, rgb(255 236 190 / 0.5) 0deg 6deg, transparent 6deg 18deg);
-  -webkit-mask-image: radial-gradient(closest-side, #000 0%, transparent 62%);
-  mask-image: radial-gradient(closest-side, #000 0%, transparent 62%);
-  opacity: 0.5;
+  width: 110vmax;
+  height: 110vmax;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='-500 -500 1000 1000'><defs><radialGradient id='r' r='0.5'><stop offset='0' stop-color='%23fff0c4' stop-opacity='.55'/><stop offset='0.62' stop-color='%23fff0c4' stop-opacity='.18'/><stop offset='1' stop-color='%23fff0c4' stop-opacity='0'/></radialGradient></defs><path d='M0 0 L500.0 0.0 L497.3 52.3Z' fill='url(%23r)'/><path d='M0 0 L475.5 154.5 L456.8 203.4Z' fill='url(%23r)'/><path d='M0 0 L404.5 293.9 L371.6 334.6Z' fill='url(%23r)'/><path d='M0 0 L293.9 404.5 L250.0 433.0Z' fill='url(%23r)'/><path d='M0 0 L154.5 475.5 L104.0 489.1Z' fill='url(%23r)'/><path d='M0 0 L0.0 500.0 L-52.3 497.3Z' fill='url(%23r)'/><path d='M0 0 L-154.5 475.5 L-203.4 456.8Z' fill='url(%23r)'/><path d='M0 0 L-293.9 404.5 L-334.6 371.6Z' fill='url(%23r)'/><path d='M0 0 L-404.5 293.9 L-433.0 250.0Z' fill='url(%23r)'/><path d='M0 0 L-475.5 154.5 L-489.1 104.0Z' fill='url(%23r)'/><path d='M0 0 L-500.0 0.0 L-497.3 -52.3Z' fill='url(%23r)'/><path d='M0 0 L-475.5 -154.5 L-456.8 -203.4Z' fill='url(%23r)'/><path d='M0 0 L-404.5 -293.9 L-371.6 -334.6Z' fill='url(%23r)'/><path d='M0 0 L-293.9 -404.5 L-250.0 -433.0Z' fill='url(%23r)'/><path d='M0 0 L-154.5 -475.5 L-104.0 -489.1Z' fill='url(%23r)'/><path d='M0 0 L-0.0 -500.0 L52.3 -497.3Z' fill='url(%23r)'/><path d='M0 0 L154.5 -475.5 L203.4 -456.8Z' fill='url(%23r)'/><path d='M0 0 L293.9 -404.5 L334.6 -371.6Z' fill='url(%23r)'/><path d='M0 0 L404.5 -293.9 L433.0 -250.0Z' fill='url(%23r)'/><path d='M0 0 L475.5 -154.5 L489.1 -104.0Z' fill='url(%23r)'/></svg>") center / 100% 100% no-repeat;
+  opacity: 0.6;
   animation: fx-giro 70s linear infinite;
 }
-.fx-rayos.suave { opacity: 0.3; }
+.fx-rayos.suave { opacity: 0.35; }
 @keyframes fx-giro { to { transform: rotate(360deg); } }
 /* latido: el borde se oscurece y vuelve, como un pulso */
 .fx-latido {
@@ -9548,7 +9549,6 @@ html[data-letra="2"] { zoom: 1.3; }
   fill: rgb(255 120 150 / 0.75);
   filter: drop-shadow(0 0 8px rgb(255 130 160 / 0.5));
   animation: fx-corazon 11s ease-in infinite;
-  will-change: transform, opacity;
 }
 @keyframes fx-corazon {
   0% { transform: translate3d(0, 0, 0) scale(0.7); opacity: 0; }

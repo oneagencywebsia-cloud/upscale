@@ -57,7 +57,7 @@ export default async function PerfilPage() {
 
   const stats: { k: string; v: string; hint?: string }[] = [
     { k: "Elementos", v: st ? st.count.toLocaleString("es-ES") : "—", hint: "fotos y vídeos" },
-    { k: "Espacio usado", v: st ? bytesHuman(st.usedBytes) : "—", hint: "originales íntegros" },
+    { k: "Espacio usado", v: st ? bytesHuman(st.usedBytes) : "—", hint: "tal como los subiste" },
     { k: "Álbumes", v: al ? al.length.toLocaleString("es-ES") : "—" },
     { k: "Cuenta creada", v: fmt(DAY, user.created_at) },
     { k: "Último acceso", v: fmt(DAY_TIME, user.last_sign_in_at) },

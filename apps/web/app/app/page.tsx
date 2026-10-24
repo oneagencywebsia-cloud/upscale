@@ -73,7 +73,7 @@ export default async function GalleryPage({
               <span className="lh-flourish" aria-hidden="true" />
             </h2>
             <p>
-              {totalCount.toLocaleString("es-ES")} elementos · {bytesHuman(totalBytes)} · todo íntegro
+              {totalCount.toLocaleString("es-ES")} elementos · {bytesHuman(totalBytes)} · todo a salvo
             </p>
           </div>
           <PrismMount />
