@@ -205,7 +205,7 @@ export default function ViewerFilmstrip({ assets, index, onIndex }: Props) {
   );
 
   return (
-    <div ref={railRef} className="vm-film" role="listbox" aria-label="Miniaturas — desliza para recorrer" onScroll={onScroll}>
+    <div ref={railRef} className="vm-film" role="listbox" aria-label="Fotos pequeñas — desliza para ver más" onScroll={onScroll}>
       <div className="vm-film-pad" aria-hidden="true" />
       {visible.map(({ a, realIndex }) => (
         <button

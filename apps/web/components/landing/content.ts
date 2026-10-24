@@ -38,19 +38,19 @@ export const FAQ = [
   },
   {
     q: "¿Pierden calidad mis fotos y vídeos?",
-    a: "No. Guardamos el archivo original, byte a byte, sin recomprimir. Cuando lo descargas es idéntico al que subiste.",
+    a: "No. Guardamos tu foto o vídeo exactamente como lo hiciste, sin perder nada de calidad. Cuando lo descargas es idéntico.",
   },
   {
     q: "¿Qué tipos de archivo puedo guardar?",
-    a: "Fotos (HEIC, JPG, PNG, RAW DNG…), vídeos (MOV, MP4, MKV…) y audio (MP3, M4A, WAV, FLAC…). Si tu móvil lo hace, Upscale lo guarda.",
+    a: "Fotos, vídeos y música de cualquier tipo. Si tu móvil lo hace, Upscale lo guarda.",
   },
   {
     q: "¿Quién puede ver mis archivos?",
-    a: "Solo tú. Cada cuenta ve únicamente lo suyo, y para entrar hace falta tu sesión.",
+    a: "Solo tú. Cada cuenta ve únicamente lo suyo, y para verlo hay que entrar con tu cuenta.",
   },
   {
     q: "¿Puedo llevarme todo si me voy?",
-    a: "Sí. Puedes descargar toda tu biblioteca en un ZIP cuando quieras, con los originales intactos.",
+    a: "Sí. Puedes descargar todo cuando quieras, tal cual lo subiste.",
   },
   {
     q: "¿Cómo subo cosas desde el móvil?",
@@ -67,11 +67,11 @@ export const FAQ_EXTRA = [
   },
   {
     q: "¿Puedo descargar mis fotos en un formato que se abra en cualquier aparato?",
-    a: "Sí. Al descargar eliges entre Compatible y Original. Compatible convierte lo que no se abre en todas partes (por ejemplo, una foto HEIC pasa a JPG) y Original te da el archivo exacto.",
+    a: "Sí. Al descargar eliges entre «Fácil de abrir» y «Original». «Fácil de abrir» convierte lo que no se abre en todas partes (por ejemplo, las fotos del iPhone) y «Original» te da el archivo exacto.",
   },
   {
     q: "¿Cómo descargo muchas fotos de golpe?",
-    a: "Selecciónalas y descárgalas en un ZIP. Si son muchas, Upscale las reparte en partes de tamaño cómodo para el móvil y muestra una barra de progreso.",
+    a: "Selecciónalas y descárgalas de una vez. Si son muchas, Upscale las reparte en partes cómodas para el móvil y te enseña una barra de progreso.",
   },
   {
     q: "¿Puedo usar Upscale en el móvil como una app?",
@@ -87,7 +87,7 @@ export const FAQ_EXTRA = [
   },
   {
     q: "¿Puedo borrar mi cuenta y mis archivos?",
-    a: "Sí, cuando quieras y tú solo, desde Ajustes. Se borran tus archivos y tus datos. Antes puedes descargarlo todo en un ZIP.",
+    a: "Sí, cuando quieras y tú solo, desde Ajustes. Se borran tus archivos y tus datos. Antes puedes descargarlo todo.",
   },
   {
     q: "¿Hay límite de tamaño por archivo?",

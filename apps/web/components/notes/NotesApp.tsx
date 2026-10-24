@@ -66,7 +66,7 @@ export default function NotesApp() {
         setError(null);
       } catch (e) {
         if (mi !== reqId.current) return;
-        setError(e instanceof ErrorApi && e.status === 401 ? "Tu sesión ha caducado. Vuelve a entrar." : "No se pudieron cargar las notas.");
+        setError(e instanceof ErrorApi && e.status === 401 ? "Por seguridad, tienes que entrar otra vez." : "No se pudieron cargar las notas.");
       }
     },
     [vista, consulta, etiqueta],

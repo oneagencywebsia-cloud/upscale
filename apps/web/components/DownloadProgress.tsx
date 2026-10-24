@@ -105,7 +105,7 @@ export default function DownloadProgress() {
         ? Math.min(99, Math.floor(((p?.bytesEnviados ?? 0) / total) * 100))
         : 0;
   const parte = p?.parte ?? det.parte;
-  const titulo = det.titulo ?? (parte && parte.de > 1 ? `Parte ${parte.n} de ${parte.de}` : "Descargando ZIP");
+  const titulo = det.titulo ?? (parte && parte.de > 1 ? `Parte ${parte.n} de ${parte.de}` : "Descargando");
 
   let linea: string;
   if (etapa === "error") {
@@ -118,11 +118,11 @@ export default function DownloadProgress() {
     linea =
       p && p.omitidos > 0
         ? p.omitidos === 1
-          ? "Listo · 1 archivo no se pudo incluir (mira el LEEME dentro del ZIP)."
-          : `Listo · ${p.omitidos} archivos no se pudieron incluir (mira el LEEME dentro del ZIP).`
+          ? "Listo · 1 archivo no se pudo incluir (lo explicamos en el archivo LEEME que viene dentro)."
+          : `Listo · ${p.omitidos} archivos no se pudieron incluir (lo explicamos en el archivo LEEME que viene dentro).`
       : "Listo ✓ Lo tienes en Descargas.";
   } else if (!p || p.total === 0) {
-    linea = "Preparando tu ZIP…";
+    linea = "Preparando tu descarga…";
   } else {
     linea = `${p.hechos.toLocaleString("es-ES")} de ${p.total.toLocaleString("es-ES")} archivos · ${bytesHuman(p.bytesEnviados)} de ${bytesHuman(p.bytesTotal)}`;
   }

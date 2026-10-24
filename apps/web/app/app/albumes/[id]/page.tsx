@@ -19,7 +19,7 @@ export default async function AlbumPage({ params }: { params: Promise<{ id: stri
     // que un álbum inexistente (la API contesta 404) se mostrara como «Sin conexión».
     album = await getAlbum(id);
   } catch {
-    error = "No se pudo conectar con el servidor de Upscale.";
+    error = "No se pudo conectar con Upscale. Mira tu conexión a internet e inténtalo otra vez.";
   }
 
   if (!error && !album) notFound();
@@ -30,7 +30,7 @@ export default async function AlbumPage({ params }: { params: Promise<{ id: stri
       // igual que la galería principal.
       ({ items, nextCursor: cursor } = await getAlbumAssets(id, undefined));
     } catch {
-      error = "No se pudo conectar con el servidor de Upscale.";
+      error = "No se pudo conectar con Upscale. Mira tu conexión a internet e inténtalo otra vez.";
     }
   }
 

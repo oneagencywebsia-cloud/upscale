@@ -22,7 +22,7 @@ export default async function Page() {
     >
       <h2>Por qué se pierde calidad sin que te des cuenta</h2>
       <p>
-        Hay varias formas de «guardar» fotos y no todas conservan el original. Algunas apps y servicios recomprimen para ahorrar espacio, y el propio iPhone,
+        Hay varias formas de «guardar» fotos y no todas conservan el original. Algunas apps y servicios reducen la calidad para ahorrar espacio, y el propio iPhone,
         con la opción <i>Optimizar almacenamiento del iPhone</i>, deja en el teléfono versiones más ligeras cuando se llena. Por eso conviene tener
         una copia aparte, con los archivos originales completos.
       </p>
@@ -37,8 +37,8 @@ export default async function Page() {
 
       <h2>Cómo sabes que es el original</h2>
       <p>
-        Upscale guarda cada archivo byte a byte, sin recomprimir, y al descargarlo en modo <b>Original</b> es idéntico al que subiste.
-        Si subes el mismo archivo dos veces, no se duplica. Para verlo en cualquier aparato puedes descargar en modo <b>Compatible</b>:
+        Upscale guarda cada archivo sin perder calidad y, al descargarlo en modo <b>Original</b>, es idéntico al que subiste.
+        Si subes el mismo archivo dos veces, no se duplica. Para verlo en cualquier aparato puedes descargar en modo <b>Fácil de abrir</b>:
         una foto HEIC pasa a JPG, por ejemplo, pero el original sigue guardado. Más en <Link href="/formatos">Formatos compatibles</Link>.
       </p>
 
@@ -47,7 +47,7 @@ export default async function Page() {
         <li>No borres nada del iPhone hasta haber comprobado que se ve bien en la biblioteca.</li>
         <li>Si pasas fotos a un ordenador por cable, en los ajustes de Fotos elige <i>Mantener originales</i> en lugar de <i>Automático</i>.</li>
         <li>Haz la copia con regularidad: una vez al mes es suficiente para la mayoría de la gente.</li>
-        <li>Guarda también un ZIP con todo de vez en cuando, desde Ajustes, si quieres una segunda copia en tu ordenador.</li>
+        <li>Descarga también todo de vez en cuando, desde Ajustes, si quieres una segunda copia en tu ordenador.</li>
       </ul>
       <p>Empieza con 5 GB gratis en <Link href="/planes">el plan Gratis</Link>.</p>
     </PublicPage>

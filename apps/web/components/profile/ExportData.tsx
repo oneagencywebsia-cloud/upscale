@@ -92,25 +92,25 @@ export default function ExportData({ snapshot }: { snapshot: AccountSnapshot }) 
       <div className="prow">
         <div>
           <b>Toda mi biblioteca</b>
-          <small>ZIP con los originales, byte a byte. Si tienes muchos, te lo damos en partes.</small>
+          <small>Todos tus archivos, tal cual los subiste. Si tienes muchos, te los damos por partes.</small>
         </div>
         <button className="btn sm" type="button" onClick={() => setSheet(true)}>
-          Descargar ZIP
+          Descargar todo
         </button>
       </div>
       <div className="prow">
         <div>
           <b>Datos de mi cuenta</b>
-          <small>Perfil, métodos de acceso, espacio y lista de álbumes en JSON.</small>
+          <small>Tu perfil, cómo entras, el espacio que usas y tus álbumes, en un archivo para guardar.</small>
         </div>
         <button className="btn sm" type="button" onClick={downloadJson}>
-          Exportar JSON
+          Guardar mis datos
         </button>
       </div>
       <div className="prow">
         <div>
           <b>Mis notas</b>
-          <small>{notas === "error" ? "No se pudieron exportar. Inténtalo de nuevo." : "Todas tus notas con su texto, etiquetas y estilo en JSON. Las capturas siguen en tu biblioteca."}</small>
+          <small>{notas === "error" ? "No se pudieron exportar. Inténtalo de nuevo." : "Todas tus notas con su texto, etiquetas y color, en un archivo para guardar. Las capturas siguen en tu biblioteca."}</small>
         </div>
         <button className="btn sm" type="button" onClick={exportarNotas} disabled={notas === "busy"}>
           {notas === "busy" ? "Exportando…" : "Exportar notas"}

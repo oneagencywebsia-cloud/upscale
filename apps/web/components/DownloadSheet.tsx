@@ -153,7 +153,7 @@ export default function DownloadSheet({
               guardarFormatoCompatible(true);
             }}
           >
-            <b>Compatible</b>
+            <b>Fácil de abrir</b>
             <small>Se abre en cualquier aparato</small>
           </button>
           <button
@@ -167,7 +167,7 @@ export default function DownloadSheet({
             }}
           >
             <b>Original</b>
-            <small>El archivo exacto</small>
+            <small>El archivo exacto que subiste</small>
           </button>
         </div>
 
@@ -184,15 +184,15 @@ export default function DownloadSheet({
               {varias
                 ? `Son muchos archivos: te lo damos en ${plan.parts.length} partes para que sea rápido y no falle. Toca una, espera a que termine y toca la siguiente.`
                 : compat
-                  ? "Un solo ZIP. Las fotos HEIC salen en JPG, los vídeos HEVC en MP4 y los audios raros en MP3; lo demás, tal cual."
-                  : "Un solo ZIP con los originales, tal cual (sin perder calidad)."}
+                  ? "Todo en una sola descarga. Lo que algunos aparatos no abren se convierte para que funcione en cualquiera; lo demás, tal cual."
+                  : "Todo en una sola descarga, exactamente como lo subiste (sin perder calidad)."}
             </p>
             <div className="dls-list">
               {plan.parts.map((p, i) => (
                 <button key={i} type="button" className={`dls-part ${hechas.has(i) ? "done" : ""}`} onClick={() => bajar(i)}>
                   <span className="dls-n">{hechas.has(i) ? "✓" : varias ? i + 1 : "↓"}</span>
                   <span className="dls-t">
-                    <b>{varias ? `Parte ${i + 1} de ${plan.parts.length}` : "Descargar ZIP"}</b>
+                    <b>{varias ? `Parte ${i + 1} de ${plan.parts.length}` : "Descargar"}</b>
                     <i>
                       {p.count.toLocaleString("es-ES")} elemento{p.count === 1 ? "" : "s"} · {bytesHuman(p.bytes)}
                     </i>

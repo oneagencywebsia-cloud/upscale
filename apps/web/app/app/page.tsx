@@ -44,7 +44,7 @@ export default async function GalleryPage({
     items = list.value.items;
     cursor = list.value.nextCursor ?? null;
   } else {
-    error = "No se pudo conectar con el servidor de Upscale.";
+    error = "No se pudo conectar con Upscale. Mira tu conexión a internet e inténtalo otra vez.";
   }
 
   // si falla, el desplegable de cámara sale vacío

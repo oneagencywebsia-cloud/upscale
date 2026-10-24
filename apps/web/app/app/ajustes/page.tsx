@@ -39,16 +39,16 @@ export default async function AjustesPage() {
       <section className="panel">
         <h3>Subir tus cosas</h3>
         <p className="panel-lede">
-          Pulsa el botón <b>↑</b> de arriba y elige lo que quieras, o arrástralo a la página. Fotos, vídeos y audio, todo a la vez.
+          Pulsa el botón <b>↑</b> de arriba y elige lo que quieras (en el ordenador también puedes arrastrarlo a la página). Fotos, vídeos y música, todo a la vez.
         </p>
         <p className="panel-lede">
-          Consejo: en iPhone, los vídeos 4K a 60 fps pueden llegar reducidos si los subes desde el navegador (lo hace iOS, no Upscale).
+          Consejo: si subes un vídeo muy grande desde el iPhone, el propio iPhone puede bajarle la calidad antes de enviarlo. No lo hace Upscale.
         </p>
       </section>
 
       <section className="panel">
         <h3>Tus datos</h3>
-        <p className="panel-lede">Descarga todo en un ZIP, con los originales intactos. Tuyo siempre.</p>
+        <p className="panel-lede">Descarga todo de una vez, tal cual lo subiste. Es tuyo siempre.</p>
         <p>
           <DownloadAllButton />
         </p>
@@ -95,7 +95,7 @@ export default async function AjustesPage() {
       )}
 
       <details className="panel adv">
-        <summary>Opciones avanzadas</summary>
+        <summary>Opciones avanzadas (para quien sabe de móviles)</summary>
       <section className="adv-sec">
         <h3>Atajo de iOS (opcional, para lotes de fotos / vídeo normal)</h3>
         <p className="panel-lede">
@@ -109,11 +109,9 @@ export default async function AjustesPage() {
       </section>
 
       <section className="adv-sec">
-        <h3>Vídeos que tardan o no cargan</h3>
+        <h3>Vídeos que tardan en abrirse</h3>
         <p className="panel-lede">
-          Cada vídeo tiene una copia ligera para reproducirse rápido; si falló varias veces, se
-          rinde y se queda sin ella — al abrirlo, la app tiene que traer el original de bitrate
-          completo, que es lo que se nota como pausas de carga largas. Pulsa para reintentar esos.
+          Si un vídeo tarda mucho en abrirse o se corta, pulsa aquí para que Upscale lo vuelva a preparar.
         </p>
         <PreviewsRetry />
       </section>

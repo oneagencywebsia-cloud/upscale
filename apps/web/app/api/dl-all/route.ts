@@ -63,7 +63,7 @@ async function pasar(request: Request, init: { method: "GET" | "POST"; path: str
       signal: request.signal,
     });
   } catch {
-    return errorPage("No hay conexión con el servidor. Inténtalo de nuevo en un momento.", 502);
+    return errorPage("No se pudo conectar con Upscale. Inténtalo de nuevo en un momento.", 502);
   }
 
   if (!upstream.ok || !upstream.body) {

@@ -11,7 +11,7 @@ export default async function AlbumesPage() {
   try {
     ({ albums } = await listAlbums());
   } catch {
-    error = "No se pudo conectar con el servidor de Upscale.";
+    error = "No se pudo conectar con Upscale. Mira tu conexión a internet e inténtalo otra vez.";
   }
 
   return (

@@ -28,3 +28,19 @@ export function atajo(letra: string): string {
   const mac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
   return mac ? `⌘${letra}` : `Ctrl+${letra}`;
 }
+
+const CONSULTA_MOVIL = "(max-width: 720px)";
+function suscribirMovil(cb: () => void) {
+  const mq = window.matchMedia(CONSULTA_MOVIL);
+  mq.addEventListener("change", cb);
+  return () => mq.removeEventListener("change", cb);
+}
+
+/** Pantalla estrecha (móvil). En el servidor es false: el primer pintado es el de escritorio y se corrige al montar. */
+export function useMovil(): boolean {
+  return useSyncExternalStore(
+    suscribirMovil,
+    () => window.matchMedia(CONSULTA_MOVIL).matches,
+    () => false,
+  );
+}
