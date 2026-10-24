@@ -17,6 +17,7 @@ import { accountRoutes } from "./routes/account.js";
 import { noteRoutes, iniciarLimpiezaNotas } from "./routes/notes.js";
 import { widgetRoutes } from "./routes/widgets.js";
 import { startInboxIngest } from "./ingest.js";
+import { iniciarRelleno } from "./orientation.js";
 
 const app = Fastify({
   logger: { level: process.env.LOG_LEVEL ?? "info" },
@@ -107,6 +108,7 @@ try {
   await app.listen({ port: env.PORT, host: "0.0.0.0" });
   app.log.info(`Upscale API (${env.STORAGE_DRIVER}) en http://0.0.0.0:${env.PORT}`);
   startInboxIngest(app.log);
+  iniciarRelleno(app.log);
   iniciarLimpiezaNotas(app.log);
 } catch (err) {
   app.log.error(err);

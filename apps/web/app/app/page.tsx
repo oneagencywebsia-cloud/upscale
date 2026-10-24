@@ -18,11 +18,13 @@ export default async function GalleryPage({
     tooBig?: string;
     q?: string;
     camera?: string;
+    orientation?: string;
     from?: string;
     to?: string;
   }>;
 }) {
-  const { kind, fav, sort, tooBig, q, camera, from, to } = await searchParams;
+  const { kind, fav, sort, tooBig, q, camera, orientation: rawOri, from, to } = await searchParams;
+  const orientation = rawOri === "vertical" || rawOri === "horizontal" || rawOri === "cuadrada" ? rawOri : undefined;
   const filter = kind === "photo" || kind === "video" || kind === "audio" ? kind : undefined;
   const onlyFav = fav === "1";
   const sortAdded = sort === "added";
@@ -32,7 +34,7 @@ export default async function GalleryPage({
   const [list, cams, store] = await Promise.allSettled([
     // SOLO la primera página: la biblioteca puede tener cientos de miles de
     // archivos. El resto entra por scroll infinito (cursor keyset).
-    listAssets({ limit: 120, kind: filter, fav: onlyFav, q, camera, from, to, sort: sortAdded ? "added" : undefined }),
+    listAssets({ limit: 120, kind: filter, fav: onlyFav, q, camera, orientation, from, to, sort: sortAdded ? "added" : undefined }),
     listCameras(),
     getStorage(),
   ]);
@@ -100,6 +102,7 @@ export default async function GalleryPage({
             total={totalCount}
             q={q}
             camera={camera}
+            orientation={orientation}
             from={from}
             to={to}
             cameras={cameras}

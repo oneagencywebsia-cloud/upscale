@@ -41,7 +41,7 @@ function medidas(q: Record<string, string | undefined>): Medidas {
     return Number.isFinite(n) && n > 0 ? Math.min(MAX_LADO, Math.max(MIN_LADO, Math.round(n))) : def;
   };
   const rot = q.rot === "vez" || q.rot === "hora" || q.rot === "dia" || q.rot === "fija" ? q.rot : undefined;
-  return { w: num(q.w, p.w), h: num(q.h, p.h), fondoPantalla: q.wallpaper === "1", rot };
+  return { w: num(q.w, p.w), h: num(q.h, p.h), rot };
 }
 
 // pequeña caché: los widgets de las pantallas piden cada pocos minutos; así no se repinta cada vez
@@ -53,7 +53,7 @@ function dePoner(k: string, v: { buf: Buffer; tipo: string }) {
 
 async function enviarDibujo(reply: FastifyReply, w: Fila, m: Medidas, opts: { descargar?: string; ext?: "png" | "jpg" } = {}) {
   const cacheable = m.rot !== "vez" && w.config.rotar !== "vez";
-  const k = `${w.id}|${w.updated_at.getTime()}|${m.w}x${m.h}|${m.fondoPantalla ? 1 : 0}|${m.rot ?? ""}`;
+  const k = `${w.id}|${w.updated_at.getTime()}|${m.w}x${m.h}|${m.rot ?? ""}`;
   const hit = cacheable ? cache.get(k) : undefined;
   let d = hit && hit.exp > Date.now() ? hit : undefined;
   if (!d) {

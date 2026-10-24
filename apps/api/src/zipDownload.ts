@@ -45,6 +45,7 @@ export interface ZipFiltro {
   /** mismos filtros que el listado de la galería: lo que se ve filtrado es lo que se baja */
   q: string | null;
   camera: string | null;
+  orientation: "vertical" | "horizontal" | "cuadrada" | null;
   from: string | null;
   to: string | null;
 }
@@ -86,6 +87,7 @@ export function filtroDe(raw: Record<string, unknown> | undefined | null): ZipFi
     album,
     q: txt(r.q),
     camera: txt(r.camera),
+    orientation: r.orientation === "vertical" || r.orientation === "horizontal" || r.orientation === "cuadrada" ? r.orientation : null,
     from: fecha(r.from),
     to: fecha(r.to),
   };
@@ -112,6 +114,10 @@ export async function filasDe(userId: string, f: ZipFiltro): Promise<ZipFila[]> 
   if (f.camera) {
     params.push(f.camera);
     sql += ` and a.camera_make = $${params.length}`;
+  }
+  if (f.orientation) {
+    params.push(f.orientation);
+    sql += ` and a.orientation = $${params.length}`;
   }
   if (f.from) {
     params.push(f.from);

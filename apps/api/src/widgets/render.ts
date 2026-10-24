@@ -21,7 +21,6 @@ export interface Medidas {
   w: number;
   h: number;
   /** pensado como fondo de pantalla: el contenido baja para no taparlo el reloj */
-  fondoPantalla?: boolean;
   /** forzar la rotación (el modo marco pide «vez») */
   rot?: Rotacion;
 }
@@ -289,8 +288,8 @@ async function dibujarNota(w: FilaWidget, m: Medidas): Promise<Dibujo> {
     ? `<rect x="${(st.border.width * escala) / 2}" y="${(st.border.width * escala) / 2}" width="${m.w - st.border.width * escala}" height="${m.h - st.border.width * escala}" rx="${radio}" fill="none" stroke="${hex(st.border.color, "#7a8fc4")}" stroke-width="${st.border.width * escala}" ${st.border.style === "dashed" ? `stroke-dasharray="${10 * escala} ${7 * escala}"` : st.border.style === "dotted" ? `stroke-dasharray="1 ${6 * escala}" stroke-linecap="round"` : ""}/>`
     : "";
   // el fondo de pantalla baja el contenido para no tapar el reloj de la pantalla de bloqueo
-  const arriba = m.fondoPantalla ? Math.round(m.h * 0.34) : pad;
-  const abajo = m.fondoPantalla ? Math.round(m.h * 0.12) : pad;
+  const arriba = pad;
+  const abajo = pad;
   const ancho = m.w - pad * 2;
   const alto = m.h - arriba - abajo;
   const align = st.align === "center" ? "centre" : st.align === "right" ? "right" : "left";
@@ -340,7 +339,7 @@ async function dibujarNota(w: FilaWidget, m: Medidas): Promise<Dibujo> {
   const lienzo = (await fondoSvg(m.w, m.h, `${bg}${borde}`)).composite(capas);
   // el radio de la propia nota se aplica aquí (PNG con transparencia); como fondo de pantalla, a sangre
   const png = await lienzo.png().toBuffer();
-  return { buf: await redondear(png, m.w, m.h, m.fondoPantalla ? 0 : radio), tipo: "image/png" };
+  return { buf: await redondear(png, m.w, m.h, radio), tipo: "image/png" };
 }
 
 /* ------------------------------------------------------------------ espacio */
@@ -366,7 +365,7 @@ async function dibujarEspacio(w: FilaWidget, m: Medidas): Promise<Dibujo> {
   const horizontal = m.w >= m.h * 1.25;
   const r = (horizontal ? s * 0.34 : s * 0.3);
   const cx = horizontal ? r + s * 0.12 : m.w / 2;
-  const cy = horizontal ? m.h / 2 : m.h * (m.fondoPantalla ? 0.5 : 0.36);
+  const cy = horizontal ? m.h / 2 : m.h * 0.36;
   const circ = 2 * Math.PI * r;
   const sw = r * 0.22;
   const tx = horizontal ? cx + r + s * 0.12 : m.w / 2;
