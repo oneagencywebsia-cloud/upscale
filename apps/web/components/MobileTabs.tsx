@@ -18,14 +18,15 @@ const I = {
       <path d="m3 17 5-4 4 3 3-2 6 4" />
     </svg>
   ),
-  fav: (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 17.3 6.2 20l1.1-6.3L2.5 9.2l6.4-.9L12 2.5l3.1 5.8 6.4.9-4.8 4.5L17.8 20z" />
-    </svg>
-  ),
   space: (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 7h16M4 12h16M4 17h10" />
+    </svg>
+  ),
+  notes: (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 3h9l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" />
+      <path d="M14 3v5h5M8.5 13h7M8.5 17h5" />
     </svg>
   ),
   albums: (
@@ -95,7 +96,7 @@ export default function MobileTabs({ profile, photoUrl }: { profile: Profile; ph
 
   const tabs = [
     { href: "/app", label: "Biblioteca", icon: I.lib, active: onLib },
-    { href: "/app?fav=1", label: "Favoritos", icon: I.fav, active: onFav },
+    { href: "/app/notas", label: "Notas", icon: I.notes, active: pathname.startsWith("/app/notas") },
     { href: "/app/albumes", label: "Álbumes", icon: I.albums, active: pathname.startsWith("/app/albumes") },
     { href: "/app/espacio", label: "Espacio", icon: I.space, active: pathname === "/app/espacio" },
     {

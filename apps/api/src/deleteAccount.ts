@@ -67,6 +67,7 @@ export function iniciarBorradoCuenta(userId: string, log: { info: (o: object, m:
         borrados += rows.length;
       }
 
+      await query("delete from notes where user_id = $1", [userId]);
       await query("delete from albums where user_id = $1", [userId]);
       await query("delete from upload_tokens where user_id = $1", [userId]);
       await query("delete from access_log where user_id = $1", [userId]);
