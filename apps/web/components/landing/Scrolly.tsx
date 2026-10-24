@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { DISPOSICIONES, ESCENAS, N, type Forma, type IdEscena } from "./formas";
+import { DISPOSICIONES, N, type Forma, type IdEscena } from "./formas";
 
 /**
  * El recorrido: un escenario fijo (sticky) donde las mismas formas se transforman
@@ -24,7 +24,6 @@ const mezcla = (a: number, b: number, t: number) => a + (b - a) * t;
 export default function Scrolly({ escena, capitulos }: { escena: IdEscena; capitulos: React.ReactNode[] }) {
   const raiz = useRef<HTMLElement>(null);
   const DISP = DISPOSICIONES[escena];
-  const MATICES = ESCENAS[escena].matices;
   const N_CAPITULOS = DISP.length;
 
   useEffect(() => {
@@ -34,8 +33,9 @@ export default function Scrolly({ escena, capitulos }: { escena: IdEscena; capit
     const caps = Array.from(el.querySelectorAll<HTMLElement>(".sc-cap"));
     const barra = el.querySelector<HTMLElement>(".sc-barra i");
     const escenario = el.querySelector<HTMLElement>(".sc-escenario");
-    const fondo = el.querySelector<HTMLElement>(".sc-fondo");
-    if (!escenario || !fondo) return;
+    const fondos = Array.from(el.querySelectorAll<HTMLElement>(".sc-fondo"));
+    const puntos = Array.from(el.querySelectorAll<HTMLElement>(".sc-puntos i"));
+    if (!escenario || !fondos.length) return;
 
     const html = document.documentElement;
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -49,7 +49,6 @@ export default function Scrolly({ escena, capitulos }: { escena: IdEscena; capit
     let visible = true;
     let raf = 0;
     let ultimo = -1;
-    let ultimoMatiz = "";
 
     const medir = () => {
       const r = escenario.getBoundingClientRect();
@@ -96,12 +95,13 @@ export default function Scrolly({ escena, capitulos }: { escena: IdEscena; capit
         cap.style.pointerEvents = v > 0.55 ? "auto" : "none";
         cap.toggleAttribute("inert", v < 0.4);
       }
-      // fondo: el color cambia suavemente de un capítulo al siguiente
-      const hue = mezcla(MATICES[i]!, MATICES[i + 1]!, t);
-      const h = hue.toFixed(0);
-      if (h !== ultimoMatiz) {
-        ultimoMatiz = h;
-        fondo.style.setProperty("--h", h);
+      // fondo: cada capítulo tiene SU ambiente (color, luz, anillos) y se funden entre sí con solo opacity
+      for (let j = 0; j < fondos.length; j++) {
+        const o = Math.max(0, 1 - Math.abs(c - j));
+        fondos[j]!.style.opacity = o.toFixed(3);
+        fondos[j]!.style.transform = `scale(${(1 + (c - j) * 0.06).toFixed(3)})`;
+        const pt = puntos[j];
+        if (pt) pt.style.setProperty("--a", o.toFixed(2));
       }
       if (barra) barra.style.transform = `scaleX(${p.toFixed(3)})`;
     };
@@ -179,12 +179,16 @@ export default function Scrolly({ escena, capitulos }: { escena: IdEscena; capit
       if (escena === "a") document.removeEventListener("click", clic);
       mq.removeEventListener("change", aplicar);
     };
-  }, [DISP, MATICES, N_CAPITULOS, escena]);
+  }, [DISP, N_CAPITULOS, escena]);
 
   return (
     <section ref={raiz} className="sc" data-escena={escena} aria-label={ETIQUETA[escena]} style={{ ["--n" as string]: N_CAPITULOS }}>
       <div className="sc-escenario">
-        <div className="sc-fondo" aria-hidden="true" style={{ ["--h" as string]: MATICES[0] }} />
+        <div className="sc-fondos" aria-hidden="true">
+          {DISP.map((_, j) => (
+            <div key={j} className="sc-fondo" data-m={j} style={{ opacity: j === 0 ? 1 : 0 }} />
+          ))}
+        </div>
         <div className="sc-formas" aria-hidden="true">
           {Array.from({ length: N }, (_, k) => (
             <i key={k} className={`sc-f sc-f-${k % 4}`} />
@@ -195,6 +199,11 @@ export default function Scrolly({ escena, capitulos }: { escena: IdEscena; capit
             {c}
           </div>
         ))}
+        <div className="sc-puntos" aria-hidden="true">
+          {DISP.map((_, j) => (
+            <i key={j} style={{ ["--a" as string]: j === 0 ? 1 : 0 }} />
+          ))}
+        </div>
         <div className="sc-barra" aria-hidden="true">
           <i />
         </div>

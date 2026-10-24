@@ -256,6 +256,8 @@ Reglas: **nada de datos inventados** (ni usuarios, ni opiniones, ni «quedan X p
 4. Tramo: planes con calculadora, captura → nota (`Demo.tsx`) y dudas.
 5. Escena C (cierre): el caos vuelve a juntarse en un sol y aparece el mismo botón.
 
+Fondo: cada capítulo tiene su ambiente (color, luz y anillos) y se funden entre sí solo con `opacity`. Texto: un titular corto y una línea de apoyo por capítulo; cada uno pulsa una sola emoción (esperanza, miedo a perder, alivio, prueba, comodidad, confianza, reciprocidad, urgencia sin presión falsa, cierre).
+
 Mecánica: `formas.ts` define las disposiciones (sol, caos, escalera de la marca, marcos, pantallas, cerradura, red) de los **mismos 28 elementos**; al hacer scroll cada elemento viaja de una a la siguiente y cambia de forma (círculo ↔ rectángulo redondeado). Un solo oyente de scroll con `requestAnimationFrame`, que se para fuera de pantalla; solo se escriben `transform`, `opacity`, `border-radius` y el ancho de cada elemento. Sin JavaScript, con «reducir movimiento» o con las animaciones apagadas, las escenas son una lista normal de capítulos (`[data-quieto]`). Los capítulos ocultos llevan `inert`.
 
 Imágenes y vídeo propios, sin servicios externos: `tools/generar-portada.mjs` (sharp + ffmpeg) genera ilustraciones y un vídeo de la biblioteca en `apps/web/public/landing/`.

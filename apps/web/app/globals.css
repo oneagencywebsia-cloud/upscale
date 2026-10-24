@@ -9111,15 +9111,71 @@ html[data-letra="2"] { zoom: 1.3; }
   overflow: hidden;
   isolation: isolate;
 }
-.sc-fondo {
+.sc-fondos {
   position: absolute;
   inset: 0;
   z-index: -2;
-  --h: 205;
-  background:
-    radial-gradient(70% 55% at 72% 42%, hsl(var(--h) 85% 62% / 0.3), transparent 72%),
-    radial-gradient(60% 50% at 18% 85%, hsl(calc(var(--h) + 40) 80% 60% / 0.2), transparent 70%);
+  overflow: hidden;
 }
+/* cada capítulo tiene su ambiente; se funden entre sí con solo opacity/transform */
+.sc-fondo {
+  position: absolute;
+  inset: -8%;
+  will-change: opacity, transform;
+  background:
+    radial-gradient(60% 55% at var(--gx) var(--gy), hsl(var(--c3) / 0.55), transparent 70%),
+    radial-gradient(75% 65% at 78% 35%, hsl(var(--c1) / 0.42), transparent 72%),
+    radial-gradient(70% 60% at 14% 88%, hsl(var(--c2) / 0.38), transparent 70%),
+    linear-gradient(160deg, hsl(var(--c1) / 0.12), hsl(var(--c2) / 0.18));
+}
+/* anillos: el círculo, la forma de la marca, como ondas que salen de la figura */
+.sc-fondo::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-radial-gradient(circle at var(--rx) var(--ry), transparent 0 54px, rgb(255 255 255 / 0.16) 55px 56px);
+  -webkit-mask-image: radial-gradient(60% 60% at var(--rx) var(--ry), #000 20%, transparent 78%);
+  mask-image: radial-gradient(60% 60% at var(--rx) var(--ry), #000 20%, transparent 78%);
+  opacity: var(--ro);
+}
+.sc[data-escena="a"] .sc-fondo[data-m="0"] { --c1: 200 90% 66%; --c2: 176 80% 62%; --c3: 42 100% 75%; --gx: 78%; --gy: 22%; --rx: 72%; --ry: 30%; --ro: 0.9; }
+.sc[data-escena="a"] .sc-fondo[data-m="1"] { --c1: 8 85% 62%; --c2: 335 70% 55%; --c3: 28 95% 60%; --gx: 50%; --gy: 55%; --rx: 50%; --ry: 50%; --ro: 0.7; }
+.sc[data-escena="a"] .sc-fondo[data-m="2"] { --c1: 170 80% 60%; --c2: 195 85% 62%; --c3: 150 70% 70%; --gx: 28%; --gy: 70%; --rx: 30%; --ry: 70%; --ro: 0.8; }
+.sc[data-escena="a"] .sc-fondo[data-m="3"] { --c1: 215 90% 66%; --c2: 255 80% 70%; --c3: 190 90% 75%; --gx: 74%; --gy: 38%; --rx: 72%; --ry: 40%; --ro: 0.9; }
+.sc[data-escena="b"] .sc-fondo[data-m="0"] { --c1: 238 80% 68%; --c2: 270 70% 66%; --c3: 205 90% 70%; --gx: 70%; --gy: 40%; --rx: 70%; --ry: 45%; --ro: 0.85; }
+.sc[data-escena="b"] .sc-fondo[data-m="1"] { --c1: 165 65% 48%; --c2: 190 70% 45%; --c3: 140 55% 65%; --gx: 60%; --gy: 45%; --rx: 68%; --ry: 45%; --ro: 0.8; }
+.sc[data-escena="b"] .sc-fondo[data-m="2"] { --c1: 320 80% 68%; --c2: 285 75% 66%; --c3: 18 95% 72%; --gx: 68%; --gy: 42%; --rx: 68%; --ry: 48%; --ro: 0.9; }
+.sc[data-escena="c"] .sc-fondo[data-m="0"] { --c1: 20 90% 62%; --c2: 345 75% 58%; --c3: 265 60% 50%; --gx: 60%; --gy: 50%; --rx: 66%; --ry: 48%; --ro: 0.8; }
+.sc[data-escena="c"] .sc-fondo[data-m="1"] { --c1: 40 100% 68%; --c2: 18 95% 66%; --c3: 190 85% 70%; --gx: 68%; --gy: 46%; --rx: 68%; --ry: 48%; --ro: 1; }
+/* a1 y c0: la tensión se nota en los bordes (el móvil que se llena, el tiempo que pasa) */
+.sc[data-escena="a"] .sc-fondo[data-m="1"]::after,
+.sc[data-escena="c"] .sc-fondo[data-m="0"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(110% 85% at 50% 50%, transparent 45%, rgb(40 12 48 / 0.32));
+}
+.sc-puntos {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  z-index: 3;
+  display: grid;
+  gap: 10px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.sc-puntos i {
+  --a: 0;
+  display: block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--light);
+  opacity: calc(0.25 + var(--a) * 0.65);
+  transform: scale(calc(1 + var(--a) * 0.7));
+}
+.sc[data-quieto] .sc-puntos { display: none; }
 .sc-formas {
   position: absolute;
   inset: 0;
@@ -9299,3 +9355,4 @@ html[data-letra="2"] { zoom: 1.3; }
 :root[data-motion="off"] .bib-tel { transform: none; }
 .bib-lista li, .bib-chips { text-align: left; }
 @media (max-width: 760px) { .bib-chips { display: flex; width: max-content; margin-inline: auto; } }
+.sc[data-quieto] .sc-fondos { display: none; }

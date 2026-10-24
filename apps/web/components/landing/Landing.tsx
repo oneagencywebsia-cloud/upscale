@@ -38,8 +38,9 @@ export default function Landing({
   goodbye?: boolean;
   authError?: boolean;
 }) {
+  // Regla del texto: un titular corto y UNA línea de apoyo. Cada capítulo pulsa una sola emoción.
   const escenaA = [
-    // 0 · promesa
+    // 0 · promesa (esperanza)
     <div key="0" className="sc-txt" id="empezar">
       {authError && !loggedIn && (
         <p className="gift gift-err" role="alert">No pudimos dejarte entrar. Inténtalo otra vez o entra con tu correo.</p>
@@ -50,67 +51,64 @@ export default function Landing({
       {invited && !loggedIn && !goodbye && (
         <p className="gift">🎁 Un amigo te regala <b>+{gbHuman(REFERRAL.invitedBonusBytes)}</b> de espacio</p>
       )}
-      <p className="sc-eyebrow">TUS FOTOS, VÍDEOS Y MÚSICA</p>
+      <p className="sc-eyebrow">TUS RECUERDOS</p>
       <h1 className="sc-h">Guarda todo. <span className="ul">Sin perder nada</span>.</h1>
-      <p className="sc-p">Tu móvil se llena. Upscale guarda el original de lo que grabas, tal cual, y lo tienes siempre a mano.</p>
+      <p className="sc-p">El original, tal cual. Siempre a mano.</p>
       <StartBox loggedIn={loggedIn} next={next} invited={invited} />
-      <a className="sc-hint" href="#planes" data-sc-next>Desliza para verlo ↓</a>
+      <a className="sc-hint" href="#planes" data-sc-next>Desliza ↓</a>
     </div>,
-    // 1 · pérdida
+    // 1 · pérdida (miedo a perder)
     <div key="1" className="sc-txt">
       <p className="sc-eyebrow">¿TE SUENA?</p>
-      <h2 className="sc-h">Tu móvil <span className="ul">se llena</span></h2>
-      <p className="sc-p">Borras fotos para hacer sitio. Y si se rompe o se pierde hoy… ¿tienes copia de tus recuerdos?</p>
+      <h2 className="sc-h">¿Y si se rompe <span className="ul">tu móvil</span>?</h2>
+      <p className="sc-p">¿Tienes copia de tus recuerdos?</p>
     </div>,
-    // 2 · alivio
+    // 2 · alivio (un solo paso)
     <div key="2" className="sc-txt" id="como">
       <p className="sc-eyebrow">UN TOQUE</p>
-      <h2 className="sc-h">Súbelo y <span className="ul">olvídate</span></h2>
-      <p className="sc-p">Elige lo que quieras: fotos, vídeos y música, todo a la vez. Sube escalón a escalón y tú no haces nada más.</p>
+      <h2 className="sc-h">Todo a salvo. <span className="ul">Sin esfuerzo.</span></h2>
+      <p className="sc-p">Fotos, vídeos y música, a la vez.</p>
     </div>,
-    // 3 · calidad
+    // 3 · prueba (calidad)
     <div key="3" className="sc-txt">
       <p className="sc-eyebrow">SIN PERDER CALIDAD</p>
-      <h2 className="sc-h">Idéntico al <span className="ul">original</span></h2>
-      <p className="sc-p">Lo que descargas es exactamente lo que subiste. Ni un píxel menos.</p>
-      <span className="sc-chip">Verticales y horizontales</span>
-      <span className="sc-chip">Vídeos enteros</span>
+      <h2 className="sc-h">Ni un píxel <span className="ul">menos</span></h2>
+      <p className="sc-p">Lo que bajas es idéntico a lo que subiste.</p>
     </div>,
   ];
   const escenaB = [
-    // 4 · pantallas
+    // 0 · comodidad
     <div key="4" className="sc-txt">
       <p className="sc-eyebrow">EN TODAS PARTES</p>
-      <h2 className="sc-h">En <span className="ul">cualquier pantalla</span></h2>
-      <p className="sc-p">Móvil, tableta u ordenador. Y puedes poner tus fotos en la pantalla de inicio de tu móvil.</p>
+      <h2 className="sc-h">En <span className="ul">tus pantallas</span></h2>
+      <p className="sc-p">Móvil, tableta u ordenador.</p>
     </div>,
-    // 5 · confianza
+    // 1 · confianza
     <div key="5" className="sc-txt">
       <p className="sc-eyebrow">PRIVADO</p>
       <h2 className="sc-h">Solo <span className="ul">tuyo</span></h2>
-      <p className="sc-p">Cada cuenta ve únicamente lo suyo. Y puedes llevarte todo o borrarlo cuando quieras.</p>
+      <p className="sc-p">Nadie más lo ve. Te lo llevas cuando quieras.</p>
     </div>,
-    // 6 · recompensa social
+    // 2 · reciprocidad
     <div key="6" className="sc-txt">
-      <p className="sc-eyebrow">GANA ESPACIO</p>
+      <p className="sc-eyebrow">GANÁIS LOS DOS</p>
       <h2 className="sc-h">Invita y <span className="ul">gana</span></h2>
       <p className="sc-p">
-        <b>+{gbHuman(REFERRAL.inviterBonusBytes)}</b> para ti y <b>+{gbHuman(REFERRAL.invitedBonusBytes)}</b> para tu amigo, por cada amigo que guarde su primera foto. Hasta <b>+{gbHuman(REFERRAL.maxRewarded * REFERRAL.inviterBonusBytes)}</b> gratis.
+        <b>+{gbHuman(REFERRAL.inviterBonusBytes)}</b> para ti, <b>+{gbHuman(REFERRAL.invitedBonusBytes)}</b> para tu amigo.
       </p>
     </div>,
   ];
   const escenaC = [
-    // 0 · el caos vuelve
+    // 0 · el tiempo pasa (urgencia sin presión falsa)
     <div key="c0" className="sc-txt">
-      <p className="sc-eyebrow">NO ESPERES</p>
-      <h2 className="sc-h">Cada día, más fotos <span className="ul">sin copia</span></h2>
-      <p className="sc-p">Los recuerdos de hoy son los que más vas a querer mañana.</p>
+      <p className="sc-eyebrow">PIÉNSALO</p>
+      <h2 className="sc-h">Mañana querrás <span className="ul">las de hoy</span></h2>
+      <p className="sc-p">Guárdalas antes de que se pierdan.</p>
     </div>,
-    // 7 · cierre
+    // 1 · cierre (el mismo botón)
     <div key="7" className="sc-txt" id="final">
       <p className="sc-eyebrow">EMPIEZA HOY</p>
-      <h2 className="sc-h">Tu carrete te está <span className="ul">esperando</span></h2>
-      <p className="sc-p">Cada día que pasa, más fotos sin copia. Guárdalas hoy.</p>
+      <h2 className="sc-h">Tu carrete <span className="ul">te espera</span></h2>
       <StartBox loggedIn={loggedIn} next={next} invited={invited} label="Guardar mis fotos" />
     </div>,
   ];
@@ -148,9 +146,9 @@ export default function Landing({
           <div className="bib-txt">
             <h2 id="bib-h" className="lsec-h">Tu biblioteca, <span className="ul">a tu manera</span></h2>
             <ul className="bib-lista">
-              <li><b>Filtra por forma:</b> fotos verticales u horizontales, con un toque.</li>
-              <li><b>Encuentra rápido:</b> busca por nombre, por fecha o por cámara.</li>
-              <li><b>Siempre el original:</b> lo que ves es lo que subiste, sin perder calidad.</li>
+              <li><b>Verticales u horizontales,</b> con un toque.</li>
+              <li><b>Busca</b> por nombre, fecha o cámara.</li>
+              <li><b>Siempre el original.</b></li>
             </ul>
             <div className="bib-chips" aria-hidden="true">
               <span className="on">Todas</span><span>Verticales</span><span>Horizontales</span>
