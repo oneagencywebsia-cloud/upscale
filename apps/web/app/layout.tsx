@@ -3,6 +3,7 @@ import { Hanken_Grotesk, Public_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { siteUrl } from "@/lib/site";
 import BrandGlint from "@/components/BrandGlint";
+import { PANTALLAS, startupImage } from "@/lib/splash";
 
 const display = Hanken_Grotesk({ subsets: ["latin"], weight: ["500", "600", "700", "800"], variable: "--font-display" });
 const body = Public_Sans({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-body" });
@@ -19,7 +20,14 @@ export async function generateMetadata(): Promise<Metadata> {
     applicationName: "Upscale",
     category: "technology",
     manifest: "/manifest.webmanifest",
-    appleWebApp: { capable: true, title: "Upscale", statusBarStyle: "black-translucent" },
+    appleWebApp: {
+      capable: true,
+      title: "Upscale",
+      statusBarStyle: "black-translucent",
+      // pantalla de arranque a medida de cada iPhone/iPad, en claro y en oscuro
+      startupImage: PANTALLAS.flatMap((p) => [startupImage(p, "dark"), startupImage(p, "light")]),
+    },
+    other: { "mobile-web-app-capable": "yes" },
     formatDetection: { telephone: false, email: false, address: false },
     robots: {
       index: true,
@@ -32,8 +40,8 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: dark)", color: "#0a0d14" },
-    { media: "(prefers-color-scheme: light)", color: "#eef1f7" },
+    { media: "(prefers-color-scheme: dark)", color: "#14214d" },
+    { media: "(prefers-color-scheme: light)", color: "#f2f5ff" },
   ],
   width: "device-width",
   initialScale: 1,
@@ -43,6 +51,8 @@ export const viewport: Viewport = {
   maximumScale: 5,
   userScalable: true,
   viewportFit: "cover",
+  // Android (Chrome): al salir el teclado la página se encoge en vez de taparse (editor de notas, buscadores)
+  interactiveWidget: "resizes-content",
 };
 
 const THEME_INIT = `try{var d=document.documentElement,t=localStorage.getItem('upscale-theme');if(t)d.setAttribute('data-theme',t);var m=localStorage.getItem('upscale-motion');if(m==='off'||m==='on')d.setAttribute('data-motion',m)}catch(e){}`;

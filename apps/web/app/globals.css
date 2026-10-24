@@ -7765,3 +7765,14 @@ span.ntag {
     min-height: 0;
   }
 }
+
+/* instalación guiada en iPhone/iPad */
+.install-toast.ios {
+  max-width: min(92vw, 430px);
+  line-height: 1.4;
+  font-weight: 500;
+}
+.install-toast .ios-share {
+  vertical-align: -3px;
+  color: var(--accent-ink);
+}

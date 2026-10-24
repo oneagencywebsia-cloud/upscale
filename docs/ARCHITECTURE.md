@@ -236,3 +236,13 @@ Hecha con comprobaciones ejecutadas contra la app real (Chromium + Postgres + AP
 ## Notas
 
 Detalle completo en `docs/NOTAS.md`. Resumen: notas con editor (TipTap, cargado solo en la pantalla de edición), capturas adjuntas con lectura de texto (OCR con Tesseract, libre y local), estilo totalmente personalizable, etiquetas, fijadas, archivo y papelera de 30 días. El documento se guarda como JSON de ProseMirror **validado por una lista blanca en el servidor** (nunca HTML), con el texto plano aparte para la búsqueda. Las capturas son fotos de la biblioteca (Telegram): las notas solo las referencian; no se guarda nada en el servidor.
+
+## Widgets, accesos rápidos e instalación
+
+**Widgets de pantalla de inicio:** una web instalada (PWA) **no puede** crearlos: en iPhone solo existen con WidgetKit (app nativa de pago de Apple Developer) y en Android con App Widgets (app nativa). Lo que sí hace Upscale, sin app nativa ni pagos:
+
+- **Accesos rápidos del icono** (mantener pulsado, Android/Chrome; `manifest.webmanifest → shortcuts`): Nueva nota (`/app/notas/nueva`, reutiliza la última nota si sigue vacía), Subir (`/app?subir=1`, el navegador exige un toque antes del selector de archivos, así que sale un botón grande), Notas, Favoritos y Biblioteca.
+- **Compartir hacia Upscale** (`share_target`): archivos → biblioteca (con tamaño exacto para cuota e integridad); texto o enlace → **nota nueva**.
+- **iPhone/iPad:** pantalla de arranque a medida de cada modelo en claro y oscuro (`/splash/<ancho>x<alto>-<tema>`, 17 pantallas × 2; solo tamaños de `lib/splash.ts`) y, como Safari no tiene botón de instalar, un aviso «Compartir → Añadir a pantalla de inicio» a partir de la 2.ª visita (se cierra 30 días).
+- **Android:** iconos «maskable» en PNG, `launch_handler` (reutiliza la ventana abierta), `interactive-widget=resizes-content` (el teclado no tapa el editor) y color de barra/arranque igual al de la app.
+- **Si algún día se quiere un widget de verdad:** habría que envolver la web en una app (Capacitor) y añadir el widget nativo; en iOS exige la cuota anual de Apple Developer. Queda apuntado en `docs/PENDIENTE.md`.

@@ -87,3 +87,6 @@ el acceso, y el ritmo medido ronda 3,5 MB/s sostenidos. Protegen las cuotas y el
 - Aviso por email cuando una cuenta se acerca al límite de espacio.
 - Panel de administración (usuarios, uso, códigos) en vez de llamadas a la API.
 - Subida desde una app instalable con subida en segundo plano (hoy es web/PWA).
+
+## Widgets nativos (opcional, más adelante)
+Un widget en la pantalla de inicio (p. ej. «espacio usado» o «nueva nota») solo es posible con app nativa: Android (App Widget, envolviendo la web con Capacitor; Google Play pide 25 $ una vez) o iPhone (WidgetKit; Apple Developer cuesta 99 $/año). Hoy se cubre lo máximo posible con la PWA: accesos rápidos del icono, compartir hacia Upscale, instalación guiada y pantallas de arranque (ver `docs/ARCHITECTURE.md`, «Widgets, accesos rápidos e instalación»).

@@ -229,7 +229,17 @@ export default function Uploader({ onDone }: { onDone: () => void }) {
   const [open, setOpen] = useState(false);
   const [min, setMin] = useState(false);
   const [dragging, setDragging] = useState(false);
+  // acceso rápido «Subir» (mantener pulsado el icono de la app → /app?subir=1): el navegador solo
+  // abre el selector de archivos tras un toque, así que primero se muestra un botón grande.
+  const [pedir, setPedir] = useState(false);
   useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("subir") !== "1") return;
+    sp.delete("subir");
+    window.history.replaceState(null, "", `${window.location.pathname}${sp.size ? `?${sp}` : ""}`);
+    setPedir(true);
+  }, []);
 
   const commit = useCallback((next: Job[]) => {
     jobsRef.current = next;
@@ -633,6 +643,28 @@ export default function Uploader({ onDone }: { onDone: () => void }) {
               </motion.div>
             )}</AnimatePresence>
             <AnimatePresence>{panel}</AnimatePresence>
+            {pedir && (
+              <div className="nmodal" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && setPedir(false)}>
+                <div className="nmodal-box" role="dialog" aria-modal="true" aria-label="Subir archivos">
+                  <h2>¿Qué quieres guardar?</h2>
+                  <p className="nmodal-sub">Fotos, vídeos y música. Puedes elegir muchos a la vez.</p>
+                  <div className="nmodal-acts">
+                    <button type="button" className="btn ghost" onClick={() => setPedir(false)}>Ahora no</button>
+                    <button
+                      type="button"
+                      className="btn primary"
+                      autoFocus
+                      onClick={() => {
+                        setPedir(false);
+                        input.current?.click();
+                      }}
+                    >
+                      Elegir archivos
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </>,
           document.body,
         )}
