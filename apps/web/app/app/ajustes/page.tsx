@@ -42,7 +42,7 @@ export default async function AjustesPage() {
           Pulsa el botón <b>↑</b> de arriba y elige lo que quieras (en el ordenador también puedes arrastrarlo a la página). Fotos, vídeos y música, todo a la vez.
         </p>
         <p className="panel-lede">
-          Consejo: si subes un vídeo muy grande desde el iPhone, el propio iPhone puede bajarle la calidad antes de enviarlo. No lo hace Upscale.
+          Vídeos del iPhone en 4K o a 60 imágenes por segundo: si los eliges desde la Fototeca, el propio iPhone los reduce antes de enviarlos (no lo hace Upscale). Para conservar el original exacto, en Fotos abre el vídeo → Compartir → Guardar en Archivos; luego pulsa ↑ → Elegir archivo y búscalo allí.
         </p>
       </section>
 
