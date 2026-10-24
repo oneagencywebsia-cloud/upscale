@@ -317,6 +317,7 @@ function Editor1({ inicial }: { inicial: Note }) {
               <div className="ned-menu" role="menu" onKeyDown={(e) => e.key === "Escape" && setMenu(false)}>
                 <button role="menuitem" type="button" onClick={() => { navigator.clipboard?.writeText(textoPlano()).then(() => decir("Texto copiado")).catch(() => decir("No se pudo copiar")); setMenu(false); }}>Copiar texto</button>
                 <button role="menuitem" type="button" onClick={() => { descargar(`${sinTitulo.replace(/[^\p{L}\p{N} _-]/gu, "").slice(0, 60) || "nota"}.txt`, textoPlano(), "text/plain"); setMenu(false); }}>Descargar (.txt)</button>
+                <button role="menuitem" type="button" onClick={async () => { setMenu(false); await guardar(); router.push(`/app/widgets/nuevo?tipo=nota&nota=${inicial.id}`); }}>Poner en mi pantalla (widget)</button>
                 <button role="menuitem" type="button" onClick={() => { window.print(); setMenu(false); }}>Imprimir</button>
                 <button role="menuitem" type="button" onClick={async () => { setMenu(false); const a = !archivada; setArchivada(a); await patchSuelto({ archived: a }); decir(a ? "Nota archivada" : "Nota desarchivada"); }}>{archivada ? "Desarchivar" : "Archivar"}</button>
                 <button role="menuitem" type="button" className="warn" onClick={() => { setMenu(false); setBorrar(true); }}>Mover a la papelera</button>

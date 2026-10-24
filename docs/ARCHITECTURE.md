@@ -239,7 +239,7 @@ Detalle completo en `docs/NOTAS.md`. Resumen: notas con editor (TipTap, cargado 
 
 ## Widgets, accesos rápidos e instalación
 
-**Widgets de pantalla de inicio:** una web instalada (PWA) **no puede** crearlos: en iPhone solo existen con WidgetKit (app nativa de pago de Apple Developer) y en Android con App Widgets (app nativa). Lo que sí hace Upscale, sin app nativa ni pagos:
+**Widgets de pantalla de inicio:** una web instalada (PWA) no puede crear widgets del sistema (iPhone: WidgetKit; Android: App Widgets). Por eso Upscale dibuja cada widget como **imagen en una dirección privada y revocable** que sirve para Scriptable (iPhone), apps de widgets de Android, fondos de pantalla y el marco de fotos: ver `docs/WIDGETS.md`. Además, sin app nativa ni pagos:
 
 - **Accesos rápidos del icono** (mantener pulsado, Android/Chrome; `manifest.webmanifest → shortcuts`): Nueva nota (`/app/notas/nueva`, reutiliza la última nota si sigue vacía), Subir (`/app?subir=1`, el navegador exige un toque antes del selector de archivos, así que sale un botón grande), Notas, Favoritos y Biblioteca.
 - **Compartir hacia Upscale** (`share_target`): archivos → biblioteca (con tamaño exacto para cuota e integridad); texto o enlace → **nota nueva**.

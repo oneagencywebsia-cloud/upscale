@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { useDialogFocus } from "@/lib/dialog";
@@ -29,6 +30,9 @@ export default function AlbumActions({ albumId, albumName }: { albumId: string; 
         </svg>
         Añadir fotos
       </motion.button>
+      <Link href={`/app/widgets/nuevo?tipo=album&album=${albumId}`} className="btn ghost sm">
+        Widget del álbum
+      </Link>
       {open && <AlbumPicker albumId={albumId} albumName={albumName} onClose={() => setOpen(false)} />}
     </>
   );
