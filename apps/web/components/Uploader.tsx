@@ -11,20 +11,12 @@ import { bytesHuman } from "@/lib/format";
 const sizeHuman = (b: number) => (b >= 1024 ** 3 ? gbHuman(b) : bytesHuman(Math.max(0, b)));
 
 /**
- * Solo en iPhone/iPad: lista EXPLÍCITA de tipos (sin comodines como `image/*` o `video/*`).
- * Hipótesis a comprobar en un iPhone real: Safari convierte lo que elige el usuario de la Fototeca
- * a un formato «compatible» (HEVC → H.264, a ≤30 fps y sin HDR; HEIC → JPEG) cuando la página pide
- * un comodín, y entrega el original cuando la página nombra su tipo (HEIC, QuickTime…). Un vídeo de
- * iPhone 13 en 4K a 54 fps y Dolby Vision (HEVC, 27 MB) llegó como H.264 a 27 fps (6 MB).
- * En el resto de sistemas se queda SIN `accept` (en Windows uno esconde archivos del iPhone).
+ * iPhone/iPad: Safari convierte lo que se elige de la Fototeca a un formato «compatible» antes de
+ * enviarlo (comprobado: un vídeo HEVC 4K a 54 fps con Dolby Vision, 27 MB, llegó como H.264 4K a 27 fps,
+ * 6 MB). Se probó pedir los tipos de forma explícita en `accept` y NO cambió nada (revertido). Lo que sí
+ * conserva el original es elegirlo desde Archivos («Elegir archivo»), así que se avisa ANTES de abrir el
+ * selector. En el resto de sistemas el `<input>` sigue SIN `accept` (en Windows uno esconde archivos del iPhone).
  */
-const ACEPTAR_IOS = [
-  "image/heic", "image/heif", "image/jpeg", "image/png", "image/gif", "image/webp", "image/tiff", "image/avif", "image/x-adobe-dng",
-  "video/quicktime", "video/mp4", "video/x-m4v", "video/hevc",
-  "audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/aac", "audio/wav", "audio/x-wav", "audio/flac", "audio/ogg", "audio/x-caf",
-  ".heic", ".heif", ".mov", ".mp4", ".m4v", ".m4a", ".mp3", ".dng", ".caf",
-].join(",");
-
 const esIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
 /**
@@ -249,6 +241,23 @@ export default function Uploader({ onDone }: { onDone: () => void }) {
   // acceso rápido «Subir» (mantener pulsado el icono de la app → /app?subir=1): el navegador solo
   // abre el selector de archivos tras un toque, así que primero se muestra un botón grande.
   const [pedir, setPedir] = useState(false);
+  const [ayudaIOS, setAyudaIOS] = useState(false);
+  const [noMas, setNoMas] = useState(false);
+  const iosRef = useRef(false);
+  useEffect(() => {
+    iosRef.current = esIOS();
+  }, []);
+  /** Abre el selector del sistema; en iPhone/iPad, antes explica cómo conservar el original (una vez, si se quiere). */
+  const abrirSelector = useCallback(() => {
+    let ver = iosRef.current;
+    try {
+      if (localStorage.getItem("upscale-ayuda-video") === "1") ver = false;
+    } catch {
+      /* sin almacenamiento: se muestra */
+    }
+    if (ver) setAyudaIOS(true);
+    else input.current?.click();
+  }, []);
   useEffect(() => setMounted(true), []);
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
@@ -279,8 +288,6 @@ export default function Uploader({ onDone }: { onDone: () => void }) {
   const overall = Math.round(
     real.reduce((s, j) => s + j.size * (j.phase === "done" || j.phase === "dup" || j.phase === "error" ? 100 : j.pct), 0) / totalBytes,
   );
-  const [ios, setIos] = useState(false);
-  useEffect(() => setIos(esIOS()), []);
   const anyDegraded = jobs.some((j) => j.degraded);
 
   // cerrar la pestaña a mitad de una subida de varios GB la tira entera
@@ -419,7 +426,7 @@ export default function Uploader({ onDone }: { onDone: () => void }) {
 
   // «Subir» desde otros sitios (p. ej. el estado vacío de la biblioteca)
   useEffect(() => {
-    const pick = () => input.current?.click();
+    const pick = () => abrirSelector();
     window.addEventListener("upscale:pick", pick);
     return () => window.removeEventListener("upscale:pick", pick);
   }, []);
@@ -593,7 +600,7 @@ export default function Uploader({ onDone }: { onDone: () => void }) {
             {anyDegraded && (
               <p className="up-hint up-warn">
                 <b>Para el vídeo exacto, tal cual sale del iPhone:</b> en Fotos, ábrelo → Compartir → <b>Guardar en Archivos</b>, y aquí
-                pulsa <b>Subir → Explorar</b> y elígelo de Archivos.
+                pulsa <b>Subir → Elegir archivo</b> y elígelo de Archivos.
               </p>
             )}
 
@@ -629,11 +636,11 @@ export default function Uploader({ onDone }: { onDone: () => void }) {
     <>
       {/* Sin `accept` a propósito: con uno, Windows a veces esconde archivos del iPhone (HEIC,
           Live Photos…) antes de que la app los vea. Lo que no sea foto, vídeo o audio se avisa aquí. */}
-      <input ref={input} type="file" multiple hidden onChange={onPick} accept={ios ? ACEPTAR_IOS : undefined} />
+      <input ref={input} type="file" multiple hidden onChange={onPick} />
       <motion.button
         className="upload"
         type="button"
-        onClick={() => (busy && open ? setMin(false) : busy ? setOpen(true) : input.current?.click())}
+        onClick={() => (busy && open ? setMin(false) : busy ? setOpen(true) : abrirSelector())}
         whileTap={{ scale: 0.94 }}
         whileHover={{ y: -1 }}
         transition={{ type: "spring", stiffness: 500, damping: 28 }}
@@ -662,6 +669,46 @@ export default function Uploader({ onDone }: { onDone: () => void }) {
               </motion.div>
             )}</AnimatePresence>
             <AnimatePresence>{panel}</AnimatePresence>
+            {ayudaIOS && (
+              <div className="nmodal" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && setAyudaIOS(false)}>
+                <div className="nmodal-box" role="dialog" aria-modal="true" aria-label="Antes de elegir tus vídeos">
+                  <h2>¿Vas a subir vídeos?</h2>
+                  <p>
+                    Si los eliges desde la <b>Fototeca</b>, el iPhone puede reducirlos antes de enviarlos: por ejemplo, de 60 a 30 imágenes por
+                    segundo y sin HDR.
+                  </p>
+                  <p>
+                    <b>Para guardar el original exacto:</b> en Fotos abre el vídeo → Compartir → <b>Guardar en Archivos</b>. Después, en el menú
+                    que se abre, elige <b>Elegir archivo</b> (no «Fototeca») y búscalo.
+                  </p>
+                  <p className="nmodal-sub">Las fotos y los vídeos normales se suben bien desde la Fototeca.</p>
+                  <label className="wb-check">
+                    <input type="checkbox" checked={noMas} onChange={(e) => setNoMas(e.target.checked)} /> No volver a mostrar esto
+                  </label>
+                  <div className="nmodal-acts">
+                    <button type="button" className="btn ghost" onClick={() => setAyudaIOS(false)}>Cancelar</button>
+                    <button
+                      type="button"
+                      className="btn primary"
+                      autoFocus
+                      onClick={() => {
+                        if (noMas) {
+                          try {
+                            localStorage.setItem("upscale-ayuda-video", "1");
+                          } catch {
+                            /* sin almacenamiento */
+                          }
+                        }
+                        setAyudaIOS(false);
+                        input.current?.click();
+                      }}
+                    >
+                      Elegir archivos
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
             {pedir && (
               <div className="nmodal" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && setPedir(false)}>
                 <div className="nmodal-box" role="dialog" aria-modal="true" aria-label="Subir archivos">
