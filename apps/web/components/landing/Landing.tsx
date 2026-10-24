@@ -3,6 +3,8 @@ import BrandMark from "@/components/BrandMark";
 import StartBox from "./StartBox";
 import Steps from "./Steps";
 import BibliotecaVideo from "./BibliotecaVideo";
+import Pal from "./Pal";
+import { Confeti, Corazones, Destello, Escudo, Latido, Motas, Ondas, Rayos } from "./Efectos";
 import Scrolly from "./Scrolly";
 import Pricing from "./Pricing";
 import Demo from "./Demo";
@@ -38,9 +40,12 @@ export default function Landing({
   goodbye?: boolean;
   authError?: boolean;
 }) {
-  // Regla del texto: un titular corto y UNA línea de apoyo. Cada capítulo pulsa una sola emoción.
+  // Regla del texto: un titular corto y UNA línea de apoyo. Cada capítulo toca UNA emoción, en este orden
+  // (arco emocional): ternura → miedo a perder (resuelto al instante) → alivio → orgullo por la calidad →
+  // comodidad → intimidad → legado → gratitud → arrepentimiento futuro → alegría de empezar.
+  // Nada de cifras ni testimonios inventados; el miedo siempre va seguido de una acción fácil.
   const escenaA = [
-    // 0 · promesa (esperanza)
+    // 0 · ternura y nostalgia
     <div key="0" className="sc-txt" id="empezar">
       {authError && !loggedIn && (
         <p className="gift gift-err" role="alert">No pudimos dejarte entrar. Inténtalo otra vez o entra con tu correo.</p>
@@ -52,73 +57,96 @@ export default function Landing({
         <p className="gift">🎁 Un amigo te regala <b>+{gbHuman(REFERRAL.invitedBonusBytes)}</b> de espacio</p>
       )}
       <p className="sc-eyebrow">TUS RECUERDOS</p>
-      <h1 className="sc-h">Guarda todo. <span className="ul">Sin perder nada</span>.</h1>
-      <p className="sc-p">El original, tal cual. Siempre a mano.</p>
-      <StartBox loggedIn={loggedIn} next={next} invited={invited} />
-      <a className="sc-hint" href="#planes" data-sc-next>Desliza: te lo enseño en 20 segundos ↓</a>
+      <h1 className="sc-h"><Pal i0={1}>Lo que más quieres,</Pal> <span className="ul"><Pal i0={5}>a salvo.</Pal></span></h1>
+      <p className="sc-p">Sus risas. Sus primeros pasos. Tus mejores días.</p>
+      <StartBox loggedIn={loggedIn} next={next} invited={invited} label="Guardar mis recuerdos" />
+      <a className="sc-hint" href="#planes" data-sc-next>Desliza ↓</a>
     </div>,
-    // 1 · pérdida (miedo a perder)
+    // 1 · miedo a perder (se resuelve en el siguiente capítulo)
     <div key="1" className="sc-txt">
-      <p className="sc-eyebrow">¿TE SUENA?</p>
-      <h2 className="sc-h">¿Y si se rompe <span className="ul">tu móvil</span>?</h2>
-      <p className="sc-p">¿Tienes copia de tus recuerdos?</p>
+      <p className="sc-eyebrow">ES FRÁGIL</p>
+      <h2 className="sc-h"><Pal i0={1}>Tu móvil puede romperse.</Pal> <span className="ul"><Pal i0={5}>Tus recuerdos, no.</Pal></span></h2>
+      <p className="sc-p">Hay fotos que no se repiten.</p>
     </div>,
-    // 2 · alivio (un solo paso)
+    // 2 · alivio
     <div key="2" className="sc-txt" id="como">
       <p className="sc-eyebrow">UN TOQUE</p>
-      <h2 className="sc-h">Todo a salvo. <span className="ul">Sin esfuerzo.</span></h2>
-      <p className="sc-p">Fotos, vídeos y música, a la vez.</p>
+      <h2 className="sc-h"><Pal i0={1}>Hecho.</Pal> <span className="ul"><Pal i0={2}>Ya están a salvo.</Pal></span></h2>
+      <p className="sc-p">Fotos, vídeos y música, todo a la vez.</p>
     </div>,
-    // 3 · prueba (calidad)
+    // 3 · orgullo por conservarlo igual (calidad)
     <div key="3" className="sc-txt">
       <p className="sc-eyebrow">SIN PERDER CALIDAD</p>
-      <h2 className="sc-h">Ni un píxel <span className="ul">menos</span></h2>
-      <p className="sc-p">Lo que bajas es idéntico a lo que subiste.</p>
+      <h2 className="sc-h"><Pal i0={1}>Cada risa,</Pal> <span className="ul"><Pal i0={3}>tal como fue.</Pal></span></h2>
+      <p className="sc-p">Ni un píxel menos. Para volver a verla dentro de veinte años.</p>
     </div>,
   ];
   const escenaB = [
     // 0 · comodidad
     <div key="4" className="sc-txt">
       <p className="sc-eyebrow">EN TODAS PARTES</p>
-      <h2 className="sc-h">En <span className="ul">tus pantallas</span></h2>
+      <h2 className="sc-h"><Pal i0={1}>Tus recuerdos</Pal> <span className="ul"><Pal i0={3}>te siguen.</Pal></span></h2>
       <p className="sc-p">Móvil, tableta u ordenador.</p>
     </div>,
-    // 1 · confianza
+    // 1 · intimidad y confianza
     <div key="5" className="sc-txt">
       <p className="sc-eyebrow">PRIVADO</p>
-      <h2 className="sc-h">Solo <span className="ul">tuyo</span></h2>
+      <h2 className="sc-h"><span className="ul"><Pal i0={1}>Solo tuyo.</Pal></span></h2>
       <p className="sc-p">Nadie más lo ve. Te lo llevas cuando quieras.</p>
     </div>,
-    // 2 · reciprocidad
+    // 2 · legado
     <div key="6" className="sc-txt">
+      <p className="sc-eyebrow">LO QUE DEJAS</p>
+      <h2 className="sc-h"><Pal i0={1}>Que tus hijos conozcan</Pal> <span className="ul"><Pal i0={5}>tu historia.</Pal></span></h2>
+      <p className="sc-p">Fotos, vídeos, música y notas, para quien venga después.</p>
+    </div>,
+    // 3 · gratitud y reciprocidad
+    <div key="7" className="sc-txt">
       <p className="sc-eyebrow">GANÁIS LOS DOS</p>
-      <h2 className="sc-h">Invita y <span className="ul">gana</span></h2>
+      <h2 className="sc-h"><Pal i0={1}>Regala</Pal> <span className="ul"><Pal i0={2}>espacio.</Pal></span></h2>
       <p className="sc-p">
-        <b>+{gbHuman(REFERRAL.inviterBonusBytes)}</b> para ti, <b>+{gbHuman(REFERRAL.invitedBonusBytes)}</b> para tu amigo.
+        <b>+{gbHuman(REFERRAL.inviterBonusBytes)}</b> para ti y <b>+{gbHuman(REFERRAL.invitedBonusBytes)}</b> para quien invites.
       </p>
     </div>,
   ];
   const escenaC = [
-    // 0 · el tiempo pasa (urgencia sin presión falsa)
+    // 0 · arrepentimiento anticipado (honesto: sin urgencia falsa)
     <div key="c0" className="sc-txt">
       <p className="sc-eyebrow">PIÉNSALO</p>
-      <h2 className="sc-h">Mañana querrás <span className="ul">las de hoy</span></h2>
-      <p className="sc-p">Guárdalas antes de que se pierdan.</p>
+      <h2 className="sc-h"><Pal i0={1}>Dentro de veinte años,</Pal> <span className="ul"><Pal i0={5}>las querrás.</Pal></span></h2>
+      <p className="sc-p">Hoy es el día de ponerlas a salvo.</p>
     </div>,
-    // 1 · cierre (el mismo botón)
-    <div key="7" className="sc-txt" id="final">
-      <p className="sc-eyebrow">EMPIEZA HOY</p>
-      <h2 className="sc-h">Tu carrete <span className="ul">te espera</span></h2>
-      <StartBox loggedIn={loggedIn} next={next} invited={invited} label="Guardar mis fotos" />
+    // 1 · alegría y cierre: el mismo botón
+    <div key="c1" className="sc-txt" id="final">
+      <p className="sc-eyebrow">EMPIEZA CON UNO</p>
+      <h2 className="sc-h"><Pal i0={1}>Tu primer recuerdo,</Pal> <span className="ul"><Pal i0={4}>a salvo hoy.</Pal></span></h2>
+      <StartBox loggedIn={loggedIn} next={next} invited={invited} label="Guardar mis recuerdos" />
       <p className="sc-garantia">Descargas todo o borras tu cuenta cuando quieras. Sin letra pequeña.</p>
     </div>,
+  ];
+  // animaciones propias de cada capítulo (viven en su fondo y solo corren mientras se ven)
+  const fxA = [
+    <><Rayos /><Motas n={14} dir="sube" tono="calido" /></>,
+    <><Latido /><Motas n={16} dir="cae" tono="frio" /></>,
+    <><Ondas /><Motas n={12} dir="sube" tono="calido" /></>,
+    <><Destello /><Motas n={8} dir="sube" tono="neutro" /></>,
+  ];
+  const fxB = [
+    <Motas key="b0" n={10} dir="sube" tono="neutro" />,
+    <Escudo key="b1" />,
+    <><Rayos suave /><Motas n={24} dir="sube" tono="dorado" /></>,
+    <Corazones key="b3" />,
+  ];
+  const fxC = [
+    <Motas key="c0" n={20} dir="cae" tono="sepia" />,
+    <><Rayos /><Confeti /><Motas n={12} dir="sube" tono="dorado" /></>,
   ];
 
   return (
     <div className="landing">
       <a className="skip-link" href="#contenido">Saltar al contenido</a>
       <noscript>
-        <style>{`.sc{height:auto!important}.sc-escenario{position:static!important;height:auto!important;overflow:visible!important}.sc-formas,.sc-barra,.sc-escenario::after{display:none!important}.sc-cap{position:relative!important;inset:auto!important;opacity:1!important;transform:none!important;pointer-events:auto!important;padding-top:48px!important;padding-bottom:48px!important}`}</style>
+        <style>{`.sc{height:auto!important}.sc-escenario{position:static!important;height:auto!important;overflow:visible!important}.sc-formas,.sc-escenario::after{display:none!important}.sc-w,.sc-eyebrow,.sc-p,.sc-garantia,.sc-hint,.sc-cap .start{opacity:1!important;transform:none!important}.sc-cap{position:relative!important;inset:auto!important;opacity:1!important;transform:none!important;pointer-events:auto!important;padding-top:48px!important;padding-bottom:48px!important}`}</style>
       </noscript>
       <Aurora section="landing" />
 
@@ -138,7 +166,7 @@ export default function Landing({
       </header>
 
       <main id="contenido" tabIndex={-1}>
-        <Scrolly escena="a" capitulos={escenaA} />
+        <Scrolly escena="a" capitulos={escenaA} efectos={fxA} />
 
         <section className="lsec bib" aria-labelledby="bib-h">
           <div className="bib-tel" aria-hidden="false">
@@ -162,7 +190,7 @@ export default function Landing({
           <Steps />
         </section>
 
-        <Scrolly escena="b" capitulos={escenaB} />
+        <Scrolly escena="b" capitulos={escenaB} efectos={fxB} />
 
         <section className="lsec" id="planes" aria-labelledby="pl-h">
           <h2 id="pl-h" className="lsec-h">Empieza gratis. <span className="ul">Crece cuando quieras.</span></h2>
@@ -187,10 +215,10 @@ export default function Landing({
           </div>
         </section>
 
-        <Scrolly escena="c" capitulos={escenaC} />
+        <Scrolly escena="c" capitulos={escenaC} efectos={fxC} />
       </main>
 
-      <StickyCta label="Empezar gratis" />
+      <StickyCta label="Guardar mis recuerdos" />
 
       <nav className="pub-more landing-more" aria-label="Más sobre Upscale">
         <b>Aprende más</b>

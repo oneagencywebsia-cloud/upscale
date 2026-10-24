@@ -10,7 +10,7 @@
  * el servidor y el navegador dibujan exactamente lo mismo.
  */
 
-export const N = 28;
+export const N = 29; // 28 formas + el móvil roto (índice 28, solo aparece en «tu móvil puede romperse»)
 
 export interface Forma {
   x: number;
@@ -130,15 +130,45 @@ function final(k: number): Forma {
   return f(Math.cos(a) * 0.62, Math.sin(a) * 0.62, 0.03, 50, 0.5, 0);
 }
 
+const base = (fn: (k: number) => Forma) => (k: number): Forma => (k === 28 ? oculto(k) : fn(k));
+
+/** 1 · «Tu móvil puede romperse»: los recuerdos se escapan a los bordes y el móvil roto queda en el centro. */
+function escapan(k: number): Forma {
+  if (k === 28) return f(0, 0.04, 0.66, 7, 1, -9, 0.6);
+  const a = k * 2.399963 + 0.6;
+  const r = 0.56 + frac(k * 0.37) * 0.22;
+  return f(Math.cos(a) * r * 0.9, Math.sin(a) * r * 0.98, 0.12 + frac(k * 0.53) * 0.08, 50, 0.92, 0);
+}
+
+/** El tiempo pasa: los recuerdos de hoy se van apagando (opacidad baja). */
+function desvanecer(k: number): Forma {
+  const c = caos(k);
+  return { ...c, o: c.o * 0.5, s: c.s * 1.1 };
+}
+
+/** Legado: tres generaciones (la mayor, la del medio y la pequeña) unidas por un camino de puntos. */
+function generaciones(k: number): Forma {
+  const g = [f(-0.52, 0.3, 0.5, 50, 0.96), f(0.02, -0.02, 0.4, 50, 0.96), f(0.5, -0.36, 0.3, 50, 0.96)];
+  if (k < 3) return g[k]!;
+  if (k < 15) {
+    const t = k - 3; // 12 puntos: 6 entre la 1.ª y la 2.ª, 6 entre la 2.ª y la 3.ª
+    const [p, q] = t < 6 ? [g[0]!, g[1]!] : [g[1]!, g[2]!];
+    const u = ((t % 6) + 1) / 7;
+    return f(p.x + (q.x - p.x) * u, p.y + (q.y - p.y) * u + Math.sin(u * Math.PI) * -0.04, 0.045, 50, 0.7);
+  }
+  return oculto(k);
+}
+
 /**
  * Tres escenas fijas, separadas por tramos donde la página baja con normalidad:
- *  A (gancho): sol → caos → escalera → marcos · B (confianza): pantallas → cerradura → red de amigos ·
- *  C (cierre): el caos vuelve a juntarse en un sol.
+ *  A (de la ternura al alivio): sol → móvil roto → escalera → marcos
+ *  B (confianza y legado): pantallas → cerradura → generaciones → red de amigos
+ *  C (cierre): los recuerdos se apagan → vuelve el sol.
  */
 export const ESCENAS = {
-  a: { capas: [sol, caos, escalera, marcos], matices: [205, 12, 190, 215] },
-  b: { capas: [pantallas, cerradura, red], matices: [235, 172, 285] },
-  c: { capas: [caos, final], matices: [12, 28] },
+  a: { capas: [base(sol), escapan, base(escalera), base(marcos)] },
+  b: { capas: [pantallas, cerradura, generaciones, red].map(base) },
+  c: { capas: [desvanecer, final].map(base) },
 } as const;
 export type IdEscena = keyof typeof ESCENAS;
 

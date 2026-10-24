@@ -1,6 +1,6 @@
 // Genera las imágenes y el vídeo de la portada: ilustraciones propias (sin fotos de nadie,
 // sin servicios externos). Uso: cd apps/api && node ../../tools/generar-portada.mjs
-// Salida: apps/web/public/landing/{foto-1..4.webp, biblioteca.mp4, biblioteca.jpg}
+// Salida: apps/web/public/landing/{foto-1..4.webp, roto.webp, biblioteca.mp4, biblioteca.jpg}
 import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -15,52 +15,16 @@ mkdirSync(OUT, { recursive: true });
 const frac = (n) => n - Math.floor(n);
 const R = (seed, i) => frac(Math.sin(seed * 127.1 + i * 311.7) * 43758.5453);
 
-// cada «foto»: paleta de cielo, sol/luna, capas de colinas
-const PALETAS = {
-  atardecer: { cielo: ["#ffd27a", "#ff8a6b", "#a24b8f"], astro: "#fff3c9", capas: ["#c4506f", "#7b3a7a", "#3d2a62"] },
-  montanas: { cielo: ["#bfe6ff", "#8fb7f5", "#6a62f2"], astro: "#ffffff", capas: ["#6f8fd8", "#4a62b8", "#2b3a85"] },
-  mar: { cielo: ["#c8fff0", "#6fe0d6", "#2aa3c8"], astro: "#fffbe0", capas: ["#1d93b5", "#12709a", "#0b4a73"] },
-  bosque: { cielo: ["#fff2b8", "#a8e08a", "#3f9c72"], astro: "#fffbe6", capas: ["#2f8a5f", "#1f6a52", "#124538"] },
-  noche: { cielo: ["#2a2f7a", "#4a3a9a", "#7a4fb0"], astro: "#f3f0ff", capas: ["#3b2f7c", "#2a2260", "#1a1546"] },
-  desierto: { cielo: ["#ffe9b0", "#ffb36b", "#e0705a"], astro: "#fff7d6", capas: ["#d9774f", "#a8523f", "#6d3236"] },
-};
-const NOMBRES = Object.keys(PALETAS);
+import { ESCENAS, ALEGRES } from "./ilustraciones.mjs";
 
-function escena(nombre, w, h, seed) {
-  const p = PALETAS[nombre];
-  const ax = w * (0.25 + R(seed, 1) * 0.5);
-  const ay = h * (0.18 + R(seed, 2) * 0.22);
-  const ar = Math.min(w, h) * (0.07 + R(seed, 3) * 0.05);
-  let capas = "";
-  p.capas.forEach((c, i) => {
-    const base = h * (0.52 + i * 0.14);
-    const amp = h * (0.07 + R(seed, 10 + i) * 0.06);
-    const fase = R(seed, 20 + i) * 6.28;
-    let d = `M0 ${h} L0 ${base}`;
-    for (let x = 0; x <= w; x += w / 24) d += ` L${x.toFixed(1)} ${(base + Math.sin(x / w * (3 + i) * 3.14 + fase) * amp).toFixed(1)}`;
-    d += ` L${w} ${h} Z`;
-    capas += `<path d="${d}" fill="${c}" opacity="${0.92}"/>`;
-  });
-  let estrellas = "";
-  if (nombre === "noche") for (let i = 0; i < 40; i++) estrellas += `<circle cx="${(R(seed, 40 + i) * w).toFixed(1)}" cy="${(R(seed, 90 + i) * h * 0.5).toFixed(1)}" r="${(0.8 + R(seed, 140 + i) * 1.8).toFixed(1)}" fill="#fff" opacity="${(0.4 + R(seed, 190 + i) * 0.6).toFixed(2)}"/>`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-    <defs>
-      <linearGradient id="c" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${p.cielo[2]}"/><stop offset="0.55" stop-color="${p.cielo[1]}"/><stop offset="1" stop-color="${p.cielo[0]}"/></linearGradient>
-      <radialGradient id="a"><stop offset="0" stop-color="${p.astro}"/><stop offset="1" stop-color="${p.astro}" stop-opacity="0"/></radialGradient>
-    </defs>
-    <rect width="${w}" height="${h}" fill="url(#c)"/>${estrellas}
-    <circle cx="${ax}" cy="${ay}" r="${ar * 3.2}" fill="url(#a)" opacity="0.55"/>
-    <circle cx="${ax}" cy="${ay}" r="${ar}" fill="${p.astro}"/>
-    ${capas}
-  </svg>`;
-}
-const png = (nombre, w, h, seed) => sharp(Buffer.from(escena(nombre, w, h, seed))).png().toBuffer();
+const render = (nombre, t = 0, px = 1000) => sharp(Buffer.from(ESCENAS[nombre](t)), { density: 96 }).resize(px, px).png().toBuffer();
 
-// 1) las cuatro «fotos» de las formas (cuadradas; las formas las recortan)
-for (let i = 0; i < 4; i++) {
-  const b = await png(["atardecer", "montanas", "mar", "bosque"][i], 640, 640, 3 + i * 7);
-  await sharp(b).webp({ quality: 74 }).toFile(join(OUT, `foto-${i + 1}.webp`));
+// 1) las cuatro «fotos» de las formas (cuadradas; las formas las recortan): momentos que se sienten
+for (const [i, n] of ["mano", "velas", "balcon", "alza"].entries()) {
+  await sharp(await render(n, 0, 640)).webp({ quality: 78 }).toFile(join(OUT, `foto-${i + 1}.webp`));
 }
+// y el móvil roto, para el capítulo del miedo (proporción de móvil)
+await sharp(await render("roto", 0, 900)).extract({ left: 150, top: 60, width: 600, height: 780 }).resize(480, 624).webp({ quality: 80 }).toFile(join(OUT, "roto.webp"));
 
 // 2) la biblioteca: una rejilla de 3 columnas con fotos verticales, horizontales y cuadradas
 const COLS = 3, W = 1080, G = 14, CW = (W - G * (COLS + 1)) / COLS;
@@ -69,15 +33,24 @@ const alto = Array(COLS).fill(G);
 const piezas = [];
 for (let i = 0; i < formas.length; i++) {
   const col = alto.indexOf(Math.min(...alto));
-  const h = Math.round(CW / formas[i]);
-  const nombre = NOMBRES[i % NOMBRES.length];
-  const b = await sharp(await png(nombre, Math.round(CW), h, i * 5 + 1)).composite([{ input: Buffer.from(`<svg width="${Math.round(CW)}" height="${h}"><rect width="100%" height="100%" rx="22" ry="22" fill="#fff"/></svg>`), blend: "dest-in" }]).png().toBuffer();
+  const w = Math.round(CW), h = Math.round(CW / formas[i]);
+  const nombre = ALEGRES[i % ALEGRES.length];
+  // cada escena se recorta a la forma pedida (apaisada, vertical o cuadrada) centrada en las caras
+  const base = await render(nombre, Math.floor(i / ALEGRES.length) + i % 3, 1000);
+  const lado = Math.min(1000, Math.round(1000 * Math.min(1, formas[i] >= 1 ? 1 : formas[i] * 1.0)));
+  const cw = formas[i] >= 1 ? 1000 : Math.round(1000 * formas[i]);
+  const ch = formas[i] >= 1 ? Math.round(1000 / formas[i]) : 1000;
+  const left = Math.round((1000 - cw) / 2);
+  const top = Math.min(1000 - ch, Math.max(0, Math.round(1000 * 0.46 - ch / 2)));
+  const rec = await sharp(base).extract({ left, top, width: cw, height: ch }).resize(w, h).modulate({ hue: (i * 23) % 40 - 12 }).png().toBuffer();
+  void lado;
+  const b = await sharp(rec).composite([{ input: Buffer.from(`<svg width="${w}" height="${h}"><rect width="100%" height="100%" rx="22" ry="22" fill="#fff"/></svg>`), blend: "dest-in" }]).png().toBuffer();
   piezas.push({ input: b, left: Math.round(G + col * (CW + G)), top: alto[col] });
   alto[col] += h + G;
 }
 const H = Math.max(...alto);
 const rejilla = join(OUT, "_rejilla.png");
-await sharp({ create: { width: W, height: H, channels: 4, background: "#eef1f7" } }).composite(piezas).png().toFile(rejilla);
+await sharp({ create: { width: W, height: H, channels: 4, background: "#f4efe9" } }).composite(piezas).png().toFile(rejilla);
 
 // 3) el vídeo: la rejilla desplazándose despacio dentro de un «móvil» (9:16), en bucle
 const VW = 540, VH = 960, SEG = 12, FPS = 24;
@@ -92,5 +65,5 @@ execFileSync("ffmpeg", [
 ]);
 await sharp(rejilla).resize(VW).extract({ left: 0, top: 0, width: VW, height: VH }).jpeg({ quality: 70 }).toFile(join(OUT, "biblioteca.jpg"));
 rmSync(rejilla);
-writeFileSync(join(OUT, "LEEME.txt"), "Generado por tools/generar-portada.mjs. Ilustraciones propias; no son fotos de personas.\n");
+writeFileSync(join(OUT, "LEEME.txt"), "Generado por tools/generar-portada.mjs. Ilustraciones propias (ver tools/ilustraciones.mjs); no son fotos de personas reales.\n");
 console.log("listo", OUT);
