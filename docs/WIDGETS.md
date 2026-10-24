@@ -1,6 +1,6 @@
 # Widgets
 
-Poner fotos, álbumes, notas, recuerdos y el espacio usado **en la pantalla de inicio, de fondo de pantalla o como marco de fotos**, sin app nativa y sin servicios de pago.
+Poner fotos, álbumes, notas, recuerdos y el espacio usado **en la pantalla de inicio**, sin app nativa y sin servicios de pago.
 
 ## Cómo funciona
 
@@ -10,8 +10,6 @@ Una web no puede crear widgets del sistema por sí sola (iPhone: WidgetKit; Andr
 
 - **iPhone** → la app gratuita **Scriptable** muestra esa imagen como widget; el constructor genera el script listo para pegar.
 - **Android** → cualquier app de widgets que acepte «imagen desde una dirección web» (por ejemplo KWGT); el constructor da las tres direcciones (pequeño/mediano/grande).
-- **Fondo de pantalla** → se descarga la imagen a la medida exacta del aparato (6 tamaños de iPhone/Android/tablet), con la opción de dejar libre la parte de arriba para el reloj de la pantalla de bloqueo.
-- **Marco de fotos** → `/w/<llave>`: pantalla completa que cambia sola cada 5–120 s, con la pantalla siempre encendida (Wake Lock) y la hora opcional; se puede añadir a la pantalla de inicio.
 
 ## Tipos
 
@@ -49,7 +47,7 @@ Pública: `GET /v1/w/<llave>.png|.jpg|.json` (el `.json` da los datos de la nota
 - **Un toque**: «Mis recuerdos de hoy», «Mosaico de mis últimas/favoritas» y «Mi espacio» se crean sin elegir nada y abren directamente «Ponlo en tu pantalla».
 - **Desde la biblioteca**: *Seleccionar* → marcar fotos → **Widget** abre el asistente ya en el paso 2 con esas fotos (`/app/widgets/nuevo?fotos=id,id`).
 - **Medidas**: botones de al menos 48 px, tipos en 2 columnas, fotos en cuadrícula de 3, álbumes y notas como filas anchas con miniatura, campos de 16 px (iOS no hace zoom), selector de fotos e «instalar» como hojas a pantalla completa con la acción abajo y márgenes de zona segura.
-- **Instalar**: tres caminos (Fondo de pantalla, Widget, Marco de fotos); el Widget se divide en iPhone (pasos numerados con botones a la App Store y a Scriptable) y Android (KWGT).
+- **Instalar**: el aparato se detecta solo (nadie elige): iPhone/iPad (3 pasos con Scriptable, un botón copia el código y abre la app), Android (KWGT) y ordenador (se explica que se hace desde el móvil).
 
 ## Dónde se crean
 
@@ -62,3 +60,7 @@ Motor: los 6 tipos en 3 tamaños (30–140 ms). API: aislamiento entre cuentas (
 ## Límites honestos
 
 Los widgets de iPhone necesitan **Scriptable** (gratis) y los de Android una app de widgets que acepte imágenes web: no son «widgets nativos de Upscale». Un widget propio sin apps intermedias exigiría una app nativa (iPhone: Apple Developer 99 $/año; Android: 25 $ una vez); ver `docs/PENDIENTE.md`.
+
+
+## Se actualizan solos
+El dibujo se genera cada vez que el móvil lo pide, con los datos de ese momento (p. ej. el espacio usado). iOS/Android deciden cada cuánto piden (el script de iPhone sugiere 15 min). La API guarda 30 s el dibujo para no repintarlo en cada petición.

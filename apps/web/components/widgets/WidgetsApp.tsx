@@ -50,7 +50,7 @@ export default function WidgetsApp() {
         <Link href="/app/widgets/nuevo" className="btn primary wg-nuevo">+ Añadir</Link>
       </div>
 
-      <p className="wg-intro">Pon tus fotos, notas y álbumes en la pantalla de inicio, de fondo de pantalla o como marco de fotos. Elige qué enseñar y Upscale lo mantiene al día.</p>
+      <p className="wg-intro">Pon tus fotos, notas, álbumes o tu espacio en la pantalla de inicio de tu móvil. Elige qué enseñar y Upscale lo mantiene al día solo.</p>
 
       {error ? (
         <div className="empty" role="alert"><h3>{error}</h3><button type="button" className="btn" onClick={cargar}>Reintentar</button></div>

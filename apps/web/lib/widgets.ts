@@ -64,15 +64,6 @@ export const TALLAS = [
 ] as const;
 export type Talla = (typeof TALLAS)[number]["id"];
 
-export const FONDOS = [
-  { id: "iphone", nombre: "iPhone 15 / 16 (1179 × 2556)", w: 1179, h: 2556 },
-  { id: "iphone-pm", nombre: "iPhone Pro Max (1320 × 2868)", w: 1320, h: 2868 },
-  { id: "iphone-se", nombre: "iPhone SE (750 × 1334)", w: 750, h: 1334 },
-  { id: "android", nombre: "Android 1080 × 2400", w: 1080, h: 2400 },
-  { id: "android-qhd", nombre: "Android 1440 × 3200", w: 1440, h: 3200 },
-  { id: "tablet", nombre: "Tablet (2048 × 2732)", w: 2048, h: 2732 },
-] as const;
-
 /** Dirección pública del dibujo (la «llave» va en la ruta). */
 export function urlDibujo(origen: string, token: string, talla: Talla | "full", ext: "png" | "jpg" = "png"): string {
   return `${origen}/_api/v1/w/${token}.${ext}?s=${talla}`;
