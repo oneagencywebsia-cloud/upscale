@@ -166,6 +166,7 @@ function uploadOne(
       }
       const s = xhr.status;
       if (s >= 200 && s < 300) return end({ ok: true, status: body.status === "duplicate" ? "duplicate" : "saved" });
+      if (body.code === "INCOMPLETE" || s === 411) return end({ ok: false, retry: true, delayMs: 3000, error: "La subida se cortó; reintentando" });
       if (s === 429) {
         const wait = Number(xhr.getResponseHeader("retry-after")) || 5;
         return end({ ok: false, retry: true, delayMs: wait * 1000, error: "Hay mucha cola ahora mismo" });

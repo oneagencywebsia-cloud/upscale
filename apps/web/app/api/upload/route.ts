@@ -38,13 +38,27 @@ export async function POST(request: Request) {
 
   if (!request.body) return NextResponse.json({ error: "falta el archivo" }, { status: 400 });
 
-  const res = await fetch(`${API}/v1/assets`, {
-    method: "POST",
-    headers: { ...auth, "x-filename": filename, "content-type": contentType, "x-captured-at": capturedAt },
-    body: request.body,
-    // @ts-expect-error -- requerido por undici para body de tipo stream
-    duplex: "half",
-  });
+  // Sin longitud declarada no hay forma de comprobar que el archivo llegó entero:
+  // se exige (navegadores y Atajos de iOS la mandan siempre).
+  const length = request.headers.get("content-length");
+  if (!length || !/^\d+$/.test(length) || Number(length) === 0) {
+    return NextResponse.json({ error: "falta el tamaño del archivo", code: "INCOMPLETE" }, { status: 411 });
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${API}/v1/assets`, {
+      method: "POST",
+      // content-length se reenvía tal cual: la API (y undici) comprueban que lleguen EXACTAMENTE esos bytes
+      headers: { ...auth, "x-filename": filename, "content-type": contentType, "x-captured-at": capturedAt, "content-length": length },
+      body: request.body,
+      // @ts-expect-error -- requerido por undici para body de tipo stream
+      duplex: "half",
+    });
+  } catch {
+    // el cuerpo se cortó antes de llegar entero (o la API no contestó): el cliente reintenta
+    return NextResponse.json({ error: "La subida se cortó por el camino", code: "INCOMPLETE" }, { status: 502 });
+  }
 
   const data = await res.json().catch(() => ({}));
   return NextResponse.json(data, { status: res.status });
