@@ -5,6 +5,7 @@ import sharp from "sharp";
 import { env } from "./env.js";
 import { one } from "./db.js";
 import { blobToLocalFile } from "./storage.js";
+import { imagePoster } from "./media.js";
 
 /**
  * Reconocimiento de texto (OCR) de una captura, con Tesseract: libre, local y sin
@@ -49,12 +50,28 @@ const ANCHO_MIN = 1000; // por debajo se amplía (el texto pequeño lo agradece)
 const ANCHO_MAX = 3200; // por encima se reduce (más píxeles no ayudan y tardan)
 
 async function prepararImagen(origen: string, destino: string): Promise<void> {
-  const meta = await sharp(origen, { limitInputPixels: 120e6, failOn: "none" }).metadata();
-  let p = sharp(origen, { limitInputPixels: 120e6, failOn: "none" }).rotate().flatten({ background: "#ffffff" }).grayscale();
-  const w = meta.width ?? 0;
-  if (w && w < ANCHO_MIN) p = p.resize({ width: Math.min(w * 2, ANCHO_MIN * 2), kernel: "lanczos3" });
-  else if (w > ANCHO_MAX) p = p.resize({ width: ANCHO_MAX });
-  await p.png({ compressionLevel: 1 }).toFile(destino);
+  const abrir = (f: string) => sharp(f, { limitInputPixels: 120e6, failOn: "none" });
+  let fuente = origen;
+  let intermedio: string | null = null;
+  try {
+    await abrir(origen).metadata();
+  } catch {
+    // HEIC/HEIF (iPhone), TIFF, DNG…: sharp no los abre. Se pasa por la misma cadena de
+    // decodificadores que las miniaturas (vips → ImageMagick → heif-convert → ffmpeg → vista previa incrustada).
+    intermedio = `${destino}.src.jpg`;
+    await imagePoster(origen, intermedio, ANCHO_MAX);
+    fuente = intermedio;
+  }
+  try {
+    const meta = await abrir(fuente).metadata();
+    let p = abrir(fuente).rotate().flatten({ background: "#ffffff" }).grayscale();
+    const w = meta.width ?? 0;
+    if (w && w < ANCHO_MIN) p = p.resize({ width: Math.min(w * 2, ANCHO_MIN * 2), kernel: "lanczos3" });
+    else if (w > ANCHO_MAX) p = p.resize({ width: ANCHO_MAX });
+    await p.png({ compressionLevel: 1 }).toFile(destino);
+  } finally {
+    if (intermedio) await rm(intermedio, { force: true });
+  }
 }
 
 function ejecutarTesseract(png: string): Promise<string> {

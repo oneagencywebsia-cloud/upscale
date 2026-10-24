@@ -7506,6 +7506,48 @@ span.ntag {
 .nocr-wait {
   color: var(--text-dim);
 }
+.nlib-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: min(88dvh, 720px);
+  overflow: hidden;
+}
+.nlib-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.nlib-head h2 {
+  margin: 0;
+}
+.nlib-q {
+  font: inherit;
+  padding: 9px 12px;
+  border-radius: 11px;
+  color: var(--light);
+  background: color-mix(in srgb, var(--light) 7%, transparent);
+  border: 1px solid var(--stroke-strong);
+}
+.nlib-q:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.nlib-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.nlib-end {
+  height: 1px;
+}
+.nlib-fin {
+  text-align: center;
+  margin: 12px 0 4px;
+}
 .nlib {
   list-style: none;
   display: grid;

@@ -30,7 +30,7 @@ Escribir notas, adjuntar capturas, extraer su texto para editarlo, personalizar 
 
 `apps/api/src/ocr.ts`. Tesseract por `execFile` con argumentos en array (sin shell). Se lee el **original** (no la miniatura), se prepara (orientación, fondo blanco, gris, ampliar si es pequeña, reducir si es enorme) y se ejecuta con `--psm 3`. Máximo 2 a la vez (`OCR_CONCURRENCY`), 60 s cada una (`OCR_TIMEOUT_MS`), imágenes de hasta 60 MB. Los idiomas son `OCR_LANGS` (por defecto `spa+eng`). Si Tesseract no está instalado, la API responde 503 con un mensaje claro y el resto de las notas funciona.
 
-Los Dockerfiles instalan `tesseract-ocr`, `tesseract-ocr-spa` y `tesseract-ocr-eng` (≈ 60 MB).
+Los Dockerfiles instalan `tesseract-ocr`, `tesseract-ocr-spa` y `tesseract-ocr-eng` (≈ 60 MB). **Ojo:** la imagen que despliega EasyPanel la construye `.github/workflows/build.yml` con el `Dockerfile` de la raíz (no con los de `infra/`): si se añade una herramienta del sistema hay que ponerla ahí. Las fotos que sharp no abre (HEIC de iPhone, TIFF, DNG…) se convierten antes con la misma cadena de decodificadores de las miniaturas.
 
 ## Cuenta
 
