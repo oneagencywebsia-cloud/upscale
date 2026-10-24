@@ -16,6 +16,7 @@ export interface FuenteZip {
   album?: string | null;
   q?: string | null;
   camera?: string | null;
+  orientation?: string | null;
   from?: string | null;
   to?: string | null;
 }
@@ -106,6 +107,7 @@ export function descargarZip(f: FuenteZip, parte?: { n: number; de: number }, ti
   if (f.album) campo("album", f.album);
   if (f.q) campo("q", f.q);
   if (f.camera) campo("camera", f.camera);
+  if (f.orientation) campo("orientation", f.orientation);
   if (f.from) campo("from", f.from);
   if (f.to) campo("to", f.to);
   if (parte) {

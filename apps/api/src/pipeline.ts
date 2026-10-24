@@ -108,6 +108,7 @@ async function saveDerivativeBytes(id: string, thumbPath: string, posterPath?: s
   const thumb = await readFile(thumbPath).catch(() => null);
   const poster = posterPath ? await readFile(posterPath).catch(() => null) : null;
   if (!thumb && !poster) return;
+  void import("./orientation.js").then((m) => m.marcarOrientacion(id)).catch(() => {});
   if (thumb && poster) {
     await query("update assets set thumb_webp = $1, poster_jpg = $2 where id = $3", [thumb, poster, id]);
   } else if (thumb) {

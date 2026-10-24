@@ -25,11 +25,13 @@ export async function GET(req: Request) {
   if (url.searchParams.get("fav") === "1") q.set("fav", "1");
   const search = url.searchParams.get("q");
   const camera = url.searchParams.get("camera");
+  const orientation = url.searchParams.get("orientation");
   const from = url.searchParams.get("from");
   const to = url.searchParams.get("to");
   const sort = url.searchParams.get("sort");
   if (search) q.set("q", search);
   if (camera) q.set("camera", camera);
+  if (orientation === "vertical" || orientation === "horizontal" || orientation === "cuadrada") q.set("orientation", orientation);
   if (from) q.set("from", from);
   if (to) q.set("to", to);
   if (sort === "added") q.set("sort", "added");

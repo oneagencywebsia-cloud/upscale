@@ -131,6 +131,7 @@ export default function Gallery({
   albumId,
   q,
   camera,
+  orientation,
   from,
   to,
   cameras = [],
@@ -151,6 +152,8 @@ export default function Gallery({
   /** búsqueda por nombre de archivo */
   q?: string;
   camera?: string;
+  /** vertical | horizontal | cuadrada */
+  orientation?: string;
   from?: string;
   to?: string;
   /** cámaras distintas para el desplegable (llega ya calculado desde el servidor) */
@@ -229,7 +232,7 @@ export default function Gallery({
   // no se conserva nada de lo paginado antes (si no, quedaban fotos colgando
   // debajo de la lista de "Vídeos" por ser más antiguas que su primera página).
   const orderBy = sort === "added" ? "uploadedAt" : "capturedAt";
-  const filterKey = `${kind ?? ""}|${fav ? 1 : 0}|${sort ?? ""}|${q ?? ""}|${camera ?? ""}|${from ?? ""}|${to ?? ""}`;
+  const filterKey = `${kind ?? ""}|${fav ? 1 : 0}|${sort ?? ""}|${q ?? ""}|${camera ?? ""}|${orientation ?? ""}|${from ?? ""}|${to ?? ""}`;
   const lastFilter = useRef(filterKey);
   // generación del filtro actual: una página pedida para el filtro ANTERIOR que
   // llega tarde se descarta (antes se añadía debajo de la lista nueva y
@@ -286,6 +289,7 @@ export default function Gallery({
       if (!albumId) {
         if (q) params.set("q", q);
         if (camera) params.set("camera", camera);
+        if (orientation) params.set("orientation", orientation);
         if (from) params.set("from", from);
         if (to) params.set("to", to);
       }
@@ -313,7 +317,7 @@ export default function Gallery({
       if (myGen === gen.current) loadingRef.current = false;
       if (inflight.current === ac) inflight.current = null;
     }
-  }, [cursor, kind, fav, sort, albumId, q, camera, from, to]);
+  }, [cursor, kind, fav, sort, albumId, q, camera, orientation, from, to]);
   loadMoreRef.current = loadMore;
   useEffect(
     () => () => {
@@ -365,6 +369,7 @@ export default function Gallery({
         if (sort) params.set("sort", sort);
         if (q) params.set("q", q);
         if (camera) params.set("camera", camera);
+        if (orientation) params.set("orientation", orientation);
         if (from) params.set("from", from);
         if (to) params.set("to", to);
         const r = await fetch(`/api/assets?${params}`, { cache: "no-store", signal: ac.signal });
@@ -389,7 +394,7 @@ export default function Gallery({
       window.removeEventListener("focus", onVis);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [router, albumId, kind, fav, sort, q, camera, from, to, openIdx, selecting]);
+  }, [router, albumId, kind, fav, sort, q, camera, orientation, from, to, openIdx, selecting]);
 
   // índices O(1). TODOS los hooks van aquí arriba, antes de cualquier return.
   // Los días se recalculan desde `assets` (no desde la prop) para que el scroll
@@ -644,6 +649,7 @@ export default function Gallery({
         album: albumId ?? null,
         q: q ?? null,
         camera: camera ?? null,
+        orientation: orientation ?? null,
         from: from ?? null,
         to: to ?? null,
       },
@@ -694,7 +700,7 @@ export default function Gallery({
   // ¿hay algún filtro activo? Con filtros y 0 resultados NO se puede quitar la
   // barra: es donde está el buscador, y sin él no había forma de borrar la
   // búsqueda (salía «Tu biblioteca está vacía» y desaparecían los controles).
-  const filtering = !!(kind || fav || q || camera || from || to);
+  const filtering = !!(kind || fav || q || camera || orientation || from || to);
   if (!assets.length && !filtering) {
     if (albumId) {
       return (
@@ -768,6 +774,20 @@ export default function Gallery({
                 </select>
               </div>
             )}
+
+            <div className="gt-orient" role="group" aria-label="Forma de las fotos">
+              {([["", "Todas"], ["vertical", "Verticales"], ["horizontal", "Horizontales"]] as const).map(([v, l]) => (
+                <button
+                  key={v}
+                  type="button"
+                  className={(orientation ?? "") === v ? "on" : ""}
+                  aria-pressed={(orientation ?? "") === v}
+                  onClick={() => updateQuery({ orientation: v || undefined })}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
 
             <div className="gt-daterange">
               <input

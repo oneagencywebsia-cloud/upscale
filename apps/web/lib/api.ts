@@ -46,6 +46,8 @@ export function listAssets(params?: {
   fav?: boolean;
   q?: string;
   camera?: string;
+  /** vertical | horizontal | cuadrada */
+  orientation?: string;
   from?: string;
   to?: string;
   /** "added" = lo último subido primero (por fecha de subida) */
@@ -58,6 +60,7 @@ export function listAssets(params?: {
   if (params?.fav) q.set("fav", "1");
   if (params?.q) q.set("q", params.q);
   if (params?.camera) q.set("camera", params.camera);
+  if (params?.orientation) q.set("orientation", params.orientation);
   if (params?.from) q.set("from", params.from);
   if (params?.to) q.set("to", params.to);
   if (params?.sort) q.set("sort", params.sort);

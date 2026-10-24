@@ -410,7 +410,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     const { userId } = principalOf(req);
     const q = req.query as {
       limit?: string; cursor?: string; kind?: string; fav?: string;
-      q?: string; camera?: string; from?: string; to?: string; sort?: string;
+      q?: string; camera?: string; from?: string; to?: string; sort?: string; orientation?: string;
     };
     const limit = Math.min(Math.max(Number(q.limit) || 80, 1), 500);
     // `sort=added`: lo último que se ha SUBIDO primero (por `uploaded_at`), en vez
@@ -432,6 +432,10 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
       sql += ` and a.kind = $${params.length}`;
     }
     if (q.fav === "1") sql += " and a.is_favorite";
+    if (q.orientation === "vertical" || q.orientation === "horizontal" || q.orientation === "cuadrada") {
+      params.push(q.orientation);
+      sql += ` and a.orientation = $${params.length}`;
+    }
     if (typeof q.q === "string" && q.q.trim()) {
       params.push(`%${q.q.trim()}%`);
       sql += ` and a.filename ilike $${params.length}`;
