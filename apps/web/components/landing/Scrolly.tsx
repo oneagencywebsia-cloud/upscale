@@ -66,7 +66,8 @@ export default function Scrolly({ escena, capitulos, efectos = [] }: { escena: I
     const pintar = (p: number) => {
       const c = p * (N_CAPITULOS - 1);
       const i = Math.min(N_CAPITULOS - 2, Math.floor(c));
-      const t = suave(c - i);
+      // pausa de lectura: las formas se quedan quietas en cada capítulo y solo cambian en el tramo entre capítulos
+      const t = suave(Math.min(1, Math.max(0, (c - i - 0.3) / 0.4)));
       const A = DISP[i]!;
       const B = DISP[i + 1]!;
       // En vertical (móvil) las formas van arriba y el texto abajo; en ancho, formas a la derecha.
@@ -101,7 +102,8 @@ export default function Scrolly({ escena, capitulos, efectos = [] }: { escena: I
       // texto: cada capítulo se ve cerca de su momento; los botones solo se pueden pulsar en el suyo
       for (let j = 0; j < caps.length; j++) {
         const d = c - j;
-        const v = Math.max(0, 1 - Math.abs(d) * 2.1);
+        // el texto se ve entero durante ±0,3 capítulos y se desvanece hasta ±0,5
+        const v = Math.min(1, Math.max(0, (0.5 - Math.abs(d)) / 0.2));
         const cap = caps[j]!;
         cap.style.opacity = v.toFixed(2);
         cap.style.visibility = v > 0.01 ? "visible" : "hidden";
@@ -112,7 +114,7 @@ export default function Scrolly({ escena, capitulos, efectos = [] }: { escena: I
       }
       // fondo: cada capítulo tiene SU ambiente (color, luz, anillos) y se funden entre sí con solo opacity
       for (let j = 0; j < fondos.length; j++) {
-        const o = Math.max(0, 1 - Math.abs(c - j));
+        const o = Math.min(1, Math.max(0, (0.7 - Math.abs(c - j)) / 0.4));
         fondos[j]!.style.opacity = o.toFixed(3);
         fondos[j]!.dataset.act = o > 0.02 ? "1" : "0";
       }
@@ -176,7 +178,7 @@ export default function Scrolly({ escena, capitulos, efectos = [] }: { escena: I
         window.scrollTo({ top: 0, behavior: suaveOno() });
         window.setTimeout(() => el.querySelector<HTMLElement>(".sc-cap[data-cap='0'] button, .sc-cap[data-cap='0'] a.btn")?.focus({ preventScroll: true }), 500);
       } else {
-        window.scrollBy({ top: window.innerHeight * 0.88, behavior: suaveOno() });
+        window.scrollBy({ top: window.innerHeight * 1.35, behavior: suaveOno() });
       }
     };
     // paralaje suave con el ratón (solo en equipos con puntero fino)
