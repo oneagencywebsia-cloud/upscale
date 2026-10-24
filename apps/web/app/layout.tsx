@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Hanken_Grotesk, Public_Sans, IBM_Plex_Mono } from "next/font/google";
+import { Hanken_Grotesk, Public_Sans, IBM_Plex_Mono, Fraunces } from "next/font/google";
 import "./globals.css";
 import { siteUrl } from "@/lib/site";
 import BrandGlint from "@/components/BrandGlint";
@@ -7,6 +7,7 @@ import { PANTALLAS, startupImage } from "@/lib/splash";
 
 const display = Hanken_Grotesk({ subsets: ["latin"], weight: ["500", "600", "700", "800"], variable: "--font-display" });
 const body = Public_Sans({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-body" });
+const serif = Fraunces({ subsets: ["latin"], weight: ["600", "700", "800"], style: ["normal", "italic"], variable: "--font-serif" });
 const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-mono" });
 
 /** `metadataBase` con la URL pública (SITE_URL, o el host de la petición): así las
@@ -63,7 +64,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
       </head>
-      <body className={`${display.variable} ${body.variable} ${mono.variable}`}>
+      <body className={`${display.variable} ${body.variable} ${mono.variable} ${serif.variable}`}>
         {children}
         <BrandGlint />
       </body>

@@ -44,6 +44,7 @@ export default function StickyCta({ label = "Empezar gratis" }: { label?: string
       <a className="btn primary" href="#empezar" data-sc-top tabIndex={ver ? 0 : -1}>
         {label}
       </a>
+      <small>Gratis · sin tarjeta · 1 minuto</small>
     </div>
   );
 }

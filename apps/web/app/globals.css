@@ -8723,9 +8723,6 @@ span.ntag {
   font-weight: 800;
 }
 
-/* botón fijo: solo móvil */
-.sticky-cta {
-
 /* barra de acciones del asistente (móvil): ocupa el sitio de la barra de pestañas */
 .wb-bar {
   position: fixed;
@@ -9063,6 +9060,13 @@ html[data-letra="2"] { zoom: 1.3; }
 @media (pointer: coarse) {
   .gt-orient button { min-height: 44px; }
 }
+
+/* botón fijo: solo móvil */
+.sticky-cta {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 60;
   display: none;
   justify-content: center;
@@ -9266,7 +9270,7 @@ html[data-letra="2"] { zoom: 1.3; }
 }
 /* móvil / vertical: las formas arriba, el texto abajo sobre un velo para leerse bien */
 @media (max-aspect-ratio: 11/10) {
-  .sc-cap { align-items: flex-end; padding-bottom: calc(34px + env(safe-area-inset-bottom)); }
+  .sc-cap { align-items: flex-end; padding-bottom: calc(96px + env(safe-area-inset-bottom)); } /* deja sitio al botón fijo */
   .sc-txt { max-width: none; }
   .sc-escenario::after {
     content: "";
@@ -9356,3 +9360,54 @@ html[data-letra="2"] { zoom: 1.3; }
 .bib-lista li, .bib-chips { text-align: left; }
 @media (max-width: 760px) { .bib-chips { display: flex; width: max-content; margin-inline: auto; } }
 .sc[data-quieto] .sc-fondos { display: none; }
+
+/* ===== tipografía de la portada: Fraunces (serif cálida, de álbum de recuerdos) en los titulares ===== */
+.landing .sc-h,
+.landing .lsec-h {
+  font-family: var(--font-serif), Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  font-optical-sizing: auto;
+  letter-spacing: -0.02em;
+  line-height: 1.04;
+}
+.landing .sc-h { font-size: clamp(34px, 5.4vw, 64px); }
+@media (max-aspect-ratio: 11/10) { .landing .sc-h { font-size: clamp(32px, 9.2vw, 46px); } }
+/* la palabra clave en cursiva y color de marca: es lo que el ojo lee primero */
+.landing .sc-h .ul,
+.landing .lsec-h .ul {
+  font-style: italic;
+  font-weight: 800;
+  color: var(--accent-ink);
+}
+.landing .sc-eyebrow { font-family: var(--font-body), system-ui, sans-serif; }
+.landing .pz-price, .landing .plan-price { font-family: var(--font-serif), Georgia, serif; }
+
+/* neuromarketing: UN solo objeto con latido (el botón) y la garantía justo debajo */
+.sc-garantia { margin: 14px 0 0; font-size: 13px; color: var(--text-dim); max-width: 34ch; }
+.sticky-cta { flex-direction: column; align-items: center; gap: 4px; }
+.sticky-cta small { font-size: 11.5px; color: var(--text-dim); pointer-events: none; }
+.sc .start-btn { position: relative; }
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-motion="off"]) .sc-cap .start-btn::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    border: 2px solid var(--accent);
+    pointer-events: none;
+    animation: cta-latido 2.8s ease-out infinite;
+  }
+}
+:root[data-motion="on"] .sc-cap .start-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 2px solid var(--accent);
+  pointer-events: none;
+  animation: cta-latido 2.8s ease-out infinite;
+}
+@keyframes cta-latido {
+  0% { transform: scale(1); opacity: 0.55; }
+  70%, 100% { transform: scale(1.22, 1.5); opacity: 0; }
+}

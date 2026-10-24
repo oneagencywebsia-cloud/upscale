@@ -56,7 +56,7 @@ export default function StartBox({
           <ul className="start-proof" aria-label="Lo que incluye">
             <li>5 GB gratis{invited ? " + 1 GB de regalo" : ""}</li>
             <li>Sin tarjeta</li>
-            <li>1 minuto</li>
+            <li>Sin permanencia</li>
           </ul>
           )}
         </>

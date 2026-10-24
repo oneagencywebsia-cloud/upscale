@@ -55,7 +55,7 @@ export default function Landing({
       <h1 className="sc-h">Guarda todo. <span className="ul">Sin perder nada</span>.</h1>
       <p className="sc-p">El original, tal cual. Siempre a mano.</p>
       <StartBox loggedIn={loggedIn} next={next} invited={invited} />
-      <a className="sc-hint" href="#planes" data-sc-next>Desliza ↓</a>
+      <a className="sc-hint" href="#planes" data-sc-next>Desliza: te lo enseño en 20 segundos ↓</a>
     </div>,
     // 1 · pérdida (miedo a perder)
     <div key="1" className="sc-txt">
@@ -110,6 +110,7 @@ export default function Landing({
       <p className="sc-eyebrow">EMPIEZA HOY</p>
       <h2 className="sc-h">Tu carrete <span className="ul">te espera</span></h2>
       <StartBox loggedIn={loggedIn} next={next} invited={invited} label="Guardar mis fotos" />
+      <p className="sc-garantia">Descargas todo o borras tu cuenta cuando quieras. Sin letra pequeña.</p>
     </div>,
   ];
 
