@@ -154,7 +154,7 @@ export default function Landing({
 
       <header className="landing-nav">
         <Link href="/" className="landing-logo" aria-label="Upscale — inicio">
-          <BrandMark size={34} animated />
+          <BrandMark size={34} />
           <div className="brand"><div className="wm"><span className="wm-up">up</span>scale</div></div>
         </Link>
         <div className="landing-nav-r">
