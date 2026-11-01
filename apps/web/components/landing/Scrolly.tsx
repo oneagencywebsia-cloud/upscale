@@ -120,14 +120,28 @@ export default function Scrolly({ escena, capitulos, efectos = [] }: { escena: I
       }
     };
 
-    const fotograma = () => {
+    // El recorrido sigue al dedo con inercia (muelle amortiguado, independiente de los fps):
+    // todo se desliza en vez de saltar de un valor a otro.
+    let actual = -1;
+    let t0 = 0;
+    const fotograma = (ts: number) => {
       raf = 0;
-      if (!activo || !visible) return;
-      const p = Math.min(1, Math.max(0, (window.scrollY - top) / largo));
-      if (Math.abs(p - ultimo) > 0.0004) {
-        ultimo = p;
-        pintar(p);
+      if (!activo || !visible) {
+        t0 = 0;
+        return;
       }
+      const dt = t0 ? Math.min(0.05, (ts - t0) / 1000) : 0.016;
+      t0 = ts;
+      const objetivo = Math.min(1, Math.max(0, (window.scrollY - top) / largo));
+      if (actual < 0 || ultimo < 0) actual = objetivo;
+      else actual += (objetivo - actual) * (1 - Math.exp(-dt * 11));
+      if (Math.abs(objetivo - actual) < 0.0003) actual = objetivo;
+      if (Math.abs(actual - ultimo) > 0.0004 || (actual === objetivo && actual !== ultimo)) {
+        ultimo = actual;
+        pintar(actual);
+      }
+      if (actual !== objetivo) raf = requestAnimationFrame(fotograma);
+      else t0 = 0;
     };
     const pedir = () => {
       if (!raf) raf = requestAnimationFrame(fotograma);

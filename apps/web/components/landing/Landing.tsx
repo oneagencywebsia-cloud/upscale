@@ -9,6 +9,7 @@ import Scrolly from "./Scrolly";
 import Pricing from "./Pricing";
 import Demo from "./Demo";
 import StickyCta from "./StickyCta";
+import BrandIntro from "./BrandIntro";
 import { FAQ } from "./content";
 import { REFERRAL, gbHuman } from "@/lib/plans";
 import Aurora from "@/components/Aurora";
@@ -148,6 +149,7 @@ export default function Landing({
       <noscript>
         <style>{`.sc{height:auto!important}.sc-escenario{position:static!important;height:auto!important;overflow:visible!important}.sc-formas,.sc-escenario::after{display:none!important}.sc-w,.sc-eyebrow,.sc-p,.sc-garantia,.sc-hint,.sc-cap .start{opacity:1!important;transform:none!important}.sc-cap{position:relative!important;inset:auto!important;opacity:1!important;transform:none!important;pointer-events:auto!important;padding-top:48px!important;padding-bottom:48px!important}`}</style>
       </noscript>
+      <BrandIntro />
       <Aurora section="landing" />
 
       <header className="landing-nav">

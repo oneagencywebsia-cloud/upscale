@@ -9592,3 +9592,106 @@ html[data-letra="2"] { zoom: 1.3; }
 :root[data-motion="off"] .fx,
 :root[data-motion="off"] .sc-f b { animation: none !important; }
 :root[data-motion="off"] .fx-motas, :root[data-motion="off"] .fx-confeti, :root[data-motion="off"] .fx-corazones { display: none; }
+
+/* ===== apertura de marca de la portada (ver landing/BrandIntro.tsx) ===== */
+.bi {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  background: radial-gradient(120% 90% at 78% 100%, #22397f 0%, #0d1530 46%, #070a14 100%);
+  pointer-events: none;
+  animation: bi-out 0.75s cubic-bezier(0.6, 0, 0.25, 1) 2.2s forwards;
+}
+html[data-intro="0"] .bi { display: none; }
+.bi-marca { position: relative; width: min(34vw, 144px); aspect-ratio: 1; }
+.bi .bi-mark {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 20px 54px rgba(79, 197, 220, 0.38));
+  animation: bi-pop 0.95s cubic-bezier(0.2, 1.25, 0.3, 1) both;
+}
+@keyframes bi-pop { from { opacity: 0; transform: scale(0.55) rotate(-8deg); } to { opacity: 1; transform: none; } }
+.bi .bm-step {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  opacity: 0;
+  animation: bi-step 0.75s cubic-bezier(0.2, 1.25, 0.3, 1) forwards;
+}
+.bi .bm-s1 { animation-delay: 0.45s; }
+.bi .bm-s2 { animation-delay: 0.63s; }
+.bi .bm-s3 { animation-delay: 0.81s; }
+@keyframes bi-step { from { opacity: 0; transform: translateY(34px) scale(0.8); } to { opacity: 1; transform: none; } }
+.bi .bm-line {
+  transform-box: fill-box;
+  transform-origin: 0 50%;
+  transform: scaleX(0);
+  animation: bi-linea 0.65s cubic-bezier(0.3, 0.7, 0.2, 1) 0.95s forwards;
+}
+@keyframes bi-linea { to { transform: scaleX(1); } }
+.bi .bm-dot {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: bi-punto 0.6s cubic-bezier(0.2, 1.7, 0.3, 1) 1.3s forwards;
+}
+@keyframes bi-punto { from { opacity: 0; transform: scale(0); } to { opacity: 1; transform: scale(1); } }
+/* el punto de luz «late» una vez: dos anillos que se expanden desde su posición en el símbolo */
+.bi-ping {
+  position: absolute;
+  left: 76.5%;
+  top: 76.3%;
+  width: 14%;
+  height: 14%;
+  margin: -7% 0 0 -7%;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 227, 168, 0.85);
+  opacity: 0;
+  animation: bi-anillo 1s ease-out 1.38s forwards;
+}
+.bi-ping2 { animation-delay: 1.55s; }
+@keyframes bi-anillo { 0% { opacity: 0.9; transform: scale(0.6); } 100% { opacity: 0; transform: scale(5.5); } }
+.bi-wm {
+  display: flex;
+  font-family: var(--font-display, sans-serif);
+  font-weight: 800;
+  font-size: clamp(34px, 10vw, 52px);
+  letter-spacing: -0.035em;
+  color: #eaf6ff;
+  line-height: 1;
+}
+.bi-l {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(70%);
+  filter: blur(9px);
+  animation: bi-letra 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  animation-delay: calc(1.15s + var(--i, 0) * 0.055s);
+}
+.bi-up { color: #7adcec; }
+@keyframes bi-letra { to { opacity: 1; transform: none; filter: blur(0); } }
+.bi-tag {
+  margin: 0;
+  font-family: var(--font-serif, Georgia, serif);
+  font-style: italic;
+  font-weight: 600;
+  font-size: clamp(16px, 4.6vw, 21px);
+  color: #b9d3f2;
+  opacity: 0;
+  transform: translateY(8px);
+  animation: bi-tag 0.7s ease 1.7s forwards;
+}
+@keyframes bi-tag { to { opacity: 0.95; transform: none; } }
+@keyframes bi-out { to { opacity: 0; transform: scale(1.06); visibility: hidden; } }
+/* el texto de la portada entra cuando la apertura se disuelve */
+html.up-intro .sc[data-escena="a"] .sc-cap[data-cap="0"].on .sc-eyebrow,
+html.up-intro .sc[data-escena="a"] .sc-cap[data-cap="0"].on .sc-p,
+html.up-intro .sc[data-escena="a"] .sc-cap[data-cap="0"].on .start,
+html.up-intro .sc[data-escena="a"] .sc-cap[data-cap="0"].on .sc-garantia,
+html.up-intro .sc[data-escena="a"] .sc-cap[data-cap="0"].on .sc-hint { transition-delay: 2.5s; }
+html.up-intro .sc[data-escena="a"] .sc-cap[data-cap="0"].on .sc-w { transition-delay: calc(2.45s + var(--i, 0) * 0.075s); }
+html[data-motion="off"] .bi { display: none; }
