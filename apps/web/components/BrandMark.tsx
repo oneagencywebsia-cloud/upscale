@@ -83,7 +83,7 @@ export default function BrandMark({
         <path className="bm-step bm-s3" d="M220 140 L256 104 L292 140" stroke={ref("glyph")} strokeWidth="26" strokeOpacity="0.42" />
       </g>
 
-      <rect x="140" y="378" width="232" height="26" rx="13" fill={ref("line")} filter={ref("glow")} />
+      <rect className="bm-line" x="140" y="378" width="232" height="26" rx="13" fill={ref("line")} filter={ref("glow")} />
       <g className="bm-dot" filter={ref("glow")}>
         <circle cx="392" cy="391" r="15" fill="#e9fbff" />
         <circle cx="392" cy="391" r="15" fill="#ffe3a8" fillOpacity="0.55" />
