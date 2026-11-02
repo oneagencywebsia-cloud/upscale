@@ -1,19 +1,20 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { DISPOSICIONES, N, type Forma, type IdEscena } from "./formas";
+import { POSES, type IdEscena } from "./movil";
 
 /**
- * El recorrido: un escenario fijo (sticky) donde las mismas formas se transforman
- * de un capítulo al siguiente mientras se hace scroll, como un vídeo que avanza con el dedo.
+ * El recorrido: un escenario fijo (sticky) con UN móvil cuya pantalla enseña la app de verdad.
+ * Al hacer scroll el móvil gira suavemente de una pose a la siguiente y su pantalla cambia con un
+ * fundido, capítulo a capítulo.
  *
- * Rendimiento: un solo oyente de scroll con requestAnimationFrame; cada fotograma
- * solo escribe `transform`, `opacity` y `border-radius` en ~28 elementos y un par de
- * variables en el contenedor. Nada de layout, nada de JS por elemento fuera de ese
- * bucle, y el bucle se detiene cuando el recorrido no está en pantalla.
+ * Rendimiento: un solo oyente de scroll con requestAnimationFrame; cada fotograma escribe
+ * `transform` en UN elemento (el móvil) y `opacity` en sus pantallas y textos. Las animaciones de
+ * dentro de cada pantalla son CSS y solo corren mientras esa pantalla se ve. Nada de layout, y el
+ * bucle se detiene cuando el recorrido no está en pantalla.
  *
- * Sin JavaScript, con «reducir movimiento» o con las animaciones apagadas, el
- * recorrido se convierte en una lista normal de capítulos (ver `[data-quieto]`).
+ * Sin JavaScript, con «reducir movimiento» o con las animaciones apagadas, el recorrido se
+ * convierte en una lista normal de capítulos (ver `[data-quieto]`).
  */
 
 const ETIQUETA = { a: "Qué hace Upscale", b: "Por qué confiar", c: "Empieza hoy" } as const;
@@ -21,20 +22,21 @@ const suave = (t: number) => t * t * (3 - 2 * t);
 const mezcla = (a: number, b: number, t: number) => a + (b - a) * t;
 
 /** Los capítulos son texto de servidor (los lee cualquier buscador); aquí solo se les da vida. */
-export default function Scrolly({ escena, capitulos, efectos = [] }: { escena: IdEscena; capitulos: React.ReactNode[]; efectos?: React.ReactNode[] }) {
+export default function Scrolly({ escena, capitulos, pantallas }: { escena: IdEscena; capitulos: React.ReactNode[]; pantallas: React.ReactNode[] }) {
   const raiz = useRef<HTMLElement>(null);
-  const DISP = DISPOSICIONES[escena];
-  const N_CAPITULOS = DISP.length;
+  const POSA = POSES[escena];
+  const N_CAPITULOS = POSA.length;
 
   useEffect(() => {
     const el = raiz.current;
     if (!el) return;
-    const formas = Array.from(el.querySelectorAll<HTMLElement>(".sc-f"));
+    const pantallasEl = Array.from(el.querySelectorAll<HTMLElement>(".mv-s"));
+    const pose = el.querySelector<HTMLElement>(".mv-pose");
     const caps = Array.from(el.querySelectorAll<HTMLElement>(".sc-cap"));
-    const formasEl = el.querySelector<HTMLElement>(".sc-formas");
+    const movilEl = el.querySelector<HTMLElement>(".sc-movil");
     const escenario = el.querySelector<HTMLElement>(".sc-escenario");
     const fondos = Array.from(el.querySelectorAll<HTMLElement>(".sc-fondo"));
-    if (!escenario || !fondos.length) return;
+    if (!escenario || !fondos.length || !pose) return;
 
     const html = document.documentElement;
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -44,6 +46,8 @@ export default function Scrolly({ escena, capitulos, efectos = [] }: { escena: I
     let H = 0;
     let top = 0;
     let largo = 1;
+    let bx = 0;
+    let by = 0;
     let activo = false;
     let visible = true;
     let raf = 0;
@@ -56,48 +60,39 @@ export default function Scrolly({ escena, capitulos, efectos = [] }: { escena: I
       const rr = el.getBoundingClientRect();
       top = rr.top + window.scrollY;
       largo = Math.max(1, rr.height - H);
-      // centro de las formas: los efectos (ondas, anillos…) nacen de ahí
+      // el móvil: en vertical grande y centrado arriba (el texto va debajo); en ancho, a la derecha
       const ancho = W / H > 1.1;
-      escenario.style.setProperty("--cx", `${(W / 2 + (ancho ? W * 0.22 : 0)).toFixed(0)}px`);
-      escenario.style.setProperty("--cy", `${(H / 2 + (ancho ? 0 : -H * 0.17)).toFixed(0)}px`);
+      let ph = H * (ancho ? 0.84 : 0.64);
+      let pw = ph * 0.485;
+      const maxW = ancho ? W * 0.4 : W * 0.66;
+      if (pw > maxW) {
+        pw = maxW;
+        ph = pw / 0.485;
+      }
+      bx = (ancho ? W * 0.72 : W * 0.5) - pw / 2;
+      by = ancho ? (H - ph) / 2 : H * 0.045;
+      pose.style.width = `${pw.toFixed(0)}px`;
+      pose.style.height = `${ph.toFixed(0)}px`;
+      pose.style.setProperty("--mw", `${pw.toFixed(0)}px`);
     };
 
-    const cache = Array.from({ length: N }, () => ({ w: -1, r: -1 }));
     const pintar = (p: number) => {
       const c = p * (N_CAPITULOS - 1);
       const i = Math.min(N_CAPITULOS - 2, Math.floor(c));
-      // pausa de lectura: las formas se quedan quietas en cada capítulo y solo cambian en el tramo entre capítulos
+      // pausa de lectura: el móvil se queda quieto en cada capítulo y solo cambia en el tramo entre capítulos
       const t = suave(Math.min(1, Math.max(0, (c - i - 0.3) / 0.4)));
-      const A = DISP[i]!;
-      const B = DISP[i + 1]!;
-      // En vertical (móvil) las formas van arriba y el texto abajo; en ancho, formas a la derecha.
-      const lado = Math.min(W, H);
-      const ancho = W / H > 1.1;
-      const escala = ancho ? lado * 0.98 : Math.min(W * 1.02, H * 0.62);
-      const ox = ancho ? W * 0.22 : 0;
-      const oy = ancho ? 0 : -H * 0.17;
-      for (let k = 0; k < N; k++) {
-        const a: Forma = A[k]!;
-        const b: Forma = B[k]!;
-        const x = mezcla(a.x, b.x, t) * escala * 0.5 + ox;
-        const y = mezcla(a.y, b.y, t) * escala * 0.5 + oy;
-        const s = mezcla(a.s, b.s, t) * escala;
-        const asp = mezcla(a.a, b.a, t);
-        const nodo = formas[k]!;
-        // El ancho y el redondeo repintan la capa: solo se tocan cuando cambian de verdad (>1 %)
-        const anchoPx = Math.round(100 * asp);
-        const rad = Math.round(mezcla(a.r, b.r, t));
-        const ant = cache[k]!;
-        if (ant.w !== anchoPx) {
-          nodo.style.width = `${anchoPx}px`;
-          ant.w = anchoPx;
-        }
-        if (ant.r !== rad) {
-          nodo.style.borderRadius = `${rad}%`;
-          ant.r = rad;
-        }
-        nodo.style.transform = `translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,0) rotate(${mezcla(a.g, b.g, t).toFixed(1)}deg) scale(${(s / 100).toFixed(4)}) translate(-50%,-50%)`;
-        nodo.style.opacity = mezcla(a.o, b.o, t).toFixed(2);
+      const A = POSA[i]!;
+      const B = POSA[i + 1]!;
+      const x = bx + mezcla(A.x, B.x, t) * W;
+      const y = by + mezcla(A.y, B.y, t) * H;
+      pose.style.transform = `perspective(1500px) translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,0) rotateX(${mezcla(A.rx, B.rx, t).toFixed(2)}deg) rotateY(${mezcla(A.ry, B.ry, t).toFixed(2)}deg) rotateZ(${mezcla(A.rz, B.rz, t).toFixed(2)}deg) scale(${mezcla(A.s, B.s, t).toFixed(4)})`;
+      // pantalla: la actual se funde con la siguiente solo en el tramo de cambio
+      for (let j = 0; j < pantallasEl.length; j++) {
+        const o = j === i ? 1 - t : j === i + 1 ? t : 0;
+        const pn = pantallasEl[j]!;
+        pn.style.opacity = o.toFixed(3);
+        pn.style.visibility = o > 0.01 ? "visible" : "hidden";
+        pn.dataset.on = o > 0.5 ? "1" : "0";
       }
       // texto: cada capítulo se ve cerca de su momento; los botones solo se pueden pulsar en el suyo
       for (let j = 0; j < caps.length; j++) {
@@ -107,7 +102,7 @@ export default function Scrolly({ escena, capitulos, efectos = [] }: { escena: I
         const cap = caps[j]!;
         cap.style.opacity = v.toFixed(2);
         cap.style.visibility = v > 0.01 ? "visible" : "hidden";
-        cap.style.transform = `translate3d(0,${(-d * 38).toFixed(1)}px,0)`;
+        cap.style.transform = `translate3d(0,${(-d * 22).toFixed(1)}px,0)`;
         cap.style.pointerEvents = v > 0.55 ? "auto" : "none";
         cap.toggleAttribute("inert", v < 0.4);
         cap.classList.toggle("on", v > 0.5);
@@ -156,9 +151,12 @@ export default function Scrolly({ escena, capitulos, efectos = [] }: { escena: I
         medir();
         ultimo = -1;
         pedir();
+        el.setAttribute("data-listo", "");
       } else {
+        el.removeAttribute("data-listo");
         el.setAttribute("data-quieto", "");
-        for (const n of formas) n.removeAttribute("style");
+        pose.removeAttribute("style");
+        for (const n of pantallasEl) n.removeAttribute("style");
         for (const c of caps) {
           c.removeAttribute("style");
           c.removeAttribute("inert");
@@ -199,12 +197,12 @@ export default function Scrolly({ escena, capitulos, efectos = [] }: { escena: I
     const fino = window.matchMedia("(pointer: fine)");
     let pr = 0;
     const mover = (e: PointerEvent) => {
-      if (!activo || !visible || !formasEl || !fino.matches || pr) return;
+      if (!activo || !visible || !movilEl || !fino.matches || pr) return;
       pr = requestAnimationFrame(() => {
         pr = 0;
         const dx = e.clientX / window.innerWidth - 0.5;
         const dy = e.clientY / window.innerHeight - 0.5;
-        formasEl.style.transform = `translate3d(${(-dx * 22).toFixed(1)}px,${(-dy * 14).toFixed(1)}px,0)`;
+        movilEl.style.transform = `translate3d(${(-dx * 22).toFixed(1)}px,${(-dy * 14).toFixed(1)}px,0)`;
       });
     };
     window.addEventListener("pointermove", mover, { passive: true });
@@ -224,24 +222,30 @@ export default function Scrolly({ escena, capitulos, efectos = [] }: { escena: I
       if (escena === "a") document.removeEventListener("click", clic);
       mq.removeEventListener("change", aplicar);
     };
-  }, [DISP, N_CAPITULOS, escena]);
+  }, [POSA, N_CAPITULOS, escena]);
 
   return (
     <section ref={raiz} className="sc" data-escena={escena} aria-label={ETIQUETA[escena]} style={{ ["--n" as string]: N_CAPITULOS }}>
       <div className="sc-escenario">
         <div className="sc-fondos" aria-hidden="true">
-          {DISP.map((_, j) => (
-            <div key={j} className="sc-fondo" data-m={j} data-act={j === 0 ? "1" : "0"} style={{ opacity: j === 0 ? 1 : 0 }}>
-              {efectos[j]}
-            </div>
+          {POSA.map((_, j) => (
+            <div key={j} className="sc-fondo" data-m={j} data-act={j === 0 ? "1" : "0"} style={{ opacity: j === 0 ? 1 : 0 }} />
           ))}
         </div>
-        <div className="sc-formas" aria-hidden="true">
-          {Array.from({ length: N }, (_, k) => (
-            <i key={k} className={k === N - 1 ? "sc-f sc-f-roto" : `sc-f sc-f-${k % 4}`}>
-              <b />
-            </i>
-          ))}
+        <div className="sc-movil" aria-hidden="true">
+          <div className="mv-pose">
+            <div className="mv-tel">
+              <i className="mv-isla" />
+              <div className="mv-pantalla">
+                {pantallas.map((p, j) => (
+                  <div key={j} className="mv-s" data-on={j === 0 ? "1" : "0"} style={j === 0 ? { opacity: 1 } : { opacity: 0, visibility: "hidden" }}>
+                    {p}
+                  </div>
+                ))}
+              </div>
+              <i className="mv-brillo" />
+            </div>
+          </div>
         </div>
         {capitulos.map((c, j) => (
           <div key={j} className={`sc-cap${j === 0 ? " on" : ""}`} data-cap={j} {...(j > 0 ? ({ inert: "" } as Record<string, string>) : {})} style={j === 0 ? { opacity: 1 } : { opacity: 0, pointerEvents: "none" }}>

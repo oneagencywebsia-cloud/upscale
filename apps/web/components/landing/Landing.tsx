@@ -4,7 +4,7 @@ import StartBox from "./StartBox";
 import Steps from "./Steps";
 import BibliotecaVideo from "./BibliotecaVideo";
 import Pal from "./Pal";
-import { Confeti, Corazones, Destello, Escudo, Latido, Motas, Ondas, Rayos } from "./Efectos";
+import { pantallasA, pantallasB, pantallasC } from "./Pantallas";
 import Scrolly from "./Scrolly";
 import Pricing from "./Pricing";
 import Demo from "./Demo";
@@ -125,29 +125,11 @@ export default function Landing({
       <p className="sc-garantia">Descargas todo o borras tu cuenta cuando quieras. Sin letra pequeña.</p>
     </div>,
   ];
-  // animaciones propias de cada capítulo (viven en su fondo y solo corren mientras se ven)
-  const fxA = [
-    <><Rayos /><Motas n={14} dir="sube" tono="calido" /></>,
-    <><Latido /><Motas n={16} dir="cae" tono="frio" /></>,
-    <><Ondas /><Motas n={12} dir="sube" tono="calido" /></>,
-    <><Destello /><Motas n={8} dir="sube" tono="neutro" /></>,
-  ];
-  const fxB = [
-    <Motas key="b0" n={10} dir="sube" tono="neutro" />,
-    <Escudo key="b1" />,
-    <><Rayos suave /><Motas n={24} dir="sube" tono="dorado" /></>,
-    <Corazones key="b3" />,
-  ];
-  const fxC = [
-    <Motas key="c0" n={20} dir="cae" tono="sepia" />,
-    <><Rayos /><Confeti /><Motas n={12} dir="sube" tono="dorado" /></>,
-  ];
-
   return (
     <div className="landing">
       <a className="skip-link" href="#contenido">Saltar al contenido</a>
       <noscript>
-        <style>{`.sc{height:auto!important}.sc-escenario{position:static!important;height:auto!important;overflow:visible!important}.sc-formas,.sc-escenario::after{display:none!important}.sc-w,.sc-eyebrow,.sc-p,.sc-garantia,.sc-hint,.sc-cap .start{opacity:1!important;transform:none!important}.sc-cap{position:relative!important;inset:auto!important;opacity:1!important;transform:none!important;pointer-events:auto!important;padding-top:48px!important;padding-bottom:48px!important}`}</style>
+        <style>{`.sc{height:auto!important}.sc-escenario{position:static!important;height:auto!important;overflow:visible!important}.sc-movil,.sc-escenario::after{display:none!important}.sc-w,.sc-eyebrow,.sc-p,.sc-garantia,.sc-hint,.sc-cap .start{opacity:1!important;transform:none!important}.sc-cap{position:relative!important;inset:auto!important;opacity:1!important;transform:none!important;pointer-events:auto!important;padding-top:48px!important;padding-bottom:48px!important}`}</style>
       </noscript>
       <BrandIntro />
       <Aurora section="landing" />
@@ -168,7 +150,7 @@ export default function Landing({
       </header>
 
       <main id="contenido" tabIndex={-1}>
-        <Scrolly escena="a" capitulos={escenaA} efectos={fxA} />
+        <Scrolly escena="a" capitulos={escenaA} pantallas={pantallasA()} />
 
         <section className="lsec bib" aria-labelledby="bib-h">
           <div className="bib-tel" aria-hidden="false">
@@ -192,7 +174,7 @@ export default function Landing({
           <Steps />
         </section>
 
-        <Scrolly escena="b" capitulos={escenaB} efectos={fxB} />
+        <Scrolly escena="b" capitulos={escenaB} pantallas={pantallasB({ regalo: gbHuman(REFERRAL.inviterBonusBytes), invitado: gbHuman(REFERRAL.invitedBonusBytes) })} />
 
         <section className="lsec" id="planes" aria-labelledby="pl-h">
           <h2 id="pl-h" className="lsec-h">Empieza gratis. <span className="ul">Crece cuando quieras.</span></h2>
@@ -217,7 +199,7 @@ export default function Landing({
           </div>
         </section>
 
-        <Scrolly escena="c" capitulos={escenaC} efectos={fxC} />
+        <Scrolly escena="c" capitulos={escenaC} pantallas={pantallasC()} />
       </main>
 
       <StickyCta label="Guardar mis recuerdos" />
