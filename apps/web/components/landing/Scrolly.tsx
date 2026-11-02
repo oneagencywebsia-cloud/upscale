@@ -62,7 +62,7 @@ export default function Scrolly({ escena, capitulos, pantallas }: { escena: IdEs
       largo = Math.max(1, rr.height - H);
       // el móvil: en vertical grande y centrado arriba (el texto va debajo); en ancho, a la derecha
       const ancho = W / H > 1.1;
-      let ph = H * (ancho ? 0.84 : 0.64);
+      let ph = H * (ancho ? 0.84 : 0.58);
       let pw = ph * 0.485;
       const maxW = ancho ? W * 0.4 : W * 0.66;
       if (pw > maxW) {

@@ -9,9 +9,9 @@ const P = (x: number, y: number, s: number, ry: number, rx: number, rz: number):
 
 export const POSES: Record<IdEscena, Pose[]> = {
   // a: tus recuerdos · se rompe el móvil · un toque · calidad original
-  a: [P(0, 0, 1, -12, 5, 0), P(0, 0.012, 1.03, 9, 3, -5), P(0, 0, 1, 0, 0, 0), P(0, -0.01, 1.05, -8, 3, 2)],
+  a: [P(0, 0, 1, -7, 3, 0), P(0, 0.01, 1.02, 6, 2, -3), P(0, 0, 1, 0, 0, 0), P(0, -0.01, 1.04, -5, 2, 1)],
   // b: en todas partes · privado · legado · regalo
-  b: [P(0, 0, 1, 14, 4, 0), P(0, 0, 1.04, 0, 0, 0), P(0, 0, 1, -12, 4, 2), P(0, 0, 1.03, 8, 2, -2)],
+  b: [P(0, 0, 1, 8, 2, 0), P(0, 0, 1.03, 0, 0, 0), P(0, 0, 1, -7, 2, 1), P(0, 0, 1.02, 5, 1, -1)],
   // c: piénsalo · empieza
-  c: [P(0, 0, 1, -7, 3, -3), P(0, -0.01, 1.07, 0, 0, 0)],
+  c: [P(0, 0, 1, -5, 2, -2), P(0, -0.01, 1.05, 0, 0, 0)],
 };
