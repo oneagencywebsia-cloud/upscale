@@ -9775,3 +9775,11 @@ html[data-motion="off"] .bi { display: none; }
   :root:not([data-motion="on"]) .mv-tel, :root:not([data-motion="on"]) .mv-s * { animation: none !important; }
 }
 :root[data-motion="off"] .mv-tel, :root[data-motion="off"] .mv-s * { animation: none !important; }
+
+/* ===== Ajustes · Revisar mis archivos ===== */
+.filecheck { display: grid; gap: 12px; }
+.fc-informe h4 { margin: 18px 0 6px; font-size: 15px; }
+.fc-lista { margin: 0 0 8px; padding-left: 20px; display: grid; gap: 8px; font-size: 14px; line-height: 1.45; color: var(--text-dim); }
+.fc-lista b { color: var(--light); }
+.fc-lista small { display: block; margin-top: 2px; color: var(--text-mute); word-break: break-word; }
+.fc-acciones { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }

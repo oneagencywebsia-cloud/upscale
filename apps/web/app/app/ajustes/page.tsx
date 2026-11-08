@@ -6,6 +6,7 @@ import IngestBind from "@/components/IngestBind";
 import PreviewsRetry from "@/components/PreviewsRetry";
 import DeleteAccount from "@/components/DeleteAccount";
 import DownloadAllButton from "@/components/DownloadAllButton";
+import FileCheck from "@/components/FileCheck";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -44,6 +45,14 @@ export default async function AjustesPage() {
         <p className="panel-lede">
           Vídeos del iPhone en 4K o a 60 imágenes por segundo: si los eliges desde la Fototeca, el propio iPhone los reduce antes de enviarlos (no lo hace Upscale). Para conservar el original exacto, en Fotos abre el vídeo → Compartir → Guardar en Archivos; luego pulsa ↑ → Elegir archivo y búscalo allí.
         </p>
+      </section>
+
+      <section className="panel">
+        <h3>Revisar mis archivos</h3>
+        <p className="panel-lede">
+          ¿Hay fotos o vídeos que no cargan, o que dan error al descargarlos? Pulsa aquí: probamos una muestra de tus archivos y te contamos qué pasa.
+        </p>
+        <FileCheck />
       </section>
 
       <section className="panel">
